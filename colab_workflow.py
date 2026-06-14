@@ -470,7 +470,521 @@ print("- final_priority_rank = hidden/helper sort field")
 
 # - Move priority traceability to Priority Logic Audit
 
-# TODO: Paste current Step 19 Colab code here.
+# 19 - Export dashboard workbook
+# Purpose:
+# - Create a clean Excel workbook from the final-priority dashboard
+# - Use final_priority_level as the dashboard priority source of truth
+# - Keep Master Dashboard decision-ready
+# - Move priority traceability fields to Priority Logic Audit
+# - Save to Google Drive
+# - Define dashboard_workbook_path for Step 19A formatting
+#
+# After this, run Step 19A to format and download the workbook.
+
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+from google.colab import drive
+import shutil
+import re
+
+drive.mount("/content/drive")
+
+# -----------------------------
+# Choose dashboard dataframe
+# -----------------------------
+
+if "market_map_df" in globals() and isinstance(market_map_df, pd.DataFrame) and not market_map_df.empty:
+    dashboard_df = market_map_df.copy()
+elif "master_df" in globals() and isinstance(master_df, pd.DataFrame) and not master_df.empty:
+    dashboard_df = master_df.copy()
+elif "master_summary_df" in globals() and isinstance(master_summary_df, pd.DataFrame) and not master_summary_df.empty:
+    dashboard_df = master_summary_df.copy()
+else:
+    raise NameError("STOP: No dashboard dataframe found. Run Steps 13–14 first.")
+
+# -----------------------------
+# Paths
+# -----------------------------
+
+drive_folder = Path("/content/drive/MyDrive/Job Search/Health Tech Research")
+drive_folder.mkdir(parents=True, exist_ok=True)
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+local_export_path = Path(f"health_tech_dashboard_export_{timestamp}.xlsx")
+drive_export_path = drive_folder / f"health_tech_dashboard_export_{timestamp}.xlsx"
+
+# Step 19A uses these variables.
+dashboard_workbook_path = local_export_path
+output_workbook_path = local_export_path
+
+# -----------------------------
+# Helpers
+# -----------------------------
+
+def safe_text(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+def existing_cols(df, cols):
+    return [col for col in cols if col in df.columns]
+
+def extract_priority_code(value):
+    text = safe_text(value).upper()
+    match = re.search(r"\bP[1-4]\b", text)
+    return match.group(0) if match else ""
+
+def local_priority_rank(value):
+    code = extract_priority_code(value)
+    rank_map = {
+        "P1": 1,
+        "P2": 2,
+        "P3": 3,
+        "P4": 4
+    }
+    return rank_map.get(code, 99)
+
+def safe_sort(df, sort_cols, ascending=None):
+    usable_cols = existing_cols(df, sort_cols)
+
+    if not usable_cols:
+        return df.copy()
+
+    if ascending is None:
+        usable_ascending = [True] * len(usable_cols)
+    else:
+        usable_ascending = ascending[:len(usable_cols)]
+
+    return df.sort_values(
+        by=usable_cols,
+        ascending=usable_ascending
+    ).copy()
+
+def contains_priority(value, codes):
+    code = extract_priority_code(value)
+    return code in codes
+
+# -----------------------------
+# Ensure final priority fields exist
+# -----------------------------
+
+if "apply_priority_fields" in globals():
+    dashboard_df = apply_priority_fields(dashboard_df)
+else:
+    if "priority_level" not in dashboard_df.columns:
+        dashboard_df["priority_level"] = ""
+
+    if "reviewed_priority_level" not in dashboard_df.columns:
+        dashboard_df["reviewed_priority_level"] = ""
+
+    if "priority_review_note" not in dashboard_df.columns:
+        dashboard_df["priority_review_note"] = ""
+
+    dashboard_df["final_priority_level"] = dashboard_df.apply(
+        lambda row: row["reviewed_priority_level"]
+        if safe_text(row.get("reviewed_priority_level", "")) != ""
+        else row.get("priority_level", ""),
+        axis=1
+    )
+
+    dashboard_df["priority_source"] = dashboard_df["reviewed_priority_level"].apply(
+        lambda value: "Human Reviewed" if safe_text(value) != "" else "Auto Adjudicated"
+    )
+
+    dashboard_df["final_priority_code"] = dashboard_df["final_priority_level"].apply(extract_priority_code)
+    dashboard_df["final_priority_rank"] = dashboard_df["final_priority_level"].apply(local_priority_rank)
+
+# Backward-compatible aliases. These are not used as main dashboard fields.
+dashboard_df["decision_priority"] = dashboard_df["final_priority_level"]
+dashboard_df["decision_priority_sort"] = dashboard_df["final_priority_rank"]
+
+# -----------------------------
+# Ensure required support fields exist
+# -----------------------------
+
+default_columns = {
+    "company": "",
+    "market_segment": "Unmapped",
+    "strategic_bucket": "Unmapped",
+    "calibration_flag": "",
+    "review_status": "",
+    "review_notes": "",
+    "priority_review_note": "",
+    "priority_level": "",
+    "reviewed_priority_level": "",
+    "priority_source": "Auto Adjudicated",
+    "final_priority_level": "",
+    "final_priority_code": "",
+    "final_priority_rank": 99,
+    "final_recommendation": "",
+    "business_model_classification": "",
+    "commercial_scale_assessment": "",
+    "pmf_scale_assessment": "",
+    "commercial_scale_finding": "",
+    "payer_institutional_finding": "",
+    "outcomes_finding": "",
+    "funding_finding": "",
+    "final_takeaway": "",
+    "thesis_fit_score": np.nan,
+    "pmf_scale_score": np.nan,
+    "evidence_confidence_score": np.nan,
+    "katelynd_role_fit_score": np.nan,
+    "operator_timing_score": np.nan
+}
+
+for col_name, default_value in default_columns.items():
+    if col_name not in dashboard_df.columns:
+        dashboard_df[col_name] = default_value
+
+dashboard_df["final_priority_rank"] = pd.to_numeric(
+    dashboard_df["final_priority_rank"],
+    errors="coerce"
+).fillna(99).astype(int)
+
+for score_col in [
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "katelynd_role_fit_score",
+    "operator_timing_score"
+]:
+    dashboard_df[score_col] = pd.to_numeric(
+        dashboard_df[score_col],
+        errors="coerce"
+    )
+
+# -----------------------------
+# Master Dashboard
+# -----------------------------
+# Clean decision view. Priority plumbing lives in Priority Logic Audit.
+
+master_cols = existing_cols(dashboard_df, [
+    "company",
+    "final_priority_level",
+    "priority_source",
+    "market_segment",
+    "strategic_bucket",
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "katelynd_role_fit_score",
+    "operator_timing_score",
+    "final_recommendation",
+    "business_model_classification",
+    "commercial_scale_assessment",
+    "pmf_scale_assessment",
+    "calibration_flag",
+    "final_takeaway"
+])
+
+master_view = safe_sort(
+    dashboard_df,
+    [
+        "final_priority_rank",
+        "thesis_fit_score",
+        "pmf_scale_score",
+        "katelynd_role_fit_score",
+        "operator_timing_score",
+        "evidence_confidence_score"
+    ],
+    [True, False, False, False, False, False]
+)[master_cols]
+
+# -----------------------------
+# Priority Focus
+# -----------------------------
+# P1/P2 companies plus companies with calibration flags.
+
+priority_focus_source = dashboard_df[
+    dashboard_df["final_priority_level"].apply(lambda value: contains_priority(value, ["P1", "P2"]))
+    | dashboard_df["calibration_flag"].astype(str).str.strip().ne("")
+].copy()
+
+priority_focus_cols = existing_cols(dashboard_df, [
+    "company",
+    "final_priority_level",
+    "priority_source",
+    "market_segment",
+    "strategic_bucket",
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "katelynd_role_fit_score",
+    "operator_timing_score",
+    "final_recommendation",
+    "business_model_classification",
+    "commercial_scale_assessment",
+    "calibration_flag",
+    "final_takeaway"
+])
+
+priority_focus = safe_sort(
+    priority_focus_source,
+    [
+        "final_priority_rank",
+        "thesis_fit_score",
+        "pmf_scale_score",
+        "katelynd_role_fit_score",
+        "operator_timing_score"
+    ],
+    [True, False, False, False, False]
+)[priority_focus_cols]
+
+# -----------------------------
+# Segment Summary
+# -----------------------------
+
+if "segment_summary" in globals() and isinstance(segment_summary, pd.DataFrame) and not segment_summary.empty:
+    segment_summary_export = segment_summary.copy()
+else:
+    segment_summary_export = (
+        dashboard_df
+        .groupby("market_segment", dropna=False)
+        .agg(
+            company_count=("company", "nunique"),
+            p1_count=("final_priority_level", lambda x: x.astype(str).str.contains("P1", case=False, na=False).sum()),
+            p2_count=("final_priority_level", lambda x: x.astype(str).str.contains("P2", case=False, na=False).sum()),
+            p3_count=("final_priority_level", lambda x: x.astype(str).str.contains("P3", case=False, na=False).sum()),
+            p4_count=("final_priority_level", lambda x: x.astype(str).str.contains("P4", case=False, na=False).sum()),
+            avg_thesis_fit=("thesis_fit_score", "mean"),
+            avg_pmf_scale=("pmf_scale_score", "mean"),
+            avg_evidence_confidence=("evidence_confidence_score", "mean"),
+            avg_katelynd_role_fit=("katelynd_role_fit_score", "mean"),
+            avg_operator_timing=("operator_timing_score", "mean"),
+            best_final_priority_rank=("final_priority_rank", "min")
+        )
+        .reset_index()
+    )
+
+    for avg_col in [
+        "avg_thesis_fit",
+        "avg_pmf_scale",
+        "avg_evidence_confidence",
+        "avg_katelynd_role_fit",
+        "avg_operator_timing"
+    ]:
+        if avg_col in segment_summary_export.columns:
+            segment_summary_export[avg_col] = segment_summary_export[avg_col].round(1)
+
+    segment_summary_export = safe_sort(
+        segment_summary_export,
+        ["best_final_priority_rank", "p1_count", "p2_count", "avg_thesis_fit"],
+        [True, False, False, False]
+    )
+
+# -----------------------------
+# Companies by Segment
+# -----------------------------
+
+company_by_segment_cols = existing_cols(dashboard_df, [
+    "market_segment",
+    "company",
+    "strategic_bucket",
+    "final_priority_level",
+    "priority_source",
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "katelynd_role_fit_score",
+    "operator_timing_score",
+    "final_takeaway"
+])
+
+company_by_segment_export = safe_sort(
+    dashboard_df[company_by_segment_cols],
+    [
+        "market_segment",
+        "final_priority_rank",
+        "thesis_fit_score",
+        "operator_timing_score",
+        "pmf_scale_score"
+    ],
+    [True, True, False, False, False]
+)
+
+# -----------------------------
+# Commercial Scale Review
+# -----------------------------
+
+commercial_cols = existing_cols(dashboard_df, [
+    "company",
+    "final_priority_level",
+    "priority_source",
+    "market_segment",
+    "strategic_bucket",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "business_model_classification",
+    "commercial_scale_assessment",
+    "commercial_scale_finding",
+    "payer_institutional_finding",
+    "outcomes_finding",
+    "calibration_flag",
+    "final_takeaway"
+])
+
+commercial_review = safe_sort(
+    dashboard_df[commercial_cols],
+    ["final_priority_rank", "pmf_scale_score", "company"],
+    [True, False, True]
+)
+
+# -----------------------------
+# Data Depth Audit
+# -----------------------------
+
+if "data_depth_audit" in globals() and isinstance(data_depth_audit, pd.DataFrame) and not data_depth_audit.empty:
+    data_depth_audit_export = data_depth_audit.copy()
+else:
+    audit_rows = []
+
+    for _, row in dashboard_df.iterrows():
+        audit_rows.append({
+            "company": row.get("company", ""),
+            "final_priority_level": row.get("final_priority_level", ""),
+            "priority_source": row.get("priority_source", ""),
+            "market_segment": row.get("market_segment", ""),
+            "strategic_bucket": row.get("strategic_bucket", ""),
+            "has_commercial_scale_assessment": safe_text(row.get("commercial_scale_assessment", "")) != "",
+            "has_commercial_scale_finding": safe_text(row.get("commercial_scale_finding", "")) != "",
+            "has_payer_institutional_finding": safe_text(row.get("payer_institutional_finding", "")) != "",
+            "has_outcomes_finding": safe_text(row.get("outcomes_finding", "")) != "",
+            "has_funding_finding": safe_text(row.get("funding_finding", "")) != "",
+            "has_business_model_classification": safe_text(row.get("business_model_classification", "")) != "",
+            "has_calibration_flag": safe_text(row.get("calibration_flag", "")) != ""
+        })
+
+    data_depth_audit_export = pd.DataFrame(audit_rows)
+
+# -----------------------------
+# Segment Coverage Audit
+# -----------------------------
+
+if "segment_coverage_audit" in globals() and isinstance(segment_coverage_audit, pd.DataFrame) and not segment_coverage_audit.empty:
+    segment_coverage_audit_export = segment_coverage_audit.copy()
+else:
+    segment_coverage_audit_export = pd.DataFrame()
+
+# -----------------------------
+# Priority Logic Audit
+# -----------------------------
+
+priority_logic_cols = existing_cols(dashboard_df, [
+    "company",
+    "final_priority_level",
+    "priority_source",
+    "priority_review_note",
+    "priority_level",
+    "reviewed_priority_level",
+    "final_priority_code",
+    "final_priority_rank",
+    "review_status",
+    "review_notes",
+    "calibration_flag",
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "katelynd_role_fit_score",
+    "operator_timing_score",
+    "market_segment",
+    "strategic_bucket",
+    "final_recommendation",
+    "final_takeaway"
+])
+
+priority_logic_audit = safe_sort(
+    dashboard_df[priority_logic_cols],
+    ["final_priority_rank", "company"],
+    [True, True]
+)
+
+# -----------------------------
+# Read Me
+# -----------------------------
+
+read_me = pd.DataFrame([
+    {
+        "sheet": "Master Dashboard",
+        "description": "Main decision dashboard. Uses Final Priority Level as the source of truth. Internal priority plumbing is intentionally excluded."
+    },
+    {
+        "sheet": "Priority Focus",
+        "description": "P1/P2 companies plus any company with calibration flags."
+    },
+    {
+        "sheet": "Segment Summary",
+        "description": "Segment-level scoring and priority roll-up."
+    },
+    {
+        "sheet": "Companies by Segment",
+        "description": "Company-level segment view sorted by final priority and fit scores."
+    },
+    {
+        "sheet": "Commercial Scale Review",
+        "description": "Commercial-scale and monetization evidence for revenue-quality review."
+    },
+    {
+        "sheet": "Data Depth Audit",
+        "description": "QA view showing whether key research evidence and fit-brief fields are populated."
+    },
+    {
+        "sheet": "Segment Coverage Audit",
+        "description": "Segment mapping sufficiency audit, included when Step 18 output is available."
+    },
+    {
+        "sheet": "Priority Logic Audit",
+        "description": "Traceability view showing automated priority, reviewed priority, final priority, source, and review notes."
+    }
+])
+
+# -----------------------------
+# Export workbook
+# -----------------------------
+
+with pd.ExcelWriter(local_export_path, engine="openpyxl") as writer:
+    read_me.to_excel(writer, sheet_name="Read Me", index=False)
+    master_view.to_excel(writer, sheet_name="Master Dashboard", index=False)
+    priority_focus.to_excel(writer, sheet_name="Priority Focus", index=False)
+    segment_summary_export.to_excel(writer, sheet_name="Segment Summary", index=False)
+    company_by_segment_export.to_excel(writer, sheet_name="Companies by Segment", index=False)
+    commercial_review.to_excel(writer, sheet_name="Commercial Scale Review", index=False)
+    data_depth_audit_export.to_excel(writer, sheet_name="Data Depth Audit", index=False)
+
+    if not segment_coverage_audit_export.empty:
+        segment_coverage_audit_export.to_excel(writer, sheet_name="Segment Coverage Audit", index=False)
+
+    priority_logic_audit.to_excel(writer, sheet_name="Priority Logic Audit", index=False)
+
+shutil.copy(local_export_path, drive_export_path)
+
+print("Dashboard export complete.")
+print("Local file:", local_export_path)
+print("Drive file:", drive_export_path)
+
+print("\nWorkbook variable for Step 19A:")
+print("dashboard_workbook_path =", dashboard_workbook_path)
+
+print("\nExported sheets:")
+exported_sheets = [
+    "Read Me",
+    "Master Dashboard",
+    "Priority Focus",
+    "Segment Summary",
+    "Companies by Segment",
+    "Commercial Scale Review",
+    "Data Depth Audit"
+]
+
+if not segment_coverage_audit_export.empty:
+    exported_sheets.append("Segment Coverage Audit")
+
+exported_sheets.append("Priority Logic Audit")
+
+for sheet in exported_sheets:
+    print("-", sheet)
 
 # =============================================================================
 
