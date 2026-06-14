@@ -183,34 +183,182 @@ Important:
 
 # =============================================================================
 
-# Priority field helpers
+# =============================================================================
+# STEP 12B - Priority field helper
+# =============================================================================
 # Purpose:
+# - Normalize old priority labels and new priority labels into clean P0-P4 dashboard priority
 # - Keep priority_level as the automated/adjudicated system priority
 # - Keep reviewed_priority_level as optional human override
 # - Create final_priority_level for dashboard use
 # - Create priority_source for transparency
+# - Create final_priority_code / final_priority_rank for clean sorting
+#
+# New dashboard priority model:
+# - P0 = highest-priority target / active pursuit
+# - P1 = near-priority target / former P1-border
+# - P2 = worth deeper diligence
+# - P3 = watch list
+# - P4 = low priority / likely reject
 
 import pandas as pd
 import re
 
+# -----------------------------
+# Basic helpers
+# -----------------------------
+
 def is_blank_value(value):
     return pd.isna(value) or str(value).strip() == ""
 
+def safe_text(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
 def extract_priority_code(value):
-    text = str(value).strip().upper()
-    match = re.search(r"\bP[1-4]\b", text)
+    """
+    Extract P0, P1, P2, P3, or P4 from a normalized or raw priority value.
+    Handles new P0-P4 and older P1-P4 labels.
+    """
+    text = safe_text(value).upper()
+    match = re.search(r"\bP[0-4]\b", text)
     return match.group(0) if match else ""
 
+# -----------------------------
+# Priority normalization
+# -----------------------------
+
+def normalize_priority_level(value):
+    """
+    Converts old and new priority labels into clean dashboard labels.
+
+    Old model:
+    - P1: High-priority target              -> P0
+    - Strong P2 / P1-border                -> P1
+    - P2: Worth deeper diligence           -> P2
+    - P3: Watch list                       -> P3
+    - P4: Low priority / likely reject     -> P4
+
+    New model:
+    - P0: Highest-priority target          -> P0
+    - P1: Near-priority target             -> P1
+    - P2: Worth deeper diligence           -> P2
+    - P3: Watch list                       -> P3
+    - P4: Low priority / likely reject     -> P4
+    """
+    text = safe_text(value)
+
+    if text == "":
+        return ""
+
+    lower = text.lower()
+
+    # New P0 or old top-priority P1.
+    # Keep this before the P1-border logic so old "P1: High-priority" maps up to P0.
+    if (
+        lower.startswith("p0")
+        or "highest-priority" in lower
+        or "highest priority" in lower
+        or "active pursuit" in lower
+        or "top-priority" in lower
+        or "top priority" in lower
+        or lower.startswith("p1: high-priority")
+        or lower.startswith("p1: high priority")
+        or lower.startswith("p1 - high-priority")
+        or lower.startswith("p1 - high priority")
+    ):
+        return "P0: Highest-priority target"
+
+    # New P1 / old P1-border.
+    if (
+        lower.startswith("p1: near-priority")
+        or lower.startswith("p1: near priority")
+        or lower.startswith("p1 - near-priority")
+        or lower.startswith("p1 - near priority")
+        or "p1-border" in lower
+        or "p1 border" in lower
+        or "near-priority" in lower
+        or "near priority" in lower
+        or "strong p2" in lower
+        or "p0-border" in lower
+        or "p0 border" in lower
+    ):
+        return "P1: Near-priority target"
+
+    # Clean P2.
+    if (
+        lower.startswith("p2")
+        or "worth deeper diligence" in lower
+        or "diligence target" in lower
+        or "deeper diligence" in lower
+    ):
+        return "P2: Worth deeper diligence"
+
+    # Clean P3.
+    if (
+        lower.startswith("p3")
+        or "watch list" in lower
+        or "watchlist" in lower
+    ):
+        return "P3: Watch list"
+
+    # Clean P4.
+    if (
+        lower.startswith("p4")
+        or "low priority" in lower
+        or "likely reject" in lower
+        or "weak fit" in lower
+        or "reject" in lower
+    ):
+        return "P4: Low priority / likely reject"
+
+    # Ambiguous bare P1:
+    # In the new system, P1 means near-priority.
+    # Historical old P1 should ideally include "High-priority target" and maps to P0 above.
+    if lower == "p1":
+        return "P1: Near-priority target"
+
+    # Ambiguous / unmapped. Preserve text rather than destroying source context.
+    return text
+
+def priority_code(value):
+    normalized = normalize_priority_level(value)
+    return extract_priority_code(normalized)
+
 def priority_rank(value):
-    code = extract_priority_code(value)
+    """
+    Lower rank sorts earlier.
+    P0 is the highest-priority bucket.
+    """
+    code = priority_code(value)
+
     return {
+        "P0": 0,
         "P1": 1,
         "P2": 2,
         "P3": 3,
         "P4": 4
     }.get(code, 99)
 
+# -----------------------------
+# Apply priority fields
+# -----------------------------
+
 def apply_priority_fields(input_df):
+    """
+    Applies dashboard priority fields without overwriting source priority fields.
+
+    Source fields:
+    - priority_level = automated/adjudicated system priority
+    - reviewed_priority_level = optional human override
+
+    Derived fields:
+    - final_priority_level = normalized dashboard priority
+    - priority_source = Auto Adjudicated or Human Reviewed
+    - final_priority_code = P0/P1/P2/P3/P4
+    - final_priority_rank = numeric sort field
+    """
     output_df = input_df.copy()
 
     if "priority_level" not in output_df.columns:
@@ -222,10 +370,11 @@ def apply_priority_fields(input_df):
     if "priority_review_note" not in output_df.columns:
         output_df["priority_review_note"] = ""
 
+    # Human-reviewed priority wins only when populated.
     output_df["final_priority_level"] = output_df.apply(
-        lambda row: row["reviewed_priority_level"]
+        lambda row: normalize_priority_level(row.get("reviewed_priority_level", ""))
         if not is_blank_value(row.get("reviewed_priority_level", ""))
-        else row.get("priority_level", ""),
+        else normalize_priority_level(row.get("priority_level", "")),
         axis=1
     )
 
@@ -233,10 +382,24 @@ def apply_priority_fields(input_df):
         lambda value: "Human Reviewed" if not is_blank_value(value) else "Auto Adjudicated"
     )
 
-    output_df["final_priority_code"] = output_df["final_priority_level"].apply(extract_priority_code)
+    output_df["final_priority_code"] = output_df["final_priority_level"].apply(priority_code)
     output_df["final_priority_rank"] = output_df["final_priority_level"].apply(priority_rank)
 
+    # Backward-compatible aliases for older downstream code.
+    # New code should use final_priority_level / final_priority_rank.
+    output_df["decision_priority"] = output_df["final_priority_level"]
+    output_df["decision_priority_sort"] = output_df["final_priority_rank"]
+
     return output_df
+
+print("PASS: Step 12B priority helper loaded.")
+print("Priority model:")
+print("- P0 = Highest-priority target / old P1")
+print("- P1 = Near-priority target / old P1-border")
+print("- P2 = Worth deeper diligence")
+print("- P3 = Watch list")
+print("- P4 = Low priority / likely reject")
+
 
 # =============================================================================
 
