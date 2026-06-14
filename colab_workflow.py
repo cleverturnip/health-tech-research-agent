@@ -186,6 +186,9 @@ Important:
 # =============================================================================
 # STEP 12B - Priority field helper
 # =============================================================================
+# =============================================================================
+# STEP 12B - Priority field helper
+# =============================================================================
 # Purpose:
 # - Normalize old priority labels and new priority labels into clean P0-P4 dashboard priority
 # - Keep priority_level as the automated/adjudicated system priority
@@ -286,9 +289,11 @@ def normalize_priority_level(value):
     ):
         return "P1: Near-priority target"
 
-    # Clean P2.
+    # Clean P2
     if (
         lower.startswith("p2")
+        or lower.startswith("review p2")
+        or "review p2" in lower
         or "worth deeper diligence" in lower
         or "diligence target" in lower
         or "deeper diligence" in lower
@@ -346,19 +351,6 @@ def priority_rank(value):
 # -----------------------------
 
 def apply_priority_fields(input_df):
-    """
-    Applies dashboard priority fields without overwriting source priority fields.
-
-    Source fields:
-    - priority_level = automated/adjudicated system priority
-    - reviewed_priority_level = optional human override
-
-    Derived fields:
-    - final_priority_level = normalized dashboard priority
-    - priority_source = Auto Adjudicated or Human Reviewed
-    - final_priority_code = P0/P1/P2/P3/P4
-    - final_priority_rank = numeric sort field
-    """
     output_df = input_df.copy()
 
     if "priority_level" not in output_df.columns:
@@ -370,7 +362,6 @@ def apply_priority_fields(input_df):
     if "priority_review_note" not in output_df.columns:
         output_df["priority_review_note"] = ""
 
-    # Human-reviewed priority wins only when populated.
     output_df["final_priority_level"] = output_df.apply(
         lambda row: normalize_priority_level(row.get("reviewed_priority_level", ""))
         if not is_blank_value(row.get("reviewed_priority_level", ""))
@@ -378,15 +369,27 @@ def apply_priority_fields(input_df):
         axis=1
     )
 
-    output_df["priority_source"] = output_df["reviewed_priority_level"].apply(
-        lambda value: "Human Reviewed" if not is_blank_value(value) else "Auto Adjudicated"
-    )
+    def determine_priority_source(row):
+        auto_priority = normalize_priority_level(row.get("priority_level", ""))
+        reviewed_priority = normalize_priority_level(row.get("reviewed_priority_level", ""))
+        review_note = safe_text(row.get("priority_review_note", ""))
+
+        if reviewed_priority == "":
+            return "Auto Adjudicated"
+
+        if reviewed_priority != auto_priority:
+            return "Human Reviewed"
+
+        if review_note != "":
+            return "Human Reviewed"
+
+        return "Auto Adjudicated"
+
+    output_df["priority_source"] = output_df.apply(determine_priority_source, axis=1)
 
     output_df["final_priority_code"] = output_df["final_priority_level"].apply(priority_code)
     output_df["final_priority_rank"] = output_df["final_priority_level"].apply(priority_rank)
 
-    # Backward-compatible aliases for older downstream code.
-    # New code should use final_priority_level / final_priority_rank.
     output_df["decision_priority"] = output_df["final_priority_level"]
     output_df["decision_priority_sort"] = output_df["final_priority_rank"]
 
@@ -399,6 +402,7 @@ print("- P1 = Near-priority target / old P1-border")
 print("- P2 = Worth deeper diligence")
 print("- P3 = Watch list")
 print("- P4 = Low priority / likely reject")
+
 
 
 # =============================================================================
