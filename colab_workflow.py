@@ -3727,6 +3727,10 @@ print("- final_priority_rank = hidden/helper sort field")
 
 # =============================================================================
 
+# STEP 14 - Build market map view
+
+# =============================================================================
+
 # 14 - Build market map view
 # Purpose:
 # - Build a dashboard-ready market_map_df from master_df
@@ -3744,8 +3748,38 @@ print("- final_priority_rank = hidden/helper sort field")
 import pandas as pd
 import numpy as np
 import re
+import sys
 from pathlib import Path
 from datetime import datetime
+
+# -----------------------------
+# Import shared priority helper
+# -----------------------------
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+
+if SRC_DIR.exists():
+    src_path = str(SRC_DIR)
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+
+try:
+    from health_tech_research_agent.priority import (
+        apply_priority_fields,
+        extract_priority_code,
+        priority_rank,
+        safe_text,
+    )
+except Exception as e:
+    raise ImportError(
+        "STOP: Could not import shared priority helpers. "
+        "Run the GitHub pull cell and Step 12B first."
+    ) from e
+
+# Backward-compatible aliases used inside this cell.
+extract_final_priority_code = extract_priority_code
+final_priority_rank_from_level = priority_rank
 
 # -----------------------------
 # Validate inputs
@@ -3755,46 +3789,17 @@ if "master_df" not in globals() or not isinstance(master_df, pd.DataFrame) or ma
     raise NameError("STOP: master_df not found or empty. Run Step 13 first.")
 
 market_map_df = master_df.copy()
-
-# Step 14 depends on Step 12B priority helper.
-if "apply_priority_fields" in globals():
-    market_map_df = apply_priority_fields(market_map_df)
-else:
-    raise NameError(
-        "STOP: apply_priority_fields is not defined. "
-        "Run Step 12B before Step 14."
-    )
+market_map_df = apply_priority_fields(market_map_df)
 
 # -----------------------------
 # Helpers
 # -----------------------------
-
-def safe_text(value):
-    if pd.isna(value):
-        return ""
-    return str(value).strip()
 
 def normalize_name(value):
     text = safe_text(value).lower()
     text = re.sub(r"[^a-z0-9]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
-
-def extract_final_priority_code(value):
-    text = safe_text(value).upper()
-    match = re.search(r"\bP[0-4]\b", text)
-    return match.group(0) if match else ""
-
-def final_priority_rank_from_level(value):
-    code = extract_final_priority_code(value)
-
-    return {
-        "P0": 0,
-        "P1": 1,
-        "P2": 2,
-        "P3": 3,
-        "P4": 4
-    }.get(code, 99)
 
 def existing_cols(df, cols):
     return [col for col in cols if col in df.columns]
@@ -3843,9 +3848,9 @@ for score_col in [
         errors="coerce"
     )
 
-# Force clean P0-P4 code/rank in case any older downstream logic is stale.
-market_map_df["final_priority_code"] = market_map_df["final_priority_level"].apply(extract_final_priority_code)
-market_map_df["final_priority_rank"] = market_map_df["final_priority_level"].apply(final_priority_rank_from_level)
+# Force clean P0-P4 code/rank from the shared priority helper.
+market_map_df["final_priority_code"] = market_map_df["final_priority_level"].apply(extract_priority_code)
+market_map_df["final_priority_rank"] = market_map_df["final_priority_level"].apply(priority_rank)
 
 # Backward-compatible aliases.
 market_map_df["decision_priority"] = market_map_df["final_priority_level"]
@@ -3937,7 +3942,7 @@ market_map_df["market_segment"] = market_map_df.apply(map_market_segment, axis=1
 # P0-aware replacement for old logic that treated P0 as unmapped/unprioritized.
 
 def map_strategic_bucket(row):
-    code = extract_final_priority_code(row.get("final_priority_level", ""))
+    code = extract_priority_code(row.get("final_priority_level", ""))
 
     if code == "P0":
         return "Active pursuit / highest-priority target"
@@ -4013,7 +4018,7 @@ priority_summary = (
     .reset_index()
 )
 
-priority_summary["final_priority_rank"] = priority_summary["final_priority_level"].apply(final_priority_rank_from_level)
+priority_summary["final_priority_rank"] = priority_summary["final_priority_level"].apply(priority_rank)
 
 priority_summary = priority_summary.sort_values(
     by=["final_priority_rank", "priority_source"],
@@ -4056,7 +4061,6 @@ preview_cols = existing_cols(market_map_df, [
 ])
 
 display(market_map_df[preview_cols].head(20))
-
 
 # =============================================================================
 
