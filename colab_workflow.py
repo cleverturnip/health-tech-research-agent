@@ -5439,6 +5439,10 @@ display(
 
 # =============================================================================
 
+# STEP 19 - Export dashboard workbook
+
+# =============================================================================
+
 # Purpose:
 
 # - Export focused dashboard workbook
@@ -5461,11 +5465,11 @@ display(
 
 import pandas as pd
 import numpy as np
+import sys
 from pathlib import Path
 from datetime import datetime
 from google.colab import drive
 import shutil
-import re
 
 drive.mount("/content/drive")
 
@@ -5499,103 +5503,36 @@ dashboard_workbook_path = local_export_path
 output_workbook_path = local_export_path
 
 # -----------------------------
+# Import shared priority helper
+# -----------------------------
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+
+if SRC_DIR.exists():
+    src_path = str(SRC_DIR)
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+
+try:
+    from health_tech_research_agent.priority import (
+        apply_priority_fields,
+        extract_priority_code,
+        priority_rank,
+        safe_text,
+    )
+except Exception as e:
+    raise ImportError(
+        "STOP: Could not import shared priority helpers. "
+        "Run the GitHub pull cell and Step 12B first."
+    ) from e
+
+# -----------------------------
 # Helpers
 # -----------------------------
 
-def safe_text(value):
-    if value is None:
-        return ""
-
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-
-    return str(value).strip()
-
 def existing_cols(df, cols):
     return [col for col in cols if col in df.columns]
-
-def local_extract_priority_code(value):
-    text = safe_text(value).upper()
-    match = re.search(r"\bP[0-4]\b", text)
-    return match.group(0) if match else ""
-
-def local_priority_rank(value):
-    code = local_extract_priority_code(value)
-
-    return {
-        "P0": 0,
-        "P1": 1,
-        "P2": 2,
-        "P3": 3,
-        "P4": 4
-    }.get(code, 99)
-
-def local_normalize_priority(value):
-    text = safe_text(value)
-
-    if text == "":
-        return ""
-
-    lower = text.lower()
-
-    if (
-        lower.startswith("p0")
-        or "highest-priority" in lower
-        or "highest priority" in lower
-        or "active pursuit" in lower
-        or "top-priority" in lower
-        or "top priority" in lower
-        or lower.startswith("p1: high-priority")
-        or lower.startswith("p1: high priority")
-    ):
-        return "P0: Highest-priority target"
-
-    if (
-        lower.startswith("p1: near-priority")
-        or lower.startswith("p1: near priority")
-        or "p1-border" in lower
-        or "p1 border" in lower
-        or "near-priority" in lower
-        or "near priority" in lower
-        or "strong p2" in lower
-        or "p0-border" in lower
-        or "p0 border" in lower
-    ):
-        return "P1: Near-priority target"
-
-    if (
-        lower.startswith("p2")
-        or lower.startswith("review p2")
-        or "review p2" in lower
-        or "worth deeper diligence" in lower
-        or "diligence target" in lower
-        or "deeper diligence" in lower
-    ):
-        return "P2: Worth deeper diligence"
-
-    if (
-        lower.startswith("p3")
-        or "watch list" in lower
-        or "watchlist" in lower
-    ):
-        return "P3: Watch list"
-
-    if (
-        lower.startswith("p4")
-        or "low priority" in lower
-        or "likely reject" in lower
-        or "weak fit" in lower
-        or "reject" in lower
-    ):
-        return "P4: Low priority / likely reject"
-
-    if lower == "p1":
-        return "P1: Near-priority target"
-
-    return text
 
 def safe_sort(df, sort_cols, ascending=None):
     usable_cols = existing_cols(df, sort_cols)
@@ -5614,7 +5551,7 @@ def safe_sort(df, sort_cols, ascending=None):
     ).copy()
 
 def contains_priority(value, codes):
-    code = local_extract_priority_code(value)
+    code = extract_priority_code(value)
     return code in codes
 
 def join_unique(values, max_items=6):
@@ -5634,45 +5571,7 @@ def join_unique(values, max_items=6):
 # Ensure final priority fields exist
 # -----------------------------
 
-if "apply_priority_fields" in globals():
-    dashboard_df = apply_priority_fields(dashboard_df)
-else:
-    # Fallback only. Normal workflow should run Step 12B before Step 19.
-    if "priority_level" not in dashboard_df.columns:
-        dashboard_df["priority_level"] = ""
-
-    if "reviewed_priority_level" not in dashboard_df.columns:
-        dashboard_df["reviewed_priority_level"] = ""
-
-    if "priority_review_note" not in dashboard_df.columns:
-        dashboard_df["priority_review_note"] = ""
-
-    dashboard_df["final_priority_level"] = dashboard_df.apply(
-        lambda row: local_normalize_priority(row.get("reviewed_priority_level", ""))
-        if safe_text(row.get("reviewed_priority_level", "")) != ""
-        else local_normalize_priority(row.get("priority_level", "")),
-        axis=1
-    )
-
-    def local_priority_source(row):
-        auto_priority = local_normalize_priority(row.get("priority_level", ""))
-        reviewed_priority = local_normalize_priority(row.get("reviewed_priority_level", ""))
-        review_note = safe_text(row.get("priority_review_note", ""))
-
-        if reviewed_priority == "":
-            return "Auto Adjudicated"
-
-        if reviewed_priority != auto_priority:
-            return "Human Reviewed"
-
-        if review_note != "":
-            return "Human Reviewed"
-
-        return "Auto Adjudicated"
-
-    dashboard_df["priority_source"] = dashboard_df.apply(local_priority_source, axis=1)
-    dashboard_df["final_priority_code"] = dashboard_df["final_priority_level"].apply(local_extract_priority_code)
-    dashboard_df["final_priority_rank"] = dashboard_df["final_priority_level"].apply(local_priority_rank)
+dashboard_df = apply_priority_fields(dashboard_df)
 
 # Backward-compatible aliases. New dashboard logic should use final_priority_level / final_priority_rank.
 dashboard_df["decision_priority"] = dashboard_df["final_priority_level"]
@@ -5716,13 +5615,13 @@ for col_name, default_value in default_columns.items():
     if col_name not in dashboard_df.columns:
         dashboard_df[col_name] = default_value
 
-dashboard_df["final_priority_code"] = dashboard_df["final_priority_level"].apply(local_extract_priority_code)
+dashboard_df["final_priority_code"] = dashboard_df["final_priority_level"].apply(extract_priority_code)
 
 dashboard_df["final_priority_rank"] = pd.to_numeric(
     dashboard_df["final_priority_rank"],
     errors="coerce"
 ).fillna(
-    dashboard_df["final_priority_level"].apply(local_priority_rank)
+    dashboard_df["final_priority_level"].apply(priority_rank)
 ).fillna(99).astype(int)
 
 for score_col in [
@@ -5738,27 +5637,11 @@ for score_col in [
     )
 
 # -----------------------------
-# Force clean P0-P4 final priority ranking
+# Force clean P0-P4 final priority ranking from shared helper
 # -----------------------------
 
-def extract_final_priority_code(value):
-    text = safe_text(value).upper()
-    match = re.search(r"\bP[0-4]\b", text)
-    return match.group(0) if match else ""
-
-def final_priority_rank_from_level(value):
-    code = extract_final_priority_code(value)
-
-    return {
-        "P0": 0,
-        "P1": 1,
-        "P2": 2,
-        "P3": 3,
-        "P4": 4
-    }.get(code, 99)
-
-dashboard_df["final_priority_code"] = dashboard_df["final_priority_level"].apply(extract_final_priority_code)
-dashboard_df["final_priority_rank"] = dashboard_df["final_priority_level"].apply(final_priority_rank_from_level)
+dashboard_df["final_priority_code"] = dashboard_df["final_priority_level"].apply(extract_priority_code)
+dashboard_df["final_priority_rank"] = dashboard_df["final_priority_level"].apply(priority_rank)
 
 dashboard_df["decision_priority"] = dashboard_df["final_priority_level"]
 dashboard_df["decision_priority_sort"] = dashboard_df["final_priority_rank"]
