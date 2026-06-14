@@ -4605,17 +4605,56 @@ display(segment_priority_summary[quick_view_cols])
 
 # =============================================================================
 
-# 17 - Company data depth audit
+# =============================================================================
+# STEP 17 - Company data depth audit
+# =============================================================================
 # Purpose:
 # - Audit whether each company has recoverable raw research evidence
 # - Use final_priority_level / final_priority_rank as dashboard source of truth
-# - Preserve priority_level and reviewed_priority_level for traceability
-# - Check raw evidence completeness across funding, payer/institutional, outcomes, commercial scale, and fit brief JSON
+# - Import shared P0-P4 priority logic from src/health_tech_research_agent/priority.py
+# - Check raw evidence completeness across funding, payer/institutional, outcomes,
+#   commercial scale, and fit brief JSON
+#
+# Run after:
+# 12B -> 13 -> 14 -> 15 -> 16
+#
+# Then continue:
+# 18 -> 19 -> 19A
 
 import pandas as pd
 import json
 import re
+import sys
 from pathlib import Path
+
+# -----------------------------
+# Import shared priority helper
+# -----------------------------
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+
+if SRC_DIR.exists():
+    src_path = str(SRC_DIR)
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+
+try:
+    from health_tech_research_agent.priority import (
+        apply_priority_fields,
+        extract_priority_code,
+        priority_rank,
+        safe_text,
+    )
+except Exception as e:
+    raise ImportError(
+        "STOP: Could not import shared priority helpers. "
+        "Run the GitHub pull cell and Step 12B first."
+    ) from e
+
+# -----------------------------
+# Safety checks
+# -----------------------------
 
 if "master_df" not in globals():
     raise NameError("STOP: master_df is not defined. Run Step 13 first.")
@@ -4625,11 +4664,6 @@ master_summary_df = master_df.copy()
 # -----------------------------
 # Helpers
 # -----------------------------
-
-def safe_text(value):
-    if pd.isna(value):
-        return ""
-    return str(value).strip()
 
 def nonblank(value):
     return pd.notna(value) and str(value).strip() != ""
@@ -4660,14 +4694,13 @@ def parseable_json(value):
     except Exception:
         return False
 
-def extract_priority_code(value):
-    text = safe_text(value).upper()
-    match = re.search(r"\bP[1-4]\b", text)
-    return match.group(0) if match else ""
-
-def is_priority_target(value):
+def is_priority_or_diligence_target(value):
+    """
+    Priority/diligence target means P0, P1, or P2 in the native model.
+    This replaces the old P1/P2-only helper.
+    """
     code = extract_priority_code(value)
-    return code in ["P1", "P2"]
+    return code in ["P0", "P1", "P2"]
 
 # -----------------------------
 # Build audit base
@@ -4679,6 +4712,7 @@ if "market_map_df" in globals():
         "market_segment",
         "strategic_bucket",
         "final_priority_level",
+        "final_priority_rank",
         "priority_source",
         "priority_review_note",
         "priority_level",
@@ -4694,14 +4728,11 @@ if "market_map_df" in globals():
     ]
 
     base_cols = [col for col in base_cols if col in market_map_df.columns]
-
     audit_base = market_map_df[base_cols].copy()
 
 else:
     audit_base = master_summary_df.copy()
-
-    if "apply_priority_fields" in globals():
-        audit_base = apply_priority_fields(audit_base)
+    audit_base = apply_priority_fields(audit_base)
 
     if "market_segment" not in audit_base.columns:
         audit_base["market_segment"] = ""
@@ -4709,9 +4740,16 @@ else:
     if "strategic_bucket" not in audit_base.columns:
         audit_base["strategic_bucket"] = ""
 
-# Ensure priority fields exist
+# Ensure priority fields exist / are fresh.
+audit_base = apply_priority_fields(audit_base)
+
+if "market_segment" not in audit_base.columns:
+    audit_base["market_segment"] = ""
+
+if "strategic_bucket" not in audit_base.columns:
+    audit_base["strategic_bucket"] = ""
+
 for col in [
-    "final_priority_level",
     "priority_source",
     "priority_review_note",
     "priority_level",
@@ -4723,11 +4761,8 @@ for col in [
     if col not in audit_base.columns:
         audit_base[col] = ""
 
-if "final_priority_rank" not in audit_base.columns:
-    if "priority_rank" in globals():
-        audit_base["final_priority_rank"] = audit_base["final_priority_level"].apply(priority_rank)
-    else:
-        audit_base["final_priority_rank"] = 99
+# Force rank from shared helper so P0 is handled correctly.
+audit_base["final_priority_rank"] = audit_base["final_priority_level"].apply(priority_rank)
 
 # -----------------------------
 # Find raw/checkpoint files that may contain full research evidence
@@ -4789,7 +4824,7 @@ for path in candidate_paths:
             "fit_brief_json"
         }
 
-        # Only keep files with at least one raw evidence column
+        # Only keep files with at least one raw evidence column.
         if len(set(available_cols) & evidence_cols) == 0:
             continue
 
@@ -4848,7 +4883,6 @@ raw_inventory["raw_completeness_score"] = (
     + raw_inventory["fit_brief_json_parseable"].astype(int)
 )
 
-# Optional date parsing for best-record selection
 raw_inventory["date_researched_parsed"] = pd.to_datetime(
     raw_inventory["date_researched"],
     errors="coerce"
@@ -4977,8 +5011,8 @@ def depth_status(row):
     if evidence < 50:
         return "REVIEW FLAG: low evidence confidence"
 
-    if is_priority_target(final_priority) and evidence < 65:
-        return "REVIEW FLAG: priority target with moderate evidence"
+    if is_priority_or_diligence_target(final_priority) and evidence < 65:
+        return "REVIEW FLAG: priority/diligence target with moderate evidence"
 
     return "OK"
 
@@ -4991,7 +5025,7 @@ status_rank = {
     "REVIEW FLAG: calibration check": 4,
     "REVIEW FLAG: evidence caveat": 5,
     "REVIEW FLAG: low evidence confidence": 6,
-    "REVIEW FLAG: priority target with moderate evidence": 7,
+    "REVIEW FLAG: priority/diligence target with moderate evidence": 7,
     "OK": 99
 }
 
@@ -5072,12 +5106,13 @@ display(
     .agg(company_count=("company", "nunique"))
     .reset_index()
     .assign(
-        final_priority_rank=lambda df: df["final_priority_level"].apply(priority_rank) if "priority_rank" in globals() else 99,
+        final_priority_rank=lambda df: df["final_priority_level"].apply(priority_rank),
         data_depth_status_rank=lambda df: df["data_depth_status"].map(status_rank).fillna(50).astype(int)
     )
     .sort_values(["final_priority_rank", "data_depth_status_rank"])
     .drop(columns=["final_priority_rank", "data_depth_status_rank"])
 )
+
 
 # =============================================================================
 
