@@ -5124,6 +5124,10 @@ display(
 
 # =============================================================================
 
+# STEP 18 - Segment coverage audit
+
+# =============================================================================
+
 # 18 - Segment coverage audit
 # Purpose:
 # - Audit whether each market segment has enough companies for a useful directional read
@@ -5141,6 +5145,33 @@ display(
 import pandas as pd
 import numpy as np
 import re
+import sys
+from pathlib import Path
+
+# -----------------------------
+# Import shared priority helper
+# -----------------------------
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+
+if SRC_DIR.exists():
+    src_path = str(SRC_DIR)
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+
+try:
+    from health_tech_research_agent.priority import (
+        apply_priority_fields,
+        extract_priority_code,
+        priority_rank,
+        safe_text,
+    )
+except Exception as e:
+    raise ImportError(
+        "STOP: Could not import shared priority helpers. "
+        "Run the GitHub pull cell and Step 12B first."
+    ) from e
 
 # -----------------------------
 # Validate inputs
@@ -5150,32 +5181,11 @@ if "market_map_df" not in globals() or not isinstance(market_map_df, pd.DataFram
     raise NameError("STOP: market_map_df not found or empty. Run Step 14 first.")
 
 coverage_source_df = market_map_df.copy()
+coverage_source_df = apply_priority_fields(coverage_source_df)
 
 # -----------------------------
 # Helpers
 # -----------------------------
-
-def safe_text(value):
-    if pd.isna(value):
-        return ""
-    return str(value).strip()
-
-def extract_final_priority_code(value):
-    text = safe_text(value).upper()
-    match = re.search(r"\bP[0-4]\b", text)
-    return match.group(0) if match else ""
-
-def final_priority_rank_from_code(code):
-    return {
-        "P0": 0,
-        "P1": 1,
-        "P2": 2,
-        "P3": 3,
-        "P4": 4
-    }.get(code, 99)
-
-def final_priority_rank_from_level(value):
-    return final_priority_rank_from_code(extract_final_priority_code(value))
 
 def existing_cols(df, cols):
     return [col for col in cols if col in df.columns]
@@ -5267,8 +5277,8 @@ for score_col in [
         errors="coerce"
     )
 
-coverage_source_df["final_priority_code"] = coverage_source_df["final_priority_level"].apply(extract_final_priority_code)
-coverage_source_df["final_priority_rank"] = coverage_source_df["final_priority_level"].apply(final_priority_rank_from_level)
+coverage_source_df["final_priority_code"] = coverage_source_df["final_priority_level"].apply(extract_priority_code)
+coverage_source_df["final_priority_rank"] = coverage_source_df["final_priority_level"].apply(priority_rank)
 
 # -----------------------------
 # Build segment coverage audit
