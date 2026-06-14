@@ -259,11 +259,14 @@ Keep under 150 words.
 
 # - Use priority gate logic
 
-# 5 - Prompt 2 company fit synthesis
+# =============================================================================
+# STEP 5 - Company fit synthesis prompt
+# =============================================================================
 # Purpose:
 # - Convert raw research findings into structured company fit JSON
 # - Score thesis fit, PMF/scale, evidence confidence, Katelynd role fit, and operator timing
 # - Classify commercial, institutional, and outcomes scale signals explicitly
+# - Use native P0/P1/P2/P3/P4 priority labels
 # - Use scale-engine logic:
 #   revenue quality/commercial traction OR institutional distribution can each be a primary scale engine
 # - Do not let high role fit or thesis relevance override weak PMF/scale evidence
@@ -324,12 +327,12 @@ PMF / scale interpretation guide:
 - Weak revenue/commercial traction + weak institutional channel + weak outcomes = low PMF/scale.
 
 PMF / scale score bands:
-- 90–100: Very strong PMF/scale. Requires multiple strong signals, such as strong commercial traction plus strong institutional distribution, or one exceptional scale engine plus strong outcomes/product-value evidence.
-- 80–89: Strong PMF/scale. Use when there is one strong scale engine plus meaningful supporting evidence from outcomes, retention/engagement, secondary distribution, customer growth, pricing power, renewal, or repeat usage.
-- 70–79: Strong but incomplete PMF/scale. Use when one scale engine is clearly strong and specific, even if outcomes evidence or the secondary scale engine is weak. This is appropriate for private companies with credible estimated revenue/run-rate and paid-customer scale, but missing internal operating metrics.
-- 60–69: Medium PMF/scale. Use when one scale engine is credible but incomplete, or when several moderate signals point in the right direction.
-- 40–59: Weak-to-moderate PMF/scale. Use when there are interesting signals but no clearly proven scale engine.
-- 0–39: Weak PMF/scale. No clear commercial traction, distribution durability, or outcomes/product-value proof.
+- 90-100: Very strong PMF/scale. Requires multiple strong signals, such as strong commercial traction plus strong institutional distribution, or one exceptional scale engine plus strong outcomes/product-value evidence.
+- 80-89: Strong PMF/scale. Use when there is one strong scale engine plus meaningful supporting evidence from outcomes, retention/engagement, secondary distribution, customer growth, pricing power, renewal, or repeat usage.
+- 70-79: Strong but incomplete PMF/scale. Use when one scale engine is clearly strong and specific, even if outcomes evidence or the secondary scale engine is weak. This is appropriate for private companies with credible estimated revenue/run-rate and paid-customer scale, but missing internal operating metrics.
+- 60-69: Medium PMF/scale. Use when one scale engine is credible but incomplete, or when several moderate signals point in the right direction.
+- 40-59: Weak-to-moderate PMF/scale. Use when there are interesting signals but no clearly proven scale engine.
+- 0-39: Weak PMF/scale. No clear commercial traction, distribution durability, or outcomes/product-value proof.
 
 PMF / scale guardrails:
 - Do not score above 80 based only on funding, valuation, brand awareness, celebrity buzz, waitlist, downloads, pricing pages, or vague “fast-growing” claims.
@@ -362,6 +365,18 @@ plausible_near_term_scale_path:
 - Use true only when the company has a credible path to near-term scale through either commercial traction, institutional distribution, or strong outcomes plus a believable commercial/institutional channel.
 - Use false when the company is interesting but public evidence does not show a clear path from product value to scalable adoption/revenue.
 
+Native priority model:
+- P0: Highest-priority target
+  Use only for the clearest active-pursuit companies. Requires very strong thesis fit, strong PMF/scale, strong role fit, strong operator timing, and either multiple independently strong scale/value signals OR one exceptional scale engine with strong supporting evidence. P0 should be rare.
+- P1: Near-priority target
+  Use for former P1-border companies: companies that are differentiated from ordinary P2s and may become active targets after a small amount of diligence, but are not as clean as P0. These usually have strong thesis/role/timing fit and credible scale, but have a meaningful gap, caveat, or missing pillar.
+- P2: Worth deeper diligence
+  Use when the company clears the P2 priority gate but still has evidence gaps, timing ambiguity, role-fit questions, missing internal metrics, or one major missing pillar.
+- P3: Watch list
+  Use when the company has some fit or interesting signals, but does not clear the P2 priority gate because scale, evidence, role fit, or timing is not strong enough yet.
+- P4: Low priority / likely reject
+  Use when the company does not currently fit the thesis, has weak scale path, weak role fit, poor timing, or no compelling evidence of relevance.
+
 Priority gate:
 - P2 requires at least one real reason to believe the company has scale or near-term scale potential.
 - P2 should usually require one of:
@@ -369,6 +384,8 @@ Priority gate:
   2. commercial_scale_signal = "strong" with evidence_confidence_score >= 50;
   3. institutional_distribution_signal = "strong" with evidence_confidence_score >= 50;
   4. outcomes_signal = "strong" AND plausible_near_term_scale_path = true AND evidence_confidence_score >= 55.
+- P1 should require the P2 gate PLUS strong thesis fit, role fit, and timing, with at least one strong scale engine or a strong outcomes-plus-scale path. P1 is not just a better P2; it is a near-active target.
+- P0 should require P1-level fit PLUS a cleaner active-pursuit case: high PMF/scale, sufficient evidence confidence, and multiple strong scale/value signals or one exceptional scale engine.
 - Strong Katelynd role fit should not override weak PMF/scale evidence.
 - If pmf_scale_score is below 70 and both commercial traction and institutional distribution are weak/none, default to P3 even if thesis_fit_score or katelynd_role_fit_score is high.
 - If evidence_confidence_score is below 50 and pmf_scale_score is below 70, default to P3 unless there is a very clear reason to keep P2.
@@ -384,7 +401,7 @@ Revenue quality / commercial traction examples:
 - pricing power
 - scalable margin structure
 - CAC efficiency or organic demand
-- implied annualized revenue from customer count × pricing, if direct ARR is unavailable
+- implied annualized revenue from customer count x pricing, if direct ARR is unavailable
 
 Institutional distribution examples:
 - payer coverage or contracts
@@ -407,43 +424,21 @@ Outcomes / product-value examples:
 Scoring definitions:
 1. thesis_fit_score
    Measures strategic alignment with Katelynd's thesis: health tech, meaningful outcomes, recurring engagement, data-rich product, credible scale path, and likely need for operator/product leadership.
-   High = very aligned with target thesis.
-   Low = interesting company but not aligned with current job-search strategy.
 
 2. pmf_scale_score
    Measures whether the company has credible product-market fit and scale potential.
    Use the scale-engine logic above. Strong commercial traction OR strong institutional distribution can each independently support a meaningful PMF/scale score.
-   High = at least one strong scale engine, with enough supporting evidence to believe growth is real and durable.
-   Medium = one credible but incomplete scale engine, or several moderate traction signals.
-   Low = no clear revenue engine, no durable distribution, and weak outcomes/value proof.
    Do not punish private companies simply because internal metrics like churn, CAC, renewal, gross margin, or cohort retention are not public. Treat those as diligence gaps and evidence-confidence caveats.
 
 3. evidence_confidence_score
    Measures how much to trust the public evidence.
-   High = specific, recent, credible, source-backed evidence with hard metrics, preferably company-reported or independently corroborated.
-   Medium = credible but incomplete evidence, third-party estimated revenue, company-reported figures without full context, or missing some key details.
-   Low = vague claims, weak sources, marketing language, outdated data, inconsistent claims, or missing metrics.
    Estimated revenue from sources such as Sacra can support PMF/scale, but should usually keep evidence confidence moderate unless corroborated by company-reported data or multiple credible sources.
 
 4. katelynd_role_fit_score
    Measures whether Katelynd's background fits the company's likely needs.
-   High = likely need for product/operator leadership, data-driven execution, lifecycle systems, complex consumer/product operations, org/process scaling, cross-functional alignment.
-   Low = likely needs are mostly clinical, sales, provider contracting, deep technical ML/infrastructure, or too narrow/too early/too mature for her profile.
 
 5. operator_timing_score
    Measures whether this is the right moment for her kind of operator role.
-   High = post-PMF scaling, channel expansion, operational complexity, executive leadership need, execution cleanup, or professionalizing systems.
-   Low = too early, too mature, too stable, no leadership layer, or not enough product/operator complexity.
-
-Priority definitions:
-- P1: High-priority target
-  Use only when thesis fit, PMF/scale, role fit, and timing are all strong, with enough evidence confidence to support action, and with multiple independently strong scale/value signals.
-- P2: Worth deeper diligence
-  Use when the company clears the P2 priority gate but still has evidence gaps, timing ambiguity, role-fit questions, missing internal metrics, or one major missing pillar.
-- P3: Watch list
-  Use when the company has some fit or interesting signals, but does not clear the P2 priority gate because scale, evidence, role fit, or timing is not strong enough yet.
-- P4: Low priority / likely reject
-  Use when the company does not currently fit the thesis, has weak scale path, weak role fit, poor timing, or no compelling evidence of relevance.
 
 Calibration rules:
 - If a company has strong commercial traction but weak payer/institutional distribution, do not automatically downgrade PMF/scale. Instead, note that the scale path is commercial/D2C rather than institutional.
@@ -451,10 +446,11 @@ Calibration rules:
 - If both commercial traction and institutional distribution are weak, PMF/scale should be low unless outcomes/product-value evidence is exceptional and there is a plausible near-term scale path.
 - If PMF/scale is high but evidence confidence is low, flag it.
 - If a company receives P2 despite moderate evidence or PMF, explain the caveat.
+- If a company receives P1, clearly explain why it is differentiated from ordinary P2s but not clean enough for P0.
+- If a company receives P0, clearly explain the active-pursuit rationale.
 - Strong Katelynd role fit should not override weak PMF/scale evidence.
 - A company should not receive P2 solely because Katelynd could add value there or because the company is thesis-relevant.
-- Do NOT flag possible P1 under-promotion for a company whose main strength is a single estimated commercial scale signal if outcomes evidence, institutional distribution, and direct company-reported revenue/retention evidence are still weak or missing. In that case, use a P2 diligence caveat instead.
-- Possible P1 under-promotion should only be flagged when the company has very strong thesis fit, strong PMF/scale, strong role fit, strong operator timing, and either strong evidence confidence OR multiple independently strong scale/value signals.
+- Do NOT flag possible P0/P1 under-promotion for a company whose main strength is a single estimated commercial scale signal if outcomes evidence, institutional distribution, and direct company-reported revenue/retention evidence are still weak or missing. In that case, use a P2 diligence caveat instead.
 
 Return ONLY valid JSON. No markdown. No commentary outside JSON.
 
@@ -486,7 +482,7 @@ Use this JSON schema exactly:
     "strong_scale_engine_present": true,
     "scale_engine_type": "commercial / institutional / both / outcomes_plus_scale_path / none",
     "plausible_near_term_scale_path": true,
-    "priority_gate_preliminary_result": "qualifies_for_p2 / does_not_qualify_for_p2",
+    "priority_gate_preliminary_result": "qualifies_for_p0 / qualifies_for_p1 / qualifies_for_p2 / does_not_qualify_for_p2",
     "priority_gate_reason": "short explanation"
   }},
   "scores": {{
@@ -511,8 +507,8 @@ Use this JSON schema exactly:
       "rationale": "why"
     }}
   }},
-  "final_recommendation": "Strong fit, pending diligence / Possible fit, pending diligence / Watch list / Weak fit",
-  "priority_level": "P1: High-priority target / P2: Worth deeper diligence / P3: Watch list / P4: Low priority / likely reject",
+  "final_recommendation": "Strong fit, active pursuit / Strong fit, near-priority diligence / Possible fit, pending diligence / Watch list / Weak fit",
+  "priority_level": "P0: Highest-priority target / P1: Near-priority target / P2: Worth deeper diligence / P3: Watch list / P4: Low priority / likely reject",
   "calibration_flag": "short flag if needed, otherwise blank string",
   "final_takeaway": "1-3 sentence concise conclusion"
 }}
@@ -1831,20 +1827,21 @@ summary_df[display_cols]
 
 # - Update fit_brief_json, checkpoint, and archive rows in place
 
-# 10B - Deterministic priority adjudication
+# =============================================================================
+# STEP 10A - Deterministic priority adjudication
+# =============================================================================
 # Purpose:
-# - Enforce strategic priority rules after LLM scoring
-# - Prevent role fit / thesis interest from incorrectly promoting weak-scale companies to P2
+# - Enforce hard priority rules after LLM scoring
+# - Use native P0/P1/P2/P3/P4 priority labels
+# - Prevent role fit / thesis interest from incorrectly promoting weak-scale companies
 # - Treat incorrect outputs as decision-logic calibration data
-# - Updates fit_brief_json in df, checkpoint, and current batch raw/archive rows
-#
-# Run after Step 10 and before Step 10A.
+# - Update fit_brief_json in df, checkpoint, and current batch raw/archive rows
 #
 # Required flow:
 # 1. Run Step 10
-# 2. Run this 10B cell
+# 2. Run this Step 10A cell
 # 3. Rerun Step 10
-# 4. Run Step 10A
+# 4. Run Step 10B
 
 import json
 import re
@@ -1965,11 +1962,58 @@ def append_flag(existing, new_flag):
 
     return existing + " | " + new_flag
 
+def priority_code(value):
+    text = str(value or "").upper()
+    match = re.search(r"\bP[0-4]\b", text)
+    return match.group(0) if match else ""
+
+def normalize_priority_label(value):
+    text = str(value or "").strip()
+    lower = text.lower()
+
+    if lower.startswith("p0") or "highest-priority" in lower or "highest priority" in lower:
+        return "P0: Highest-priority target"
+
+    if (
+        lower.startswith("p1: near-priority")
+        or lower.startswith("p1: near priority")
+        or "near-priority" in lower
+        or "near priority" in lower
+        or "p1-border" in lower
+        or "p1 border" in lower
+        or "strong p2" in lower
+    ):
+        return "P1: Near-priority target"
+
+    # Backward compatibility: old P1 means new P0.
+    if lower.startswith("p1: high-priority") or lower.startswith("p1: high priority"):
+        return "P0: Highest-priority target"
+
+    if lower.startswith("p2") or "review p2" in lower or "worth deeper diligence" in lower:
+        return "P2: Worth deeper diligence"
+
+    if lower.startswith("p3") or "watch list" in lower or "watchlist" in lower:
+        return "P3: Watch list"
+
+    if lower.startswith("p4") or "low priority" in lower or "likely reject" in lower or "reject" in lower:
+        return "P4: Low priority / likely reject"
+
+    return text
+
+def recommendation_for_priority(priority_level):
+    code = priority_code(priority_level)
+
+    return {
+        "P0": "Strong fit, active pursuit",
+        "P1": "Strong fit, near-priority diligence",
+        "P2": "Possible fit, pending diligence",
+        "P3": "Watch list",
+        "P4": "Weak fit"
+    }.get(code, "Watch list")
+
 # -----------------------------
 # Signal inference helpers
 # -----------------------------
-# These use Step 5's explicit scale_signal_assessment fields when present.
-# Fallback text inference is included for older rows or malformed JSON.
 
 def get_scale_assessment(parsed):
     scale_assessment = parsed.get("scale_signal_assessment", {})
@@ -1981,7 +2025,6 @@ def get_scale_assessment(parsed):
 
 def infer_commercial_signal(row, parsed):
     scale_assessment = get_scale_assessment(parsed)
-
     explicit = normalize_signal(scale_assessment.get("commercial_scale_signal", ""))
 
     if explicit in ["strong", "moderate", "weak", "none"] and str(scale_assessment.get("commercial_scale_signal", "")).strip():
@@ -1993,7 +2036,6 @@ def infer_commercial_signal(row, parsed):
         str(parsed.get("pmf_scale_assessment", "")),
     ]).lower()
 
-    # Check weak/negative markers first to avoid false positives from phrases like "no strong commercial scale evidence."
     weak_markers = [
         "weak public commercial",
         "weak commercial",
@@ -2023,15 +2065,16 @@ def infer_commercial_signal(row, parsed):
         "500m/year",
         "paid-member scale",
         "paid-user scale",
-        "2m paying",
-        "200,000 subscribers",
-        "200k subscribers",
-        "1.5m subscribers",
-        "5m paid members",
-        "80% first-year renewal",
+        "paying members",
+        "paying subscribers",
+        "subscribers",
         "first-year renewal",
         "substantial paid-user scale",
-        "meaningful paid-customer scale"
+        "meaningful paid-customer scale",
+        "credible estimated revenue",
+        "estimated revenue",
+        "revenue run-rate",
+        "arr"
     ]
 
     moderate_markers = [
@@ -2060,7 +2103,6 @@ def infer_commercial_signal(row, parsed):
 
 def infer_institutional_signal(row, parsed):
     scale_assessment = get_scale_assessment(parsed)
-
     explicit = normalize_signal(scale_assessment.get("institutional_distribution_signal", ""))
 
     if explicit in ["strong", "moderate", "weak", "none"] and str(scale_assessment.get("institutional_distribution_signal", "")).strip():
@@ -2089,18 +2131,18 @@ def infer_institutional_signal(row, parsed):
 
     strong_markers = [
         "strong institutional",
-        "partners with 5 of the top 20 health plans",
-        "5 of the top 20 health plans",
-        "top health plans and employers",
+        "top health plans",
+        "health plans and employers",
         "employer/health-plan",
         "employers/health plans",
-        "health plans and employers",
-        "1,000+ enterprise clients",
         "covered lives",
         "health-plan channels",
-        "1,400+ employer customers",
-        "6m+ lives",
-        "2,000+ employers"
+        "enterprise clients",
+        "employer customers",
+        "lives covered",
+        "payer contracts",
+        "provider network",
+        "health system"
     ]
 
     moderate_markers = [
@@ -2130,7 +2172,6 @@ def infer_institutional_signal(row, parsed):
 
 def infer_outcomes_signal(row, parsed):
     scale_assessment = get_scale_assessment(parsed)
-
     explicit = normalize_signal(scale_assessment.get("outcomes_signal", ""))
 
     if explicit in ["strong", "moderate", "weak", "none"] and str(scale_assessment.get("outcomes_signal", "")).strip():
@@ -2161,7 +2202,9 @@ def infer_outcomes_signal(row, parsed):
         "claims-based study",
         "clinical efficacy",
         "real-world evidence",
-        "health improvement"
+        "health improvement",
+        "reduced costs",
+        "improved outcomes"
     ]
 
     moderate_markers = [
@@ -2214,9 +2257,6 @@ for idx, row in df.iterrows():
         default=False
     )
 
-    # Conservative fallback:
-    # A plausible scale path should generally require a strong scale engine
-    # or strong outcomes plus at least a moderate scale route.
     if not plausible_near_term_scale_path:
         plausible_near_term_scale_path = (
             commercial_signal == "strong" or
@@ -2253,86 +2293,125 @@ for idx, row in df.iterrows():
         outcomes_plus_scale_path_gate
     )
 
-    original_priority = str(parsed.get("priority_level", "")).strip()
-    original_recommendation = str(parsed.get("final_recommendation", "")).strip()
-    original_flag = str(parsed.get("calibration_flag", "") or "").strip()
+    strong_signal_count = sum([
+        commercial_signal == "strong",
+        institutional_signal == "strong",
+        outcomes_signal == "strong"
+    ])
 
-    adjudicated_priority = original_priority
-    adjudicated_recommendation = original_recommendation
-    adjudicated_flag = original_flag
-    adjudication_action = "kept"
+    moderate_or_strong_signal_count = sum([
+        commercial_signal in ["moderate", "strong"],
+        institutional_signal in ["moderate", "strong"],
+        outcomes_signal in ["moderate", "strong"]
+    ])
 
-    # Conservative P1 gate:
-    # This cell does not auto-promote to P1.
-    # It only downgrades unsupported P1 or flags possible P1 candidates for human review.
     qualifies_for_p1 = (
+        qualifies_for_p2 and
         thesis >= 85 and
-        pmf >= 82 and
-        evidence >= 60 and
-        role_fit >= 80 and
-        timing >= 80 and
+        pmf >= 74 and
+        evidence >= 55 and
+        role_fit >= 78 and
+        timing >= 72 and
         (
-            (commercial_signal == "strong" and institutional_signal in ["moderate", "strong"]) or
-            (commercial_signal == "strong" and outcomes_signal in ["moderate", "strong"]) or
-            (institutional_signal == "strong" and outcomes_signal in ["moderate", "strong"])
+            strong_signal_count >= 1 or
+            moderate_or_strong_signal_count >= 2
         )
     )
 
-    if original_priority.startswith("P1") and not qualifies_for_p1:
-        if qualifies_for_p2:
-            adjudicated_priority = "P2: Worth deeper diligence"
-            adjudicated_recommendation = "Possible fit, pending diligence"
-        else:
-            adjudicated_priority = "P3: Watch list"
-            adjudicated_recommendation = "Watch list"
-
-        adjudicated_flag = append_flag(
-            adjudicated_flag,
-            "Deterministic gate: P1 requires strong PMF, evidence, role fit, timing, and multiple scale/value signals."
-        )
-        adjudication_action = "downgraded_from_P1"
-
-    elif original_priority.startswith("P2") and not qualifies_for_p2:
-        adjudicated_priority = "P3: Watch list"
-        adjudicated_recommendation = "Watch list"
-        adjudicated_flag = append_flag(
-            adjudicated_flag,
-            "Deterministic gate: downgraded to P3 because P2 requires a strong scale engine or strong outcomes plus a credible scale path."
-        )
-        adjudication_action = "downgraded_from_P2"
-
-    elif original_priority.startswith("P3") and qualifies_for_p2:
-        # Conservative auto-upgrade only when there is a strong scale engine.
-        if commercial_strong_gate or institutional_strong_gate:
-            adjudicated_priority = "P2: Worth deeper diligence"
-            adjudicated_recommendation = "Possible fit, pending diligence"
-            adjudicated_flag = append_flag(
-                adjudicated_flag,
-                "Deterministic gate: upgraded to P2 due to strong scale engine."
+    qualifies_for_p0 = (
+        qualifies_for_p1 and
+        thesis >= 88 and
+        pmf >= 82 and
+        evidence >= 75 and
+        role_fit >= 80 and
+        timing >= 78 and
+        (
+            strong_signal_count >= 3 or
+            (
+                institutional_signal == "strong" and
+                outcomes_signal in ["moderate", "strong"] and
+                commercial_signal in ["moderate", "strong"]
+            ) or
+            (
+                commercial_signal == "strong" and
+                institutional_signal == "strong"
             )
-            adjudication_action = "upgraded_from_P3_to_P2"
+        )
+    )
 
-    elif original_priority.startswith("P2") and qualifies_for_p1:
-        # Do not auto-promote; just flag.
+
+    qualifies_for_p4 = (
+        not qualifies_for_p2 and
+        (
+            thesis < 55 or
+            pmf < 45 or
+            role_fit < 55 or
+            timing < 55
+        ) and
+        commercial_signal in ["weak", "none"] and
+        institutional_signal in ["weak", "none"]
+    )
+
+    original_priority = normalize_priority_label(parsed.get("priority_level", ""))
+    original_flag = str(parsed.get("calibration_flag", "") or "").strip()
+
+    if qualifies_for_p0:
+        adjudicated_priority = "P0: Highest-priority target"
+        adjudication_action = "assigned_P0"
+
+    elif qualifies_for_p1:
+        adjudicated_priority = "P1: Near-priority target"
+        adjudication_action = "assigned_P1"
+
+    elif qualifies_for_p2:
+        adjudicated_priority = "P2: Worth deeper diligence"
+        adjudication_action = "assigned_P2"
+
+    elif qualifies_for_p4:
+        adjudicated_priority = "P4: Low priority / likely reject"
+        adjudication_action = "assigned_P4"
+
+    else:
+        adjudicated_priority = "P3: Watch list"
+        adjudication_action = "assigned_P3"
+
+    adjudicated_recommendation = recommendation_for_priority(adjudicated_priority)
+    adjudicated_flag = original_flag
+
+    if original_priority != "" and original_priority != adjudicated_priority:
         adjudicated_flag = append_flag(
             adjudicated_flag,
-            "Deterministic gate: possible P1 diligence candidate, but requires human review."
+            f"Deterministic gate: reassigned from {original_priority} to {adjudicated_priority}."
         )
-        adjudication_action = "kept_P2_possible_P1_flag"
 
-    # Add machine-readable adjudication metadata
+    if adjudicated_priority.startswith("P1"):
+        adjudicated_flag = append_flag(
+            adjudicated_flag,
+            "Deterministic gate: P1 indicates near-priority / former P1-border; validate before active pursuit."
+        )
+
+    if adjudicated_priority.startswith("P2") and (evidence < 65 or pmf < 70):
+        adjudicated_flag = append_flag(
+            adjudicated_flag,
+            "Deterministic gate: P2 has moderate evidence and/or PMF; diligence required."
+        )
+
     parsed["priority_adjudication"] = {
-        "decision_logic_version": "scale_engine_gate_v1",
+        "decision_logic_version": "p0_p4_scale_engine_gate_v2",
         "commercial_scale_signal": commercial_signal,
         "institutional_distribution_signal": institutional_signal,
         "outcomes_signal": outcomes_signal,
         "plausible_near_term_scale_path": plausible_near_term_scale_path,
+        "strong_signal_count": strong_signal_count,
+        "moderate_or_strong_signal_count": moderate_or_strong_signal_count,
         "score_qualifies_for_p2": score_qualifies_for_p2,
         "commercial_strong_gate": commercial_strong_gate,
         "institutional_strong_gate": institutional_strong_gate,
         "outcomes_plus_scale_path_gate": outcomes_plus_scale_path_gate,
         "qualifies_for_p2": qualifies_for_p2,
         "qualifies_for_p1": qualifies_for_p1,
+        "qualifies_for_p0": qualifies_for_p0,
+        "qualifies_for_p4": qualifies_for_p4,
         "original_priority_level": original_priority,
         "adjudicated_priority_level": adjudicated_priority,
         "adjudication_action": adjudication_action
@@ -2342,10 +2421,16 @@ for idx, row in df.iterrows():
     parsed["final_recommendation"] = adjudicated_recommendation
     parsed["calibration_flag"] = adjudicated_flag
 
-    if adjudication_action == "downgraded_from_P2":
+    if adjudicated_priority.startswith("P3"):
         parsed["final_takeaway"] = (
             f"{company} remains strategically interesting, but the current public evidence does not clear the P2 priority gate. "
             "Keep on watch list until stronger commercial traction, institutional distribution, or outcomes-plus-scale evidence emerges."
+        )
+
+    elif adjudicated_priority.startswith("P4"):
+        parsed["final_takeaway"] = (
+            f"{company} does not currently clear the job-search priority gate based on available evidence. "
+            "Revisit only if stronger scale, outcomes, or role-fit evidence emerges."
         )
 
     df.loc[idx, "fit_brief_json"] = json.dumps(parsed, indent=2, ensure_ascii=False)
@@ -2361,12 +2446,16 @@ for idx, row in df.iterrows():
         "institutional_distribution_signal": institutional_signal,
         "outcomes_signal": outcomes_signal,
         "plausible_near_term_scale_path": plausible_near_term_scale_path,
+        "strong_signal_count": strong_signal_count,
+        "moderate_or_strong_signal_count": moderate_or_strong_signal_count,
         "score_qualifies_for_p2": score_qualifies_for_p2,
         "commercial_strong_gate": commercial_strong_gate,
         "institutional_strong_gate": institutional_strong_gate,
         "outcomes_plus_scale_path_gate": outcomes_plus_scale_path_gate,
         "qualifies_for_p2": qualifies_for_p2,
         "qualifies_for_p1": qualifies_for_p1,
+        "qualifies_for_p0": qualifies_for_p0,
+        "qualifies_for_p4": qualifies_for_p4,
         "original_priority": original_priority,
         "adjudicated_priority": adjudicated_priority,
         "adjudication_action": adjudication_action
@@ -2397,9 +2486,6 @@ display(adjudication_df)
 # -----------------------------
 # Update already-written raw/archive rows in place
 # -----------------------------
-# Important:
-# If 8A already appended this batch, do NOT rerun 8A just to capture adjudicated JSON.
-# This updates the existing archive/current-batch rows for this batch.
 
 drive_folder = Path("/content/drive/MyDrive/Job Search/Health Tech Research")
 drive_batches_folder = drive_folder / "research_batches"
@@ -2449,7 +2535,8 @@ print("\nUpdated archive/current-batch files:")
 for path in updated_files:
     print("-", path)
 
-print("\nNext: rerun Step 10, then Step 10A.")
+print("\nNext: rerun Step 10, then Step 10B.")
+
 
 # =============================================================================
 
