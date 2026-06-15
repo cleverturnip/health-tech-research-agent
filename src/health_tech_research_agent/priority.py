@@ -147,28 +147,41 @@ def priority_rank(value: Any) -> int:
     }.get(code, 99)
 
 
-def determine_priority_source(row: pd.Series) -> str:
+def determine_priority_source(row):
     """
-    Determine whether the final priority comes from automation or human review.
+    Determine whether final priority came from model/adjudication or human review.
 
-    Human Reviewed only means:
-    - reviewed priority differs from automated priority; OR
-    - a priority review note is present.
+    A row is Human Reviewed when:
+    - review_status explicitly says reviewed / human reviewed / approved, or
+    - reviewed_priority_level differs from priority_level.
 
-    A populated reviewed_priority_level that equals priority_level is not enough
-    to mark the row as Human Reviewed.
+    This lets humans affirm the model priority without being incorrectly shown
+    as Auto Adjudicated.
     """
-    auto_priority = normalize_priority_level(row.get("priority_level", ""))
-    reviewed_priority = normalize_priority_level(row.get("reviewed_priority_level", ""))
-    review_note = safe_text(row.get("priority_review_note", ""))
+    review_status = safe_text(row.get("review_status", "")).lower()
 
-    if reviewed_priority == "":
-        return "Auto Adjudicated"
+    human_review_markers = [
+        "human reviewed",
+        "reviewed",
+        "approved",
+        "manually reviewed",
+    ]
 
-    if reviewed_priority != auto_priority:
+    needs_review_markers = [
+        "needs review",
+        "new batch",
+        "existing company",
+    ]
+
+    if any(marker in review_status for marker in human_review_markers) and not any(
+        marker in review_status for marker in needs_review_markers
+    ):
         return "Human Reviewed"
 
-    if review_note != "":
+    reviewed = normalize_priority_level(row.get("reviewed_priority_level", ""))
+    model = normalize_priority_level(row.get("priority_level", ""))
+
+    if reviewed and model and reviewed != model:
         return "Human Reviewed"
 
     return "Auto Adjudicated"

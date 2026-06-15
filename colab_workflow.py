@@ -1514,6 +1514,28 @@ def safe_text(value):
         return ""
     return str(value).strip()
 
+# -----------------------------
+# Company identity normalization
+# -----------------------------
+# Prevent duplicate rows when the same company appears under a variant name.
+# Keep this intentionally conservative; only add aliases when we are confident.
+
+COMPANY_ALIASES = {
+    "fay nutrition": "Fay",
+}
+
+def normalize_company_key(value):
+    text = safe_text(value).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+def canonical_company_name(value):
+    original = safe_text(value)
+    if original == "":
+        return original
+    return COMPANY_ALIASES.get(normalize_company_key(original), original)
+
 def as_number(value):
     try:
         return float(value)
@@ -3173,6 +3195,7 @@ print("NOTE: commercial_scale_finding blanks are warnings for older archived row
 import pandas as pd
 import numpy as np
 import shutil
+import re
 from pathlib import Path
 from datetime import datetime
 from google.colab import drive, files
@@ -3309,9 +3332,49 @@ for col in ["company"] + model_cols_to_update + review_cols:
 # Ensure summary has review columns
 batch_df = summary_df.copy()
 
+# Canonicalize company names before matching batch rows to master rows.
+# This prevents aliases like "Fay Nutrition" from creating duplicate companies.
+master_df["company"] = master_df["company"].apply(canonical_company_name)
+batch_df["company"] = batch_df["company"].apply(canonical_company_name)
+
+duplicate_master_companies = (
+    master_df.loc[master_df["company"].duplicated(keep=False), "company"]
+    .dropna()
+    .astype(str)
+    .unique()
+    .tolist()
+)
+
+if duplicate_master_companies:
+    raise ValueError(
+        "STOP: Duplicate canonical companies found in master before Step 12 update: "
+        + ", ".join(sorted(duplicate_master_companies))
+        + ". Run the cleanup repair cell first."
+    )
+
+duplicate_batch_companies = (
+    batch_df.loc[batch_df["company"].duplicated(keep=False), "company"]
+    .dropna()
+    .astype(str)
+    .unique()
+    .tolist()
+)
+
+if duplicate_batch_companies:
+    raise ValueError(
+        "STOP: Duplicate canonical companies found in current batch: "
+        + ", ".join(sorted(duplicate_batch_companies))
+    )
+
 for col in review_cols:
     if col not in batch_df.columns:
         batch_df[col] = ""
+
+# Keep review fields text-safe after CSV loads.
+# Some blank CSV columns can be inferred as float64 by pandas.
+for col in review_cols:
+    master_df[col] = master_df[col].astype("object").fillna("")
+    batch_df[col] = batch_df[col].astype("object").fillna("")
 
 # Clean calibration flags
 if "calibration_flag" in master_df.columns:
@@ -3965,9 +4028,12 @@ market_map_df["reviewed_priority_rank"] = market_map_df["final_priority_rank"]
 segment_map = {
     # Nutrition, metabolic health, obesity, food as medicine
     "nourish": "Nutrition / food as medicine",
+    "fay": "Nutrition / food as medicine",
     "fay nutrition": "Nutrition / food as medicine",
     "berry street": "Nutrition / food as medicine",
+    "season health": "Nutrition / food as medicine",
     "culina health": "Nutrition / food as medicine",
+    "summer health": "Women’s and family health",
     "9amhealth": "Metabolic health / virtual care",
     "noom med": "Metabolic health / obesity care",
     "omada health": "Metabolic health / digital therapeutics",
