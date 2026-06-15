@@ -6890,3 +6890,408 @@ else:
     print("=" * 80)
     print("Stopped before Step 12. Master was not updated.")
     print("Next decision: approve / downgrade / hold each company before master update.")
+
+# =============================================================================
+# STEP 22 - Approved batch to master and dashboard runner
+# =============================================================================
+# Purpose:
+# - Take human review decisions for a completed Step 21 batch.
+# - Apply those decisions to the batch summary export.
+# - Exclude held/skipped companies from master update.
+# - Run Step 12 to update master.
+# - Run Step 20 to refresh the dashboard.
+#
+# Required before running:
+# - batch_name = "completed_batch_name"
+# - batch_review_decisions = {
+#       "Company Name": {
+#           "decision": "approve",  # approve/include OR hold/exclude/skip
+#           "reviewed_priority_level": "P1: Near-priority target",
+#           "review_status": "Human reviewed",
+#           "review_notes": "Why this decision was made.",
+#           "priority_review_note": "Short dashboard-facing note."
+#       }
+#   }
+#
+# Optional before running:
+# - STEP_22_DRY_RUN = True
+
+from pathlib import Path
+from datetime import datetime
+import re
+import sys
+import time
+import traceback
+import pandas as pd
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+WORKFLOW_PATH = REPO_DIR / "colab_workflow.py"
+
+STEP_22_DRY_RUN = bool(globals().get("STEP_22_DRY_RUN", False))
+
+if not WORKFLOW_PATH.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {WORKFLOW_PATH}. "
+        "Run the GitHub setup / pull cell first."
+    )
+
+if not SRC_DIR.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {SRC_DIR}. "
+        "Run the GitHub setup / pull cell first."
+    )
+
+src_path = str(SRC_DIR)
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+def step22_plain_display(obj):
+    if isinstance(obj, pd.DataFrame):
+        print(obj.to_string(index=False))
+    else:
+        print(obj)
+
+display = step22_plain_display
+
+if "batch_name" not in globals():
+    raise NameError(
+        "STOP: batch_name is not defined. "
+        "Set batch_name before running Step 22."
+    )
+
+if "batch_review_decisions" not in globals():
+    raise NameError(
+        "STOP: batch_review_decisions is not defined. "
+        "Set batch_review_decisions before running Step 22."
+    )
+
+if not isinstance(batch_review_decisions, dict) or not batch_review_decisions:
+    raise ValueError("STOP: batch_review_decisions must be a non-empty dict.")
+
+BATCH_NAME = str(batch_name).strip()
+
+research_batches_folder = Path("research_batches")
+research_batches_folder.mkdir(parents=True, exist_ok=True)
+
+batch_checkpoint_path = research_batches_folder / f"{BATCH_NAME}_checkpoint.csv"
+batch_raw_export_path = research_batches_folder / f"{BATCH_NAME}_raw.csv"
+batch_summary_export_path = research_batches_folder / f"{BATCH_NAME}_summary.csv"
+batch_review_packet_path = research_batches_folder / f"{BATCH_NAME}_human_review_packet.csv"
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+batch_summary_before_step22_path = (
+    research_batches_folder / f"{BATCH_NAME}_summary_before_step22_{timestamp}.csv"
+)
+
+batch_summary_excluded_path = (
+    research_batches_folder / f"{BATCH_NAME}_excluded_by_step22_{timestamp}.csv"
+)
+
+print("STEP 22 - APPROVED BATCH TO MASTER + DASHBOARD RUNNER")
+print("=" * 80)
+print("BATCH_NAME:", BATCH_NAME)
+print("DRY RUN:", STEP_22_DRY_RUN)
+print("batch_summary_export_path:", batch_summary_export_path)
+print("batch_summary_before_step22_path:", batch_summary_before_step22_path)
+print("batch_summary_excluded_path:", batch_summary_excluded_path)
+
+if not batch_summary_export_path.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find batch summary export: {batch_summary_export_path}. "
+        "Run Step 21 first, or make sure you are in the same Colab runtime."
+    )
+
+original_summary_df = pd.read_csv(batch_summary_export_path)
+summary_df = original_summary_df.copy()
+
+if "company" not in summary_df.columns:
+    raise ValueError("STOP: batch summary is missing company column.")
+
+print("")
+print("Loaded batch summary.")
+print("summary_df shape:", summary_df.shape)
+print("companies:")
+for company in summary_df["company"].tolist():
+    print("-", company)
+
+# -----------------------------
+# Decision matching helpers
+# -----------------------------
+
+COMPANY_ALIASES = {
+    "fay nutrition": "fay",
+}
+
+def step22_safe_text(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+def step22_normalize_company_key(value):
+    text = step22_safe_text(value).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return COMPANY_ALIASES.get(text, text)
+
+decision_by_key = {}
+
+for company_name, decision in batch_review_decisions.items():
+    if not isinstance(decision, dict):
+        raise ValueError(f"STOP: decision for {company_name} must be a dict.")
+
+    key = step22_normalize_company_key(company_name)
+
+    if key in decision_by_key:
+        raise ValueError(f"STOP: duplicate decision key after normalization: {company_name}")
+
+    decision_by_key[key] = decision
+
+summary_df["_step22_company_key"] = summary_df["company"].apply(step22_normalize_company_key)
+
+summary_keys = set(summary_df["_step22_company_key"].tolist())
+decision_keys = set(decision_by_key.keys())
+
+missing_decisions = sorted(summary_keys - decision_keys)
+extra_decisions = sorted(decision_keys - summary_keys)
+
+if missing_decisions:
+    missing_companies = summary_df[
+        summary_df["_step22_company_key"].isin(missing_decisions)
+    ]["company"].tolist()
+
+    raise ValueError(
+        "STOP: Missing review decisions for batch companies: "
+        + ", ".join(missing_companies)
+    )
+
+if extra_decisions:
+    print("")
+    print("WARNING: Review decisions were provided for companies not in the batch:")
+    for key in extra_decisions:
+        print("-", key)
+
+# -----------------------------
+# Apply decisions
+# -----------------------------
+
+for col in [
+    "reviewed_priority_level",
+    "review_status",
+    "review_notes",
+    "priority_review_note",
+    "reviewed_priority_code",
+]:
+    if col not in summary_df.columns:
+        summary_df[col] = ""
+
+approved_rows = []
+excluded_rows = []
+
+for _, row in summary_df.iterrows():
+    company = row["company"]
+    key = row["_step22_company_key"]
+    decision = decision_by_key[key]
+
+    action = step22_safe_text(decision.get("decision", "approve")).lower()
+
+    if action in ["hold", "exclude", "skip", "do not add", "do_not_add"]:
+        excluded_row = row.copy()
+        excluded_row["step22_decision"] = action
+        excluded_row["step22_exclusion_reason"] = step22_safe_text(
+            decision.get("reason", decision.get("review_notes", "Held from master update."))
+        )
+        excluded_rows.append(excluded_row)
+        continue
+
+    if action not in ["approve", "include", "update", "add"]:
+        raise ValueError(
+            f"STOP: unsupported decision '{action}' for {company}. "
+            "Use approve/include/update/add or hold/exclude/skip."
+        )
+
+    reviewed_priority_level = step22_safe_text(decision.get("reviewed_priority_level", ""))
+
+    if reviewed_priority_level == "":
+        raise ValueError(f"STOP: approved company {company} is missing reviewed_priority_level.")
+
+    review_status = step22_safe_text(decision.get("review_status", "Human reviewed"))
+
+    review_notes = step22_safe_text(decision.get("review_notes", ""))
+    priority_review_note = step22_safe_text(decision.get("priority_review_note", ""))
+
+    if review_notes == "":
+        raise ValueError(f"STOP: approved company {company} is missing review_notes.")
+
+    if priority_review_note == "":
+        priority_review_note = review_notes
+
+    priority_code_match = re.search(r"\bP[0-4]\b", reviewed_priority_level)
+    reviewed_priority_code = priority_code_match.group(0) if priority_code_match else ""
+
+    updated_row = row.copy()
+    updated_row["reviewed_priority_level"] = reviewed_priority_level
+    updated_row["review_status"] = review_status
+    updated_row["review_notes"] = review_notes
+    updated_row["priority_review_note"] = priority_review_note
+    updated_row["reviewed_priority_code"] = reviewed_priority_code
+    updated_row["step22_decision"] = action
+
+    approved_rows.append(updated_row)
+
+approved_df = pd.DataFrame(approved_rows)
+excluded_df = pd.DataFrame(excluded_rows)
+
+if not approved_df.empty and "_step22_company_key" in approved_df.columns:
+    approved_df = approved_df.drop(columns=["_step22_company_key"])
+
+if not excluded_df.empty and "_step22_company_key" in excluded_df.columns:
+    excluded_df = excluded_df.drop(columns=["_step22_company_key"])
+
+print("")
+print("STEP 22 DECISION SUMMARY")
+print("=" * 80)
+print("Approved/include rows:", len(approved_df))
+print("Held/excluded rows:", len(excluded_df))
+
+if not approved_df.empty:
+    print("")
+    print("Approved companies:")
+    print(
+        approved_df[
+            [
+                col for col in [
+                    "company",
+                    "priority_level",
+                    "reviewed_priority_level",
+                    "review_status",
+                    "priority_review_note",
+                ]
+                if col in approved_df.columns
+            ]
+        ].to_string(index=False)
+    )
+
+if not excluded_df.empty:
+    print("")
+    print("Excluded companies:")
+    print(
+        excluded_df[
+            [
+                col for col in [
+                    "company",
+                    "priority_level",
+                    "step22_decision",
+                    "step22_exclusion_reason",
+                ]
+                if col in excluded_df.columns
+            ]
+        ].to_string(index=False)
+    )
+
+if approved_df.empty:
+    raise ValueError("STOP: No approved companies remain for master update.")
+
+# -----------------------------
+# Step extraction runner
+# -----------------------------
+
+workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+marker_pattern = re.compile(
+    r"(?m)^#\s*STEP\s+([0-9]+[A-Z]?)\b.*$"
+)
+
+markers = list(marker_pattern.finditer(workflow_text))
+
+def step22_extract_step_code(step_id):
+    candidate_blocks = []
+
+    for idx, marker in enumerate(markers):
+        marker_step_id = marker.group(1)
+
+        if marker_step_id != step_id:
+            continue
+
+        start = marker.start()
+        end = len(workflow_text)
+
+        for next_marker in markers[idx + 1:]:
+            next_step_id = next_marker.group(1)
+            if next_step_id != step_id:
+                end = next_marker.start()
+                break
+
+        candidate_blocks.append(workflow_text[start:end].strip())
+
+    if not candidate_blocks:
+        raise ValueError(f"STOP: Could not find Step {step_id} in {WORKFLOW_PATH}.")
+
+    return max(candidate_blocks, key=len)
+
+def step22_run_workflow_step(step_id):
+    print("")
+    print("=" * 80)
+    print(f"RUNNING STEP {step_id}")
+    print("=" * 80)
+
+    step_code = step22_extract_step_code(step_id)
+    print(f"Step {step_id} block length:", len(step_code))
+
+    start_time = time.time()
+
+    try:
+        exec(
+            compile(step_code, f"colab_workflow.py::STEP_{step_id}_FROM_STEP_22", "exec"),
+            globals(),
+            globals(),
+        )
+    except Exception:
+        print(f"FAILED: Step {step_id} stopped.")
+        traceback.print_exc()
+        raise
+
+    elapsed = time.time() - start_time
+    print(f"PASS: Step {step_id} completed in {elapsed:.1f} seconds.")
+
+print("")
+print("Step extraction check:")
+for step_id in ["12", "20"]:
+    step_code = step22_extract_step_code(step_id)
+    print(f"- Step {step_id}: {len(step_code):,} chars")
+
+if STEP_22_DRY_RUN:
+    print("")
+    print("=" * 80)
+    print("STEP 22 DRY RUN COMPLETE")
+    print("=" * 80)
+    print("No files were overwritten. Master was not updated. Dashboard was not refreshed.")
+else:
+    original_summary_df.to_csv(batch_summary_before_step22_path, index=False)
+
+    if not excluded_df.empty:
+        excluded_df.to_csv(batch_summary_excluded_path, index=False)
+
+    summary_df = approved_df.copy()
+    summary_df.to_csv(batch_summary_export_path, index=False)
+
+    print("")
+    print("Saved approved batch summary for Step 12:")
+    print(batch_summary_export_path)
+
+    if not excluded_df.empty:
+        print("Saved excluded rows:")
+        print(batch_summary_excluded_path)
+
+    step22_run_workflow_step("12")
+    step22_run_workflow_step("20")
+
+    print("")
+    print("=" * 80)
+    print("STEP 22 APPROVED BATCH COMPLETE")
+    print("=" * 80)
+    print("Master was updated and dashboard was refreshed.")
+
+    if "dashboard_workbook_path" in globals():
+        print("dashboard_workbook_path =", dashboard_workbook_path)
