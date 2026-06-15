@@ -1,0 +1,9 @@
+# Dashboard generated outputs
+health_tech_dashboard_export_*.xlsx
+health_tech_market_map_snapshot_*.csv
+health_tech_market_research_summary_MASTER.csv
+
+# Python cache
+__pycache__/
+*.pyc
+src/**/__pycache__/
