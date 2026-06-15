@@ -1,19 +1,16 @@
-from __future__ import annotations
-
 import re
-from typing import Iterable, Sequence
 
 import pandas as pd
 
 from health_tech_research_agent.priority import priority_code, safe_text
 
 
-def existing_cols(df: pd.DataFrame, cols: Sequence[str]) -> list[str]:
+def existing_cols(df, cols):
     """Return only columns that exist in the dataframe."""
     return [col for col in cols if col in df.columns]
 
 
-def normalize_name(value) -> str:
+def normalize_name(value):
     """Normalize company/name text for matching."""
     text = safe_text(value).lower()
     text = re.sub(r"[^a-z0-9]+", " ", text)
@@ -21,7 +18,7 @@ def normalize_name(value) -> str:
     return text
 
 
-def join_unique(values: Iterable, max_items: int = 6) -> str:
+def join_unique(values, max_items=6):
     """Join unique nonblank values while preserving first-seen order."""
     cleaned = []
 
@@ -36,14 +33,7 @@ def join_unique(values: Iterable, max_items: int = 6) -> str:
     return ", ".join(cleaned)
 
 
-def safe_sort(
-    df: pd.DataFrame,
-    sort_cols: Sequence[str],
-    ascending: Sequence_items:
-        return ", ".join(cleaned[:max_items]) + f" + {len(cleaned) - max_items} more"
-
-    return ", ".[bool] | None = None,
-) -> pd.DataFrame:
+def safe_sort(df, sort_cols, ascending=None):
     """Sort by available columns only, preserving dataframe if no sort columns exist."""
     usable_cols = existing_cols(df, sort_cols)
 
@@ -61,12 +51,12 @@ def safe_sort(
     ).copy()
 
 
-def contains_priority(value, codes: Iterable[str]) -> bool:
+def contains_priority(value, codes):
     """Return whether a priority value resolves to one of the supplied P-codes."""
     return priority_code(value) in set(codes)
 
 
-def coverage_status_from_counts(company_count, priority_or_diligence_count) -> str:
+def coverage_status_from_counts(company_count, priority_or_diligence_count):
     """
     Segment coverage logic.
 
@@ -93,7 +83,7 @@ def coverage_status_from_counts(company_count, priority_or_diligence_count) -> s
     return "Sparse / needs more companies"
 
 
-def coverage_status_rank(status) -> int:
+def coverage_status_rank(status):
     """Sort rank for segment coverage status."""
     status_text = safe_text(status).lower()
 
@@ -109,20 +99,14 @@ def coverage_status_rank(status) -> int:
     return 99
 
 
-def companies_needed_for_directional_read(
-    company_count,
-    priority_or_diligence_count,
-) -> int:
+def companies_needed_for_directional_read(company_count, priority_or_diligence_count):
     """Companies/priority count needed to reach directional segment coverage."""
     needed_company_count = max(0, 2 - int(company_count))
     needed_priority_count = max(0, 1 - int(priority_or_diligence_count))
     return max(needed_company_count, needed_priority_count)
 
 
-def companies_needed_for_stronger_read(
-    company_count,
-    priority_or_diligence_count,
-) -> int:
+def companies_needed_for_stronger_read(company_count, priority_or_diligence_count):
     """Companies/priority count needed to reach strong segment coverage."""
     needed_company_count = max(0, 3 - int(company_count))
     needed_priority_count = max(0, 2 - int(priority_or_diligence_count))
