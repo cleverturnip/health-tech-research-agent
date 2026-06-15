@@ -5485,41 +5485,12 @@ except Exception as e:
 # Helpers
 # -----------------------------
 
-def existing_cols(df, cols):
-    return [col for col in cols if col in df.columns]
-
-def safe_sort(df, sort_cols, ascending=None):
-    usable_cols = existing_cols(df, sort_cols)
-
-    if not usable_cols:
-        return df.copy()
-
-    if ascending is None:
-        usable_ascending = [True] * len(usable_cols)
-    else:
-        usable_ascending = ascending[:len(usable_cols)]
-
-    return df.sort_values(
-        by=usable_cols,
-        ascending=usable_ascending
-    ).copy()
-
-def contains_priority(value, codes):
-    code = extract_priority_code(value)
-    return code in codes
-
-def join_unique(values, max_items=6):
-    cleaned = []
-
-    for value in values:
-        text = safe_text(value)
-        if text and text not in cleaned:
-            cleaned.append(text)
-
-    if len(cleaned) > max_items:
-        return ", ".join(cleaned[:max_items]) + f" + {len(cleaned) - max_items} more"
-
-    return ", ".join(cleaned)
+from health_tech_research_agent.dashboard import (
+    existing_cols,
+    safe_sort,
+    contains_priority,
+    join_unique,
+)
 
 # -----------------------------
 # Ensure final priority fields exist
