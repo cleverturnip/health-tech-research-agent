@@ -3795,14 +3795,10 @@ market_map_df = apply_priority_fields(market_map_df)
 # Helpers
 # -----------------------------
 
-def normalize_name(value):
-    text = safe_text(value).lower()
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-def existing_cols(df, cols):
-    return [col for col in cols if col in df.columns]
+from health_tech_research_agent.dashboard import (
+    existing_cols,
+    normalize_name,
+)
 
 # -----------------------------
 # Required fields
@@ -5187,60 +5183,14 @@ coverage_source_df = apply_priority_fields(coverage_source_df)
 # Helpers
 # -----------------------------
 
-def existing_cols(df, cols):
-    return [col for col in cols if col in df.columns]
-
-def join_unique(values, max_items=8):
-    clean_values = []
-
-    for value in values:
-        text = safe_text(value)
-        if text and text not in clean_values:
-            clean_values.append(text)
-
-    if len(clean_values) > max_items:
-        return ", ".join(clean_values[:max_items]) + f", +{len(clean_values) - max_items} more"
-
-    return ", ".join(clean_values)
-
-def coverage_status_from_counts(company_count, priority_or_diligence_count):
-    """
-    Directional coverage logic:
-    - Strong read: at least 3 companies in the segment and at least 2 P0/P1/P2 companies
-    - Directional read: at least 2 companies and at least 1 P0/P1/P2 company
-    - Sparse / needs more companies: anything below that threshold
-    """
-    if company_count >= 3 and priority_or_diligence_count >= 2:
-        return "Strong segment read"
-
-    if company_count >= 2 and priority_or_diligence_count >= 1:
-        return "Directional segment read"
-
-    return "Sparse / needs more companies"
-
-def coverage_status_rank(status):
-    status_text = safe_text(status).lower()
-
-    if status_text == "strong segment read":
-        return 1
-
-    if status_text == "directional segment read":
-        return 2
-
-    if status_text == "sparse / needs more companies":
-        return 3
-
-    return 99
-
-def companies_needed_for_directional_read(company_count, priority_or_diligence_count):
-    needed_company_count = max(0, 2 - int(company_count))
-    needed_priority_count = max(0, 1 - int(priority_or_diligence_count))
-    return max(needed_company_count, needed_priority_count)
-
-def companies_needed_for_stronger_read(company_count, priority_or_diligence_count):
-    needed_company_count = max(0, 3 - int(company_count))
-    needed_priority_count = max(0, 2 - int(priority_or_diligence_count))
-    return max(needed_company_count, needed_priority_count)
+from health_tech_research_agent.dashboard import (
+    existing_cols,
+    join_unique,
+    coverage_status_from_counts,
+    coverage_status_rank,
+    companies_needed_for_directional_read,
+    companies_needed_for_stronger_read,
+)
 
 # -----------------------------
 # Required columns
@@ -5531,41 +5481,12 @@ except Exception as e:
 # Helpers
 # -----------------------------
 
-def existing_cols(df, cols):
-    return [col for col in cols if col in df.columns]
-
-def safe_sort(df, sort_cols, ascending=None):
-    usable_cols = existing_cols(df, sort_cols)
-
-    if not usable_cols:
-        return df.copy()
-
-    if ascending is None:
-        usable_ascending = [True] * len(usable_cols)
-    else:
-        usable_ascending = ascending[:len(usable_cols)]
-
-    return df.sort_values(
-        by=usable_cols,
-        ascending=usable_ascending
-    ).copy()
-
-def contains_priority(value, codes):
-    code = extract_priority_code(value)
-    return code in codes
-
-def join_unique(values, max_items=6):
-    cleaned = []
-
-    for value in values:
-        text = safe_text(value)
-        if text and text not in cleaned:
-            cleaned.append(text)
-
-    if len(cleaned) > max_items:
-        return ", ".join(cleaned[:max_items]) + f" + {len(cleaned) - max_items} more"
-
-    return ", ".join(cleaned)
+from health_tech_research_agent.dashboard import (
+    existing_cols,
+    safe_sort,
+    contains_priority,
+    join_unique,
+)
 
 # -----------------------------
 # Ensure final priority fields exist
