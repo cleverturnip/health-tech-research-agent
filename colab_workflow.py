@@ -4022,13 +4022,16 @@ market_map_df["reviewed_priority_rank"] = market_map_df["final_priority_rank"]
 # -----------------------------
 # Market segment mapping
 # -----------------------------
-# Keep an existing nonblank/non-Unmapped market_segment if present.
-# Otherwise, map known companies into research segments.
+# First preserve an existing good market_segment.
+# Then use exact known-company mapping.
+# Then infer from company/business model/evidence text.
+# This prevents new researched companies from silently landing in Unmapped.
 
 segment_map = {
     "pomelo care": "Women’s and family health",
     "thyme care": "Oncology / cancer navigation",
     "waymark": "Medicaid / value-based care",
+
     # Nutrition, metabolic health, obesity, food as medicine
     "nourish": "Nutrition / food as medicine",
     "fay": "Nutrition / food as medicine",
@@ -4053,6 +4056,9 @@ segment_map = {
     "allara health": "Women’s and family health",
     "visana health": "Women’s and family health",
     "familywell health": "Women’s and family health",
+    "mae health": "Women’s and family health",
+    "oula": "Women’s and family health",
+    "tia": "Women’s and family health",
     "oova": "Women’s health / fertility",
 
     # MSK
@@ -4081,13 +4087,293 @@ segment_map = {
     "function health": "Preventive health / diagnostics",
     "insidetracker": "Preventive health / diagnostics",
     "oura": "Wearables / consumer health",
-    "openevidence": "Clinical AI / provider intelligence"
+    "openevidence": "Clinical AI / provider intelligence",
 }
 
+UNMAPPED_SEGMENT_VALUES = {
+    "",
+    "nan",
+    "none",
+    "null",
+    "unmapped",
+    "unassigned",
+    "needs segment review",
+}
+
+def step14_segment_text(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+
+    return str(value).strip()
+
+def step14_row_text_for_segment(row):
+    fields_for_inference = [
+        "company",
+        "business_model_classification",
+        "final_recommendation",
+        "final_takeaway",
+        "commercial_scale_assessment",
+        "pmf_scale_assessment",
+        "commercial_scale_finding",
+        "payer_institutional_finding",
+        "outcomes_finding",
+        "review_notes",
+        "priority_review_note",
+        "calibration_flag",
+    ]
+
+    return " ".join(
+        step14_segment_text(row.get(col, "")).lower()
+        for col in fields_for_inference
+        if col in row.index
+    )
+
+def infer_market_segment(row, segment_map):
+    existing_segment = step14_segment_text(row.get("market_segment", ""))
+    existing_segment_key = existing_segment.lower()
+
+    # Preserve manually assigned / already valid segment labels.
+    if existing_segment_key not in UNMAPPED_SEGMENT_VALUES:
+        return existing_segment
+
+    company_key = normalize_name(row.get("company", ""))
+
+    # Exact company-name mapping still wins.
+    if company_key in segment_map:
+        return segment_map[company_key]
+
+    text = step14_row_text_for_segment(row)
+
+    # Women’s / family / maternal health.
+    # Put this before generic metabolic/Medicaid rules because women’s health companies
+    # often mention metabolic, Medicaid, payer, or virtual care.
+    maternal_terms = [
+        "maternal",
+        "maternity",
+        "pregnancy",
+        "postpartum",
+        "doula",
+        "midwife",
+        "midwives",
+        "ob/gyn",
+        "obgyn",
+        "newborn",
+        "birth",
+        "perinatal",
+    ]
+
+    if any(term in text for term in maternal_terms):
+        return "Women’s and family health"
+
+    fertility_terms = [
+        "fertility",
+        "ivf",
+        "ovulation",
+        "egg freezing",
+        "hormone testing",
+        "hormone test",
+    ]
+
+    if any(term in text for term in fertility_terms):
+        return "Women’s health / fertility"
+
+    womens_health_terms = [
+        "women’s health",
+        "women's health",
+        "womens health",
+        "female health",
+        "gynecologic",
+        "gynecology",
+        "menopause",
+        "perimenopause",
+        "pcos",
+        "endometriosis",
+        "hormonal",
+        "women’s healthcare",
+        "women's healthcare",
+        "womens healthcare",
+    ]
+
+    if any(term in text for term in womens_health_terms):
+        return "Women’s and family health"
+
+    # Nutrition / food as medicine.
+    nutrition_terms = [
+        "nutrition",
+        "dietitian",
+        "dietician",
+        "food as medicine",
+        "food-as-medicine",
+        "registered dietitian",
+        "medical nutrition",
+    ]
+
+    if any(term in text for term in nutrition_terms):
+        return "Nutrition / food as medicine"
+
+    # Oncology / cancer navigation.
+    oncology_terms = [
+        "oncology",
+        "cancer",
+        "tumor",
+        "serious illness",
+    ]
+
+    if any(term in text for term in oncology_terms):
+        return "Oncology / cancer navigation"
+
+    # MSK / physical therapy.
+    msk_terms = [
+        "msk",
+        "musculoskeletal",
+        "physical therapy",
+        "digital physical therapy",
+        "pain management",
+    ]
+
+    if any(term in text for term in msk_terms):
+        return "MSK / digital physical therapy"
+
+    # Mental / behavioral health.
+    eating_disorder_terms = [
+        "eating disorder",
+        "eating disorders",
+    ]
+
+    if any(term in text for term in eating_disorder_terms):
+        return "Behavioral health / eating disorder care"
+
+    substance_use_terms = [
+        "substance use",
+        "addiction",
+        "alcohol use",
+        "opioid",
+    ]
+
+    if any(term in text for term in substance_use_terms):
+        return "Behavioral health / substance use treatment"
+
+    mental_health_terms = [
+        "mental health",
+        "behavioral health",
+        "therapy",
+        "therapist",
+        "psychiatry",
+        "depression",
+        "anxiety",
+    ]
+
+    if any(term in text for term in mental_health_terms):
+        if "insurance" in text or "in-network" in text or "payer" in text:
+            return "Mental health / insurance network"
+        return "Mental health / provider marketplace"
+
+    # Medicaid / value-based care.
+    if "medicaid" in text or "value-based care" in text or "vbc" in text:
+        return "Medicaid / value-based care"
+
+    # Care navigation / advocacy.
+    if "advocacy" in text or "patient advocacy" in text:
+        return "Care navigation / advocacy"
+
+    if "care navigation" in text or "navigation" in text:
+        return "Care navigation / hybrid care"
+
+    # Metabolic / obesity / diabetes / CGM.
+    if "digital therapeutics" in text or "digital therapeutic" in text:
+        return "Metabolic health / digital therapeutics"
+
+    obesity_terms = [
+        "obesity",
+        "weight loss",
+        "weight management",
+        "glp-1",
+        "glp1",
+    ]
+
+    if any(term in text for term in obesity_terms):
+        return "Metabolic health / obesity care"
+
+    metabolic_terms = [
+        "metabolic",
+        "diabetes",
+        "cardiometabolic",
+        "cgm",
+        "glucose",
+    ]
+
+    if any(term in text for term in metabolic_terms):
+        return "Metabolic health / virtual care"
+
+    # Preventive health / diagnostics / longevity.
+    diagnostics_terms = [
+        "diagnostics",
+        "biomarker",
+        "blood testing",
+        "lab testing",
+        "preventive health",
+        "preventative health",
+        "longevity",
+    ]
+
+    if any(term in text for term in diagnostics_terms):
+        return "Preventive health / diagnostics"
+
+    # Wearables / consumer health.
+    wearable_terms = [
+        "wearable",
+        "wearables",
+        "smart ring",
+        "sleep tracking",
+        "recovery tracking",
+    ]
+
+    if any(term in text for term in wearable_terms):
+        return "Wearables / consumer health"
+
+    # Clinical AI / provider workflow.
+    clinical_ai_terms = [
+        "clinical ai",
+        "provider intelligence",
+        "clinical decision support",
+        "medical search",
+        "medical ai",
+    ]
+
+    if any(term in text for term in clinical_ai_terms):
+        return "Clinical AI / provider intelligence"
+
+    # Do not silently call this Unmapped. Make the needed human action explicit.
+    return "Needs segment review"
+
 market_map_df["market_segment"] = market_map_df.apply(
-    lambda row: map_market_segment(row, segment_map),
+    lambda row: infer_market_segment(row, segment_map),
     axis=1,
 )
+
+segment_review_df = market_map_df[
+    market_map_df["market_segment"].astype(str).str.lower().isin(
+        ["unmapped", "unassigned", "needs segment review"]
+    )
+].copy()
+
+if not segment_review_df.empty:
+    print("")
+    print("SEGMENT MAPPING REVIEW NEEDED")
+    print("=" * 80)
+    print("These companies could not be confidently mapped by exact name or inference rules.")
+    print("Add explicit mappings to segment_map or improve inference rules before relying on segment dashboards.")
+    display_cols = existing_cols(segment_review_df, [
+        "company",
+        "market_segment",
+        "business_model_classification",
+        "final_takeaway",
+        "review_notes",
+    ])
+    display(segment_review_df[display_cols])
 
 # -----------------------------
 # Strategic bucket mapping
