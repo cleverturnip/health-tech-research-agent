@@ -6314,3 +6314,179 @@ print("Formatted Drive workbook:", formatted_drive_path)
 
 files.download(str(workbook_path))
 
+# =============================================================================
+
+# STEP 20 - Dashboard refresh runner
+
+# =============================================================================
+
+# =============================================================================
+# STEP 20 - Dashboard refresh runner
+# =============================================================================
+
+# =============================================================================
+# STEP 20 - Dashboard refresh runner
+# =============================================================================
+
+# =============================================================================
+# STEP 20 - Dashboard refresh runner
+# =============================================================================
+# Purpose:
+# - Run the dashboard refresh sequence from the checked-out GitHub workflow file.
+# - This is orchestration only. It does not change scoring, priority, or export logic.
+
+from pathlib import Path
+import re
+import sys
+import time
+import traceback
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+WORKFLOW_PATH = REPO_DIR / "colab_workflow.py"
+
+if not WORKFLOW_PATH.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {WORKFLOW_PATH}. "
+        "Run the GitHub pull/setup cell first."
+    )
+
+if not SRC_DIR.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {SRC_DIR}. "
+        "Run the GitHub pull/setup cell first."
+    )
+
+src_path = str(SRC_DIR)
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+from health_tech_research_agent.priority import (
+    apply_priority_fields,
+    extract_priority_code,
+    normalize_priority_level,
+    priority_code,
+    priority_rank,
+    safe_text,
+    is_blank_value,
+)
+
+print("PASS: Shared priority helper imported directly by Step 20 runner.")
+print("apply_priority_fields available:", "apply_priority_fields" in globals())
+
+workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+DASHBOARD_REFRESH_STEPS = [
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "19A",
+]
+
+def _step_marker_pattern(step_id):
+    return re.compile(
+        rf"(?m)^#\s*STEP\s+{re.escape(step_id)}\b.*$"
+    )
+
+def extract_step_code(step_id, source_text):
+    """
+    Extract a step block from colab_workflow.py.
+
+    Handles duplicate markers for the same step by treating same-step markers
+    as part of the same section and stopping only at the next different STEP.
+    """
+    marker_pattern = re.compile(
+        r"(?m)^#\s*STEP\s+([0-9]+[A-Z]?)\b.*$"
+    )
+
+    markers = list(marker_pattern.finditer(source_text))
+
+    if not markers:
+        raise ValueError(f"STOP: No STEP markers found in {WORKFLOW_PATH}.")
+
+    candidate_blocks = []
+
+    for idx, marker in enumerate(markers):
+        marker_step_id = marker.group(1)
+
+        if marker_step_id != step_id:
+            continue
+
+        start = marker.start()
+
+        # Stop at the next marker for a different step.
+        end = len(source_text)
+        for next_marker in markers[idx + 1:]:
+            next_step_id = next_marker.group(1)
+            if next_step_id != step_id:
+                end = next_marker.start()
+                break
+
+        block = source_text[start:end].strip()
+
+        candidate_blocks.append(block)
+
+    if not candidate_blocks:
+        raise ValueError(
+            f"STOP: Could not find Step {step_id} marker in {WORKFLOW_PATH}."
+        )
+
+    # Pick the longest candidate so a duplicate header stub does not win.
+    step_code = max(candidate_blocks, key=len)
+
+    if not step_code:
+        raise ValueError(f"STOP: Step {step_id} block is empty.")
+
+    print(f"Extracted Step {step_id} block length: {len(step_code):,} chars")
+
+    return step_code
+
+runner_globals = globals()
+
+def run_workflow_step(step_id):
+    print("\n" + "=" * 80)
+    print(f"RUNNING STEP {step_id}")
+    print("=" * 80)
+
+    step_code = extract_step_code(step_id, workflow_text)
+
+    start_time = time.time()
+
+    try:
+        exec(
+            compile(step_code, f"colab_workflow.py::STEP_{step_id}", "exec"),
+            runner_globals,
+            runner_globals,
+        )
+    except Exception as exc:
+        print("\n" + "!" * 80)
+        print(f"FAILED STEP {step_id}")
+        print("!" * 80)
+        traceback.print_exc()
+        raise RuntimeError(f"Dashboard refresh runner stopped at Step {step_id}.") from exc
+
+    elapsed = time.time() - start_time
+    print(f"\nPASSED STEP {step_id} in {elapsed:,.1f} seconds")
+
+print("Dashboard refresh runner ready.")
+print("Workflow file:", WORKFLOW_PATH)
+print("Steps:", " → ".join(DASHBOARD_REFRESH_STEPS))
+
+for step_id in DASHBOARD_REFRESH_STEPS:
+    run_workflow_step(step_id)
+
+print("\n" + "=" * 80)
+print("DASHBOARD REFRESH RUNNER COMPLETE")
+print("=" * 80)
+
+if "dashboard_workbook_path" in globals():
+    print("dashboard_workbook_path =", dashboard_workbook_path)
+else:
+    print("WARNING: dashboard_workbook_path was not created.")
+
+print("\nRun completed from workflow file:")
+print(WORKFLOW_PATH)
