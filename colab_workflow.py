@@ -4026,6 +4026,9 @@ market_map_df["reviewed_priority_rank"] = market_map_df["final_priority_rank"]
 # Otherwise, map known companies into research segments.
 
 segment_map = {
+    "pomelo care": "Women’s and family health",
+    "thyme care": "Oncology / cancer navigation",
+    "waymark": "Medicaid / value-based care",
     # Nutrition, metabolic health, obesity, food as medicine
     "nourish": "Nutrition / food as medicine",
     "fay": "Nutrition / food as medicine",
@@ -7285,6 +7288,113 @@ else:
         print(batch_summary_excluded_path)
 
     step22_run_workflow_step("12")
+
+    # # STEP 22 PATCH - reapply human review decisions after Step 12
+
+    # Step 12 can overwrite review_status/review_notes for newly added companies.
+
+    # Reapply the Step 22/24 human decisions to the active master before dashboard refresh.
+
+    from pathlib import Path as _Step22Path
+
+
+    _step22_active_master_path = _Step22Path(
+
+        "/content/drive/MyDrive/Job Search/Health Tech Research/health_tech_market_research_summary_MASTER.csv"
+
+    )
+
+
+    if not _step22_active_master_path.exists():
+
+        raise FileNotFoundError(f"STOP: active master not found: {_step22_active_master_path}")
+
+
+    _step22_master_df = pd.read_csv(_step22_active_master_path)
+
+
+    for _col in [
+
+        "reviewed_priority_level",
+
+        "review_status",
+
+        "review_notes",
+
+        "priority_review_note",
+
+    ]:
+
+        if _col not in _step22_master_df.columns:
+
+            _step22_master_df[_col] = ""
+
+
+    _step22_reapplied_count = 0
+
+
+    for _company, _decision in batch_review_decisions.items():
+
+        _decision_type = str(_decision.get("decision", "")).strip().lower()
+
+
+        if _decision_type != "approve":
+
+            continue
+
+
+        _mask = _step22_master_df["company"].astype(str).str.strip().eq(str(_company).strip())
+
+
+        if _mask.sum() != 1:
+
+            raise RuntimeError(
+
+                f"STOP: expected exactly one master row for {_company}, found {_mask.sum()}."
+
+            )
+
+
+        _reviewed_priority = str(_decision.get("reviewed_priority_level", "")).strip()
+
+        _review_status = str(_decision.get("review_status", "Human reviewed")).strip() or "Human reviewed"
+
+        _review_notes = str(_decision.get("review_notes", "")).strip()
+
+        _priority_review_note = str(_decision.get("priority_review_note", _review_notes)).strip() or _review_notes
+
+
+        if _reviewed_priority:
+
+            _step22_master_df.loc[_mask, "reviewed_priority_level"] = _reviewed_priority
+
+
+        _step22_master_df.loc[_mask, "review_status"] = _review_status
+
+
+        if _review_notes:
+
+            _step22_master_df.loc[_mask, "review_notes"] = _review_notes
+
+
+        if _priority_review_note:
+
+            _step22_master_df.loc[_mask, "priority_review_note"] = _priority_review_note
+
+
+        _step22_reapplied_count += 1
+
+
+    _step22_master_df.to_csv(_step22_active_master_path, index=False)
+
+
+    print("")
+
+    print("STEP 22 PATCH: re-applied human review decisions to active master.")
+
+    print("Rows updated:", _step22_reapplied_count)
+
+    print("Active master re-saved to:", _step22_active_master_path)
     step22_run_workflow_step("20")
 
     print("")
@@ -7875,7 +7985,7 @@ def step23_mark_queue_done(queue_ws, queue_df, selected_batch_name_value):
         row_batch = step23_safe_text(padded[batch_idx])
 
         if row_batch == selected_batch_name_value:
-            cell_a1 = f"{chr(ord('A') + status_idx)}{row_number}"
+            cell_a1 = f"{step24_column_letter(status_idx)}{row_number}"
             updates.append({
                 "range": cell_a1,
                 "values": [["DONE"]],
@@ -8281,6 +8391,18 @@ def step24_build_decisions(review_df, selected_batch_name_value):
 
     return decisions, pd.DataFrame(decision_rows), batch_df
 
+
+def step24_column_letter(zero_based_index):
+    """Convert zero-based column index to Google Sheets column letters."""
+    number = int(zero_based_index) + 1
+    letters = ""
+
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        letters = chr(65 + remainder) + letters
+
+    return letters
+
 def step24_update_review_packet_status(review_ws, selected_batch_name_value, status_text):
     values = review_ws.get_all_values()
 
@@ -8306,7 +8428,7 @@ def step24_update_review_packet_status(review_ws, selected_batch_name_value, sta
         row_batch = step24_safe_text(padded[batch_idx])
 
         if row_batch == selected_batch_name_value:
-            cell_a1 = f"{chr(ord('A') + status_idx)}{row_number}"
+            cell_a1 = f"{step24_column_letter(status_idx)}{row_number}"
             updates.append({
                 "range": cell_a1,
                 "values": [[status_text]],
