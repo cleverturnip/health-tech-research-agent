@@ -2,7 +2,7 @@ import re
 
 import pandas as pd
 
-from health_tech_research_agent.priority import priority_code, safe_text
+from health_tech_research_agent.priority import extract_priority_code, priority_code, safe_text
 
 
 def existing_cols(df, cols):
@@ -111,3 +111,49 @@ def companies_needed_for_stronger_read(company_count, priority_or_diligence_coun
     needed_company_count = max(0, 3 - int(company_count))
     needed_priority_count = max(0, 2 - int(priority_or_diligence_count))
     return max(needed_company_count, needed_priority_count)
+
+def map_market_segment(row, segment_map):
+    """Map a company row to a market segment, preserving an existing valid segment."""
+    existing_segment = safe_text(row.get("market_segment", ""))
+
+    if existing_segment and existing_segment.lower() not in ["unmapped", "unknown", "nan", "none"]:
+        return existing_segment
+
+    company_key = normalize_name(row.get("company", ""))
+
+    if company_key in segment_map:
+        return segment_map[company_key]
+
+    # Fallback partial matching for names with descriptors.
+    for known_name, segment in segment_map.items():
+        if known_name in company_key or company_key in known_name:
+            return segment
+
+    return "Unmapped"
+
+
+def map_strategic_bucket(row):
+    """Map final priority level and calibration state to a strategic dashboard bucket."""
+    code = extract_priority_code(row.get("final_priority_level", ""))
+
+    if code == "P0":
+        return "Active pursuit / highest-priority target"
+
+    if code == "P1":
+        return "Priority target / near-priority"
+
+    if code == "P2":
+        return "Diligence target"
+
+    if code == "P3":
+        return "Watch list"
+
+    if code == "P4":
+        return "Low priority / likely reject"
+
+    calibration_flag = safe_text(row.get("calibration_flag", ""))
+
+    if calibration_flag:
+        return "Needs review"
+
+    return "Unprioritized"
