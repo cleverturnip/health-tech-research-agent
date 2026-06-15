@@ -1815,6 +1815,111 @@ summary_df[display_cols]
 
 # =============================================================================
 
+
+# -----------------------------
+# SCALE-SIGNAL FLATTENING BLOCK
+# -----------------------------
+# Purpose:
+# - Preserve scale_signal_assessment fields from fit_brief_json as flat columns.
+# - This supports downstream QA/dashboard fields without changing model scoring.
+
+import json as _scale_signal_json
+
+def _scale_signal_safe_text(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+
+    return str(value).strip()
+
+def _scale_signal_parse_fit_json(raw_json):
+    if _scale_signal_safe_text(raw_json) == "":
+        return {}
+
+    try:
+        return _scale_signal_json.loads(raw_json)
+    except Exception:
+        try:
+            return parse_first_json_object(raw_json)
+        except Exception:
+            return {}
+
+def _scale_signal_fields(raw_json):
+    parsed_json = _scale_signal_parse_fit_json(raw_json)
+
+    scale = parsed_json.get("scale_signal_assessment", {})
+
+    if not isinstance(scale, dict):
+        scale = {}
+
+    return {
+        "commercial_scale_signal": scale.get("commercial_scale_signal", ""),
+        "commercial_scale_signal_reason": scale.get("commercial_scale_signal_reason", ""),
+        "institutional_distribution_signal": scale.get("institutional_distribution_signal", ""),
+        "institutional_distribution_signal_reason": scale.get("institutional_distribution_signal_reason", ""),
+        "outcomes_signal": scale.get("outcomes_signal", ""),
+        "outcomes_signal_reason": scale.get("outcomes_signal_reason", ""),
+        "plausible_near_term_scale_path": scale.get("plausible_near_term_scale_path", ""),
+        "priority_gate_preliminary_result": scale.get("priority_gate_preliminary_result", ""),
+        "priority_gate_reason": scale.get("priority_gate_reason", ""),
+        "scale_engine_type": scale.get("scale_engine_type", ""),
+        "strong_scale_engine_present": scale.get("strong_scale_engine_present", ""),
+    }
+
+if (
+    "summary_df" in globals()
+    and isinstance(summary_df, pd.DataFrame)
+    and "df" in globals()
+    and isinstance(df, pd.DataFrame)
+    and "fit_brief_json" in df.columns
+):
+    _scale_signal_lookup = {}
+
+    for _, _raw_row in df.iterrows():
+        _company = _scale_signal_safe_text(_raw_row.get("company", ""))
+
+        if _company:
+            _scale_signal_lookup[_company] = _scale_signal_fields(
+                _raw_row.get("fit_brief_json", "")
+            )
+
+    _scale_signal_cols = [
+        "commercial_scale_signal",
+        "commercial_scale_signal_reason",
+        "institutional_distribution_signal",
+        "institutional_distribution_signal_reason",
+        "outcomes_signal",
+        "outcomes_signal_reason",
+        "plausible_near_term_scale_path",
+        "priority_gate_preliminary_result",
+        "priority_gate_reason",
+        "scale_engine_type",
+        "strong_scale_engine_present",
+    ]
+
+    for _col in _scale_signal_cols:
+        if _col not in summary_df.columns:
+            summary_df[_col] = ""
+
+    for _idx, _summary_row in summary_df.iterrows():
+        _company = _scale_signal_safe_text(_summary_row.get("company", ""))
+
+        if _company not in _scale_signal_lookup:
+            continue
+
+        for _col, _value in _scale_signal_lookup[_company].items():
+            if (
+                _scale_signal_safe_text(summary_df.at[_idx, _col]) == ""
+                and _scale_signal_safe_text(_value) != ""
+            ):
+                summary_df.at[_idx, _col] = _value
+
+    print("PASS: scale-signal flattening applied.")
+else:
+    print("WARNING: scale-signal flattening skipped; summary_df/df/fit_brief_json unavailable.")
+
 # STEP 10A - Deterministic priority adjudication
 
 # =============================================================================
