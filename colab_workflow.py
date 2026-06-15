@@ -6327,6 +6327,10 @@ files.download(str(workbook_path))
 # =============================================================================
 # STEP 20 - Dashboard refresh runner
 # =============================================================================
+
+# =============================================================================
+# STEP 20 - Dashboard refresh runner
+# =============================================================================
 # Purpose:
 # - Run the dashboard refresh sequence from the checked-out GitHub workflow file.
 # - This is orchestration only. It does not change scoring, priority, or export logic.
@@ -6389,30 +6393,55 @@ def _step_marker_pattern(step_id):
     )
 
 def extract_step_code(step_id, source_text):
-    marker_pattern = _step_marker_pattern(step_id)
-    marker_match = marker_pattern.search(source_text)
+    """
+    Extract a step block from colab_workflow.py.
 
-    if not marker_match:
+    Handles duplicate markers for the same step by treating same-step markers
+    as part of the same section and stopping only at the next different STEP.
+    """
+    marker_pattern = re.compile(
+        r"(?m)^#\s*STEP\s+([0-9]+[A-Z]?)\b.*$"
+    )
+
+    markers = list(marker_pattern.finditer(source_text))
+
+    if not markers:
+        raise ValueError(f"STOP: No STEP markers found in {WORKFLOW_PATH}.")
+
+    candidate_blocks = []
+
+    for idx, marker in enumerate(markers):
+        marker_step_id = marker.group(1)
+
+        if marker_step_id != step_id:
+            continue
+
+        start = marker.start()
+
+        # Stop at the next marker for a different step.
+        end = len(source_text)
+        for next_marker in markers[idx + 1:]:
+            next_step_id = next_marker.group(1)
+            if next_step_id != step_id:
+                end = next_marker.start()
+                break
+
+        block = source_text[start:end].strip()
+
+        candidate_blocks.append(block)
+
+    if not candidate_blocks:
         raise ValueError(
             f"STOP: Could not find Step {step_id} marker in {WORKFLOW_PATH}."
         )
 
-    start = marker_match.start()
-
-    next_step_match = re.search(
-        r"(?m)^#\s*STEP\s+[0-9]+[A-Z]?\b.*$",
-        source_text[marker_match.end():]
-    )
-
-    if next_step_match:
-        end = marker_match.end() + next_step_match.start()
-    else:
-        end = len(source_text)
-
-    step_code = source_text[start:end].strip()
+    # Pick the longest candidate so a duplicate header stub does not win.
+    step_code = max(candidate_blocks, key=len)
 
     if not step_code:
         raise ValueError(f"STOP: Step {step_id} block is empty.")
+
+    print(f"Extracted Step {step_id} block length: {len(step_code):,} chars")
 
     return step_code
 
