@@ -6314,3 +6314,125 @@ print("Formatted Drive workbook:", formatted_drive_path)
 
 files.download(str(workbook_path))
 
+# =============================================================================
+
+# STEP 20 - Dashboard refresh runner
+
+# =============================================================================
+
+# =============================================================================
+# STEP 20 - Dashboard refresh runner
+# =============================================================================
+# Purpose:
+# - Run the dashboard refresh sequence from the checked-out GitHub workflow file.
+# - This is orchestration only. It does not change scoring, priority, or export logic.
+#
+# Prerequisites:
+# - Run the GitHub pull/setup cell first.
+# - Confirm BRANCH is the branch you want to test.
+# - Run this only after the repo is ready and /content/health-tech-research-agent exists.
+
+from pathlib import Path
+import re
+import sys
+import time
+import traceback
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+WORKFLOW_PATH = REPO_DIR / "colab_workflow.py"
+
+DASHBOARD_REFRESH_STEPS = [
+    "12B",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "19A",
+]
+
+if not WORKFLOW_PATH.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {WORKFLOW_PATH}. "
+        "Run the GitHub pull/setup cell first."
+    )
+
+workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+def _step_marker_pattern(step_id):
+    # Matches markers like:
+    # # STEP 14 - Build market map view
+    # # STEP 19A - Workbook QA
+    return re.compile(
+        rf"(?m)^#\s*STEP\s+{re.escape(step_id)}\b.*$"
+    )
+
+def extract_step_code(step_id, source_text):
+    marker_pattern = _step_marker_pattern(step_id)
+    marker_match = marker_pattern.search(source_text)
+
+    if not marker_match:
+        raise ValueError(
+            f"STOP: Could not find Step {step_id} marker in {WORKFLOW_PATH}."
+        )
+
+    start = marker_match.start()
+
+    next_step_match = re.search(
+        r"(?m)^#\s*STEP\s+[0-9]+[A-Z]?\b.*$",
+        source_text[marker_match.end():]
+    )
+
+    if next_step_match:
+        end = marker_match.end() + next_step_match.start()
+    else:
+        end = len(source_text)
+
+    step_code = source_text[start:end].strip()
+
+    if not step_code:
+        raise ValueError(f"STOP: Step {step_id} block is empty.")
+
+    return step_code
+
+def run_workflow_step(step_id):
+    print("\n" + "=" * 80)
+    print(f"RUNNING STEP {step_id}")
+    print("=" * 80)
+
+    step_code = extract_step_code(step_id, workflow_text)
+
+    start_time = time.time()
+
+    try:
+        exec(compile(step_code, f"colab_workflow.py::STEP_{step_id}", "exec"), globals())
+    except Exception as exc:
+        print("\n" + "!" * 80)
+        print(f"FAILED STEP {step_id}")
+        print("!" * 80)
+        traceback.print_exc()
+        raise RuntimeError(f"Dashboard refresh runner stopped at Step {step_id}.") from exc
+
+    elapsed = time.time() - start_time
+    print(f"\nPASSED STEP {step_id} in {elapsed:,.1f} seconds")
+
+print("Dashboard refresh runner ready.")
+print("Workflow file:", WORKFLOW_PATH)
+print("Steps:", " → ".join(DASHBOARD_REFRESH_STEPS))
+
+for step_id in DASHBOARD_REFRESH_STEPS:
+    run_workflow_step(step_id)
+
+print("\n" + "=" * 80)
+print("DASHBOARD REFRESH RUNNER COMPLETE")
+print("=" * 80)
+
+if "dashboard_workbook_path" in globals():
+    print("dashboard_workbook_path =", dashboard_workbook_path)
+else:
+    print("WARNING: dashboard_workbook_path was not created.")
+
+print("\nRun completed from workflow file:")
+print(WORKFLOW_PATH)
