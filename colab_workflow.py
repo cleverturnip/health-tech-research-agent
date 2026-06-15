@@ -6540,3 +6540,353 @@ else:
 
 print("\nRun completed from workflow file:")
 print(WORKFLOW_PATH)
+
+# =============================================================================
+# STEP 21 - Supervised LLM research batch runner
+# =============================================================================
+# Purpose:
+# - Take a user-provided batch_name and batch_companies list.
+# - Run LLM research through the supervised review gate.
+# - Execute:
+#   Step 7 -> Step 8 -> Step 8A -> Step 10 -> Step 10B -> Step 11 -> Step 11A
+# - Build a human-review packet.
+# - Stop before Step 12 so master is not updated without review.
+#
+# Required before running:
+# - batch_name = "some_batch_name"
+# - batch_companies = [{"company": "...", "research_query": "..."}, ...]
+#
+# Optional before running:
+# - batch_wait_between_web_searches = 30
+# - STEP_21_DRY_RUN = True
+
+from pathlib import Path
+import re
+import sys
+import time
+import traceback
+import pandas as pd
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+WORKFLOW_PATH = REPO_DIR / "colab_workflow.py"
+
+STEP_21_DRY_RUN = bool(globals().get("STEP_21_DRY_RUN", False))
+
+if not WORKFLOW_PATH.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {WORKFLOW_PATH}. "
+        "Run the GitHub setup / pull cell first."
+    )
+
+if not SRC_DIR.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {SRC_DIR}. "
+        "Run the GitHub setup / pull cell first."
+    )
+
+src_path = str(SRC_DIR)
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+def step21_plain_display(obj):
+    if isinstance(obj, pd.DataFrame):
+        print(obj.to_string(index=False))
+    else:
+        print(obj)
+
+display = step21_plain_display
+
+if "batch_name" not in globals():
+    raise NameError(
+        "STOP: batch_name is not defined. "
+        "Set batch_name before running Step 21."
+    )
+
+if "batch_companies" not in globals():
+    raise NameError(
+        "STOP: batch_companies is not defined. "
+        "Set batch_companies before running Step 21."
+    )
+
+if not isinstance(batch_companies, list) or len(batch_companies) == 0:
+    raise ValueError("STOP: batch_companies must be a non-empty list.")
+
+for idx, item in enumerate(batch_companies, start=1):
+    if not isinstance(item, dict):
+        raise ValueError(f"STOP: batch_companies item {idx} is not a dict.")
+    if not str(item.get("company", "")).strip():
+        raise ValueError(f"STOP: batch_companies item {idx} is missing company.")
+    if not str(item.get("research_query", "")).strip():
+        raise ValueError(f"STOP: batch_companies item {idx} is missing research_query.")
+
+required_runtime_items = [
+    "client",
+    "MODEL",
+    "call_openai",
+    "search_funding",
+    "search_payer_signal",
+    "search_outcomes",
+    "search_commercial_scale",
+    "run_company_fit_brief",
+]
+
+missing_runtime_items = [
+    item for item in required_runtime_items
+    if item not in globals()
+]
+
+if missing_runtime_items and not STEP_21_DRY_RUN:
+    print("MISSING RUNTIME ITEMS")
+    print("=" * 80)
+    for item in missing_runtime_items:
+        print("-", item)
+    raise RuntimeError("Run the research setup loader before Step 21.")
+
+BATCH_NAME = str(batch_name).strip()
+companies = batch_companies
+
+research_batches_folder = Path("research_batches")
+research_batches_folder.mkdir(parents=True, exist_ok=True)
+
+batch_checkpoint_path = research_batches_folder / f"{BATCH_NAME}_checkpoint.csv"
+batch_raw_export_path = research_batches_folder / f"{BATCH_NAME}_raw.csv"
+batch_summary_export_path = research_batches_folder / f"{BATCH_NAME}_summary.csv"
+batch_review_packet_path = research_batches_folder / f"{BATCH_NAME}_human_review_packet.csv"
+
+WAIT_BETWEEN_WEB_SEARCHES = int(
+    globals().get("batch_wait_between_web_searches", 30)
+)
+
+print("STEP 21 - SUPERVISED LLM RESEARCH BATCH RUNNER")
+print("=" * 80)
+print("BATCH_NAME:", BATCH_NAME)
+print("DRY RUN:", STEP_21_DRY_RUN)
+
+if "MODEL" in globals():
+    print("MODEL:", MODEL)
+else:
+    print("MODEL: not loaded")
+
+print("WAIT_BETWEEN_WEB_SEARCHES:", WAIT_BETWEEN_WEB_SEARCHES)
+print("Companies:")
+for item in companies:
+    print("-", item["company"])
+
+print("batch_checkpoint_path:", batch_checkpoint_path)
+print("batch_raw_export_path:", batch_raw_export_path)
+print("batch_summary_export_path:", batch_summary_export_path)
+print("batch_review_packet_path:", batch_review_packet_path)
+
+workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+marker_pattern = re.compile(
+    r"(?m)^#\s*STEP\s+([0-9]+[A-Z]?)\b.*$"
+)
+
+markers = list(marker_pattern.finditer(workflow_text))
+
+def step21_extract_step_code(step_id):
+    candidate_blocks = []
+
+    for idx, marker in enumerate(markers):
+        marker_step_id = marker.group(1)
+
+        if marker_step_id != step_id:
+            continue
+
+        start = marker.start()
+        end = len(workflow_text)
+
+        for next_marker in markers[idx + 1:]:
+            next_step_id = next_marker.group(1)
+            if next_step_id != step_id:
+                end = next_marker.start()
+                break
+
+        candidate_blocks.append(workflow_text[start:end].strip())
+
+    if not candidate_blocks:
+        raise ValueError(f"STOP: Could not find Step {step_id} in {WORKFLOW_PATH}.")
+
+    return max(candidate_blocks, key=len)
+
+def step21_run_workflow_step(step_id):
+    print("")
+    print("=" * 80)
+    print(f"RUNNING STEP {step_id}")
+    print("=" * 80)
+
+    step_code = step21_extract_step_code(step_id)
+    print(f"Step {step_id} block length:", len(step_code))
+
+    start_time = time.time()
+
+    try:
+        exec(
+            compile(step_code, f"colab_workflow.py::STEP_{step_id}_FROM_STEP_21", "exec"),
+            globals(),
+            globals(),
+        )
+    except Exception:
+        print(f"FAILED: Step {step_id} stopped.")
+        traceback.print_exc()
+        raise
+
+    elapsed = time.time() - start_time
+    print(f"PASS: Step {step_id} completed in {elapsed:.1f} seconds.")
+
+def step21_validate_checkpoint():
+    if not batch_checkpoint_path.exists():
+        raise FileNotFoundError("STOP: Batch checkpoint was not created.")
+
+    checkpoint_df = pd.read_csv(batch_checkpoint_path)
+
+    required_cols = [
+        "company",
+        "date_researched",
+        "funding_finding",
+        "payer_institutional_finding",
+        "outcomes_finding",
+        "commercial_scale_finding",
+        "fit_brief_json",
+    ]
+
+    print("")
+    print("CHECKPOINT VALIDATION")
+    print("=" * 80)
+    print("checkpoint shape:", checkpoint_df.shape)
+
+    all_complete = True
+
+    for _, row in checkpoint_df.iterrows():
+        company = row.get("company", "")
+        missing = []
+
+        for col in required_cols:
+            value = row.get(col, "")
+            if pd.isna(value) or str(value).strip() == "":
+                missing.append(col)
+
+        if missing:
+            all_complete = False
+            print(f"{company}: MISSING {', '.join(missing)}")
+        else:
+            print(f"{company}: COMPLETE")
+
+    if not all_complete:
+        raise RuntimeError("STOP: Checkpoint has incomplete rows. Stop before parsing/export.")
+
+    return checkpoint_df
+
+def step21_build_review_packet():
+    if "summary_df" not in globals():
+        raise NameError("STOP: summary_df was not created.")
+
+    review_cols = [
+        "company",
+        "thesis_fit_score",
+        "pmf_scale_score",
+        "evidence_confidence_score",
+        "katelynd_role_fit_score",
+        "operator_timing_score",
+        "priority_level",
+        "final_recommendation",
+        "business_model_classification",
+        "commercial_scale_signal",
+        "institutional_distribution_signal",
+        "outcomes_signal",
+        "plausible_near_term_scale_path",
+        "scale_engine_type",
+        "strong_scale_engine_present",
+        "calibration_flag",
+        "final_takeaway",
+    ]
+
+    existing_review_cols = [
+        col for col in review_cols
+        if col in summary_df.columns
+    ]
+
+    review_packet_df = summary_df[existing_review_cols].copy()
+
+    if "qa_df" in globals() and isinstance(qa_df, pd.DataFrame) and not qa_df.empty:
+        qa_rollup = (
+            qa_df
+            .groupby("company", dropna=False)["issue"]
+            .apply(lambda values: " | ".join([str(value) for value in values]))
+            .reset_index()
+            .rename(columns={"issue": "qa_flags"})
+        )
+
+        review_packet_df = review_packet_df.merge(
+            qa_rollup,
+            on="company",
+            how="left",
+        )
+    else:
+        review_packet_df["qa_flags"] = ""
+
+    review_packet_df.to_csv(batch_review_packet_path, index=False)
+
+    print("")
+    print("BATCH REVIEW PACKET")
+    print("=" * 80)
+    print("review packet path:", batch_review_packet_path)
+    print("review packet shape:", review_packet_df.shape)
+
+    for _, row in review_packet_df.iterrows():
+        print("")
+        print("-" * 80)
+        print("company:", row.get("company", ""))
+        print("priority_level:", row.get("priority_level", ""))
+        print("thesis_fit_score:", row.get("thesis_fit_score", ""))
+        print("pmf_scale_score:", row.get("pmf_scale_score", ""))
+        print("evidence_confidence_score:", row.get("evidence_confidence_score", ""))
+        print("katelynd_role_fit_score:", row.get("katelynd_role_fit_score", ""))
+        print("operator_timing_score:", row.get("operator_timing_score", ""))
+        print("commercial_scale_signal:", row.get("commercial_scale_signal", ""))
+        print("institutional_distribution_signal:", row.get("institutional_distribution_signal", ""))
+        print("outcomes_signal:", row.get("outcomes_signal", ""))
+        print("plausible_near_term_scale_path:", row.get("plausible_near_term_scale_path", ""))
+        print("scale_engine_type:", row.get("scale_engine_type", ""))
+        print("strong_scale_engine_present:", row.get("strong_scale_engine_present", ""))
+        print("calibration_flag:", row.get("calibration_flag", ""))
+        print("qa_flags:", row.get("qa_flags", ""))
+        print("final_takeaway:", row.get("final_takeaway", ""))
+
+    return review_packet_df
+
+step21_steps = ["7", "8", "8A", "10", "10B", "11", "11A"]
+
+print("")
+print("Step 21 will run:")
+print(" -> ".join(step21_steps))
+
+print("")
+print("Step extraction check:")
+for step_id in step21_steps:
+    step_code = step21_extract_step_code(step_id)
+    print(f"- Step {step_id}: {len(step_code):,} chars")
+
+if STEP_21_DRY_RUN:
+    print("")
+    print("=" * 80)
+    print("STEP 21 DRY RUN COMPLETE")
+    print("=" * 80)
+    print("No research was run. No files were written except folder creation if needed.")
+else:
+    step21_run_workflow_step("7")
+    checkpoint_df = step21_validate_checkpoint()
+
+    for step_id in ["8", "8A", "10", "10B", "11", "11A"]:
+        step21_run_workflow_step(step_id)
+
+    review_packet_df = step21_build_review_packet()
+
+    print("")
+    print("=" * 80)
+    print("STEP 21 SUPERVISED BATCH COMPLETE")
+    print("=" * 80)
+    print("Stopped before Step 12. Master was not updated.")
+    print("Next decision: approve / downgrade / hold each company before master update.")
