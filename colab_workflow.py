@@ -8010,3 +8010,407 @@ else:
     print(BATCH_CONTROL_SHEET_URL)
     print("")
     print("Next: fill review_decision, reviewed_priority, review_notes, and ready_for_master_update in Review Packet.")
+
+# =============================================================================
+# STEP 24 - Google Sheet review approval launcher
+# =============================================================================
+# Purpose:
+# - Read human review decisions from the Google Sheet Review Packet tab.
+# - Convert those decisions into batch_review_decisions for Step 22.
+# - Run Step 22 to update master and refresh the dashboard.
+# - Update Review Packet step_22_status after successful completion.
+#
+# Required Google Sheet tab:
+# - Review Packet
+#
+# Required before running, usually:
+# - selected_batch_name = "completed_batch_name"
+#
+# Optional before running:
+# - BATCH_CONTROL_SHEET_URL = "..."
+# - STEP_24_DRY_RUN = True
+
+from pathlib import Path
+from datetime import datetime
+import os
+import re
+import subprocess
+import sys
+import time
+import traceback
+import pandas as pd
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+WORKFLOW_PATH = REPO_DIR / "colab_workflow.py"
+
+DEFAULT_BATCH_CONTROL_SHEET_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "1psVpW5SddVlgbnwkToXjbMvL0NWuyM3feyY5fwKCjjY/edit"
+)
+
+BATCH_CONTROL_SHEET_URL = globals().get(
+    "BATCH_CONTROL_SHEET_URL",
+    DEFAULT_BATCH_CONTROL_SHEET_URL,
+)
+
+STEP_24_DRY_RUN = bool(globals().get("STEP_24_DRY_RUN", False))
+
+if not WORKFLOW_PATH.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {WORKFLOW_PATH}. "
+        "Run the GitHub setup / pull cell first."
+    )
+
+src_path = str(SRC_DIR)
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+def step24_plain_display(obj):
+    if isinstance(obj, pd.DataFrame):
+        print(obj.to_string(index=False))
+    else:
+        print(obj)
+
+display = step24_plain_display
+
+def step24_install_or_import_gspread():
+    try:
+        import gspread
+        return gspread
+    except ImportError:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "gspread", "google-auth"],
+            check=True,
+        )
+        import gspread
+        return gspread
+
+def step24_authenticate_sheet():
+    from google.colab import auth
+    import google.auth
+
+    gspread = step24_install_or_import_gspread()
+
+    auth.authenticate_user()
+    creds, _ = google.auth.default()
+
+    return gspread.authorize(creds)
+
+def step24_safe_text(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+def step24_dataframe_from_sheet(worksheet):
+    values = worksheet.get_all_values()
+
+    if not values:
+        return pd.DataFrame()
+
+    headers = [step24_safe_text(header) for header in values[0]]
+
+    rows = []
+    for raw_row in values[1:]:
+        padded = raw_row + [""] * (len(headers) - len(raw_row))
+        rows.append(padded[:len(headers)])
+
+    return pd.DataFrame(rows, columns=headers)
+
+def step24_extract_step_code(step_id):
+    workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    marker_pattern = re.compile(
+        r"(?m)^#\s*STEP\s+([0-9]+[A-Z]?)\b.*$"
+    )
+
+    markers = list(marker_pattern.finditer(workflow_text))
+    candidate_blocks = []
+
+    for idx, marker in enumerate(markers):
+        marker_step_id = marker.group(1)
+
+        if marker_step_id != step_id:
+            continue
+
+        start = marker.start()
+        end = len(workflow_text)
+
+        for next_marker in markers[idx + 1:]:
+            next_step_id = next_marker.group(1)
+            if next_step_id != step_id:
+                end = next_marker.start()
+                break
+
+        candidate_blocks.append(workflow_text[start:end].strip())
+
+    if not candidate_blocks:
+        raise ValueError(f"STOP: Could not find Step {step_id} in {WORKFLOW_PATH}.")
+
+    return max(candidate_blocks, key=len)
+
+def step24_run_workflow_step(step_id):
+    print("")
+    print("=" * 80)
+    print(f"RUNNING STEP {step_id}")
+    print("=" * 80)
+
+    step_code = step24_extract_step_code(step_id)
+    print(f"Step {step_id} block length:", len(step_code))
+
+    start_time = time.time()
+
+    try:
+        exec(
+            compile(step_code, f"colab_workflow.py::STEP_{step_id}_FROM_STEP_24", "exec"),
+            globals(),
+            globals(),
+        )
+    except Exception:
+        print(f"FAILED: Step {step_id} stopped.")
+        traceback.print_exc()
+        raise
+
+    elapsed = time.time() - start_time
+    print(f"PASS: Step {step_id} completed in {elapsed:.1f} seconds.")
+
+def step24_normalize_decision(value):
+    text = step24_safe_text(value).lower()
+
+    mapping = {
+        "approve": "approve",
+        "approved": "approve",
+        "include": "approve",
+        "update": "approve",
+        "add": "approve",
+        "downgrade": "approve",
+        "hold": "hold",
+        "exclude": "hold",
+        "skip": "hold",
+        "reject": "hold",
+        "needs_more_research": "hold",
+        "needs more research": "hold",
+    }
+
+    return mapping.get(text, text)
+
+def step24_status_for_row(decision, ready):
+    if ready == "YES" and decision == "approve":
+        return "READY_FOR_STEP_22"
+    return "HELD_FROM_STEP_22"
+
+def step24_build_decisions(review_df, selected_batch_name_value):
+    required_cols = [
+        "batch_name",
+        "company",
+        "review_decision",
+        "reviewed_priority",
+        "review_notes",
+        "ready_for_master_update",
+    ]
+
+    missing_cols = [col for col in required_cols if col not in review_df.columns]
+
+    if missing_cols:
+        raise ValueError("STOP: Review Packet missing columns: " + ", ".join(missing_cols))
+
+    batch_df = review_df[
+        review_df["batch_name"].astype(str).str.strip().eq(selected_batch_name_value)
+    ].copy()
+
+    if batch_df.empty:
+        raise ValueError(
+            f"STOP: No Review Packet rows found for batch_name={selected_batch_name_value}"
+        )
+
+    decisions = {}
+    decision_rows = []
+
+    for _, row in batch_df.iterrows():
+        company = step24_safe_text(row.get("company", ""))
+        raw_review_decision = step24_safe_text(row.get("review_decision", ""))
+        ready_for_master_update = step24_safe_text(row.get("ready_for_master_update", "")).upper()
+        reviewed_priority = step24_safe_text(row.get("reviewed_priority", ""))
+        review_notes = step24_safe_text(row.get("review_notes", ""))
+
+        if company == "":
+            continue
+
+        normalized_decision = step24_normalize_decision(raw_review_decision)
+
+        if ready_for_master_update != "YES":
+            normalized_decision = "hold"
+
+        if normalized_decision == "approve":
+            if reviewed_priority == "":
+                raise ValueError(f"STOP: {company} is approved but reviewed_priority is blank.")
+
+            if review_notes == "":
+                raise ValueError(f"STOP: {company} is approved but review_notes is blank.")
+
+            decisions[company] = {
+                "decision": "approve",
+                "reviewed_priority_level": reviewed_priority,
+                "review_status": "Human reviewed",
+                "review_notes": review_notes,
+                "priority_review_note": step24_safe_text(
+                    row.get("priority_review_note", review_notes)
+                ) or review_notes,
+            }
+        else:
+            decisions[company] = {
+                "decision": "hold",
+                "reason": review_notes or f"Not approved for master update. Review decision: {raw_review_decision}",
+                "review_notes": review_notes or f"Held from master update. Review decision: {raw_review_decision}",
+            }
+
+        decision_rows.append({
+            "company": company,
+            "raw_review_decision": raw_review_decision,
+            "normalized_step22_decision": decisions[company]["decision"],
+            "reviewed_priority": reviewed_priority,
+            "ready_for_master_update": ready_for_master_update,
+            "step24_preflight_status": step24_status_for_row(
+                decisions[company]["decision"],
+                ready_for_master_update,
+            ),
+        })
+
+    if not decisions:
+        raise ValueError("STOP: No company decisions were built from Review Packet.")
+
+    return decisions, pd.DataFrame(decision_rows), batch_df
+
+def step24_update_review_packet_status(review_ws, selected_batch_name_value, status_text):
+    values = review_ws.get_all_values()
+
+    if not values:
+        return
+
+    headers = values[0]
+
+    required = ["batch_name", "step_22_status"]
+
+    for col in required:
+        if col not in headers:
+            print(f"WARNING: Cannot update {col}; column not found.")
+            return
+
+    batch_idx = headers.index("batch_name")
+    status_idx = headers.index("step_22_status")
+
+    updates = []
+
+    for row_number, row_values in enumerate(values[1:], start=2):
+        padded = row_values + [""] * (len(headers) - len(row_values))
+        row_batch = step24_safe_text(padded[batch_idx])
+
+        if row_batch == selected_batch_name_value:
+            cell_a1 = f"{chr(ord('A') + status_idx)}{row_number}"
+            updates.append({
+                "range": cell_a1,
+                "values": [[status_text]],
+            })
+
+    if updates:
+        review_ws.batch_update(updates)
+
+print("STEP 24 - GOOGLE SHEET REVIEW APPROVAL LAUNCHER")
+print("=" * 80)
+print("BATCH_CONTROL_SHEET_URL:", BATCH_CONTROL_SHEET_URL)
+print("DRY RUN:", STEP_24_DRY_RUN)
+
+client_for_sheet = step24_authenticate_sheet()
+spreadsheet = client_for_sheet.open_by_url(BATCH_CONTROL_SHEET_URL)
+
+review_ws = spreadsheet.worksheet("Review Packet")
+review_df = step24_dataframe_from_sheet(review_ws)
+
+if review_df.empty:
+    raise ValueError("STOP: Review Packet is empty.")
+
+if "selected_batch_name" in globals() and step24_safe_text(selected_batch_name):
+    selected_batch_name_value = step24_safe_text(selected_batch_name)
+else:
+    candidate_df = review_df[
+        review_df["ready_for_master_update"].astype(str).str.strip().str.upper().eq("YES")
+    ].copy()
+
+    unique_batches = sorted(
+        [batch for batch in candidate_df["batch_name"].astype(str).str.strip().unique() if batch]
+    )
+
+    if len(unique_batches) != 1:
+        raise ValueError(
+            "STOP: Set selected_batch_name before running Step 24. "
+            f"Ready batches found: {unique_batches}"
+        )
+
+    selected_batch_name_value = unique_batches[0]
+
+batch_name = selected_batch_name_value
+
+batch_review_decisions, decision_preview_df, selected_review_df = step24_build_decisions(
+    review_df=review_df,
+    selected_batch_name_value=selected_batch_name_value,
+)
+
+print("")
+print("BATCH SELECTED")
+print("=" * 80)
+print("batch_name:", batch_name)
+
+print("")
+print("STEP 24 DECISION PREFLIGHT")
+print("=" * 80)
+print(decision_preview_df.to_string(index=False))
+
+approved_count = sum(
+    1 for decision in batch_review_decisions.values()
+    if decision.get("decision") == "approve"
+)
+
+held_count = sum(
+    1 for decision in batch_review_decisions.values()
+    if decision.get("decision") == "hold"
+)
+
+print("")
+print("Approved for master update:", approved_count)
+print("Held from master update:", held_count)
+
+print("")
+print("Step 22 extraction check:")
+step22_code = step24_extract_step_code("22")
+print("Step 22 block length:", len(step22_code))
+
+STEP_22_DRY_RUN = STEP_24_DRY_RUN
+
+if STEP_24_DRY_RUN:
+    print("")
+    print("Running Step 22 in dry-run mode for validation.")
+    step24_run_workflow_step("22")
+
+    print("")
+    print("=" * 80)
+    print("STEP 24 DRY RUN COMPLETE")
+    print("=" * 80)
+    print("No master update was performed. No dashboard refresh was performed.")
+else:
+    print("")
+    print("Running Step 22 for real master/dashboard update.")
+    step24_run_workflow_step("22")
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    step24_update_review_packet_status(
+        review_ws=review_ws,
+        selected_batch_name_value=selected_batch_name_value,
+        status_text=f"UPDATED_BY_STEP_24 {timestamp}",
+    )
+
+    print("")
+    print("=" * 80)
+    print("STEP 24 COMPLETE")
+    print("=" * 80)
+    print("Approved batch was sent through Step 22.")
+    print("Master should be updated and dashboard should be refreshed.")
