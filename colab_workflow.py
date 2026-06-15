@@ -3795,14 +3795,10 @@ market_map_df = apply_priority_fields(market_map_df)
 # Helpers
 # -----------------------------
 
-def normalize_name(value):
-    text = safe_text(value).lower()
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-def existing_cols(df, cols):
-    return [col for col in cols if col in df.columns]
+from health_tech_research_agent.dashboard import (
+    existing_cols,
+    normalize_name,
+)
 
 # -----------------------------
 # Required fields
