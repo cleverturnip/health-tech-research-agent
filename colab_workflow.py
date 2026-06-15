@@ -6323,14 +6323,13 @@ files.download(str(workbook_path))
 # =============================================================================
 # STEP 20 - Dashboard refresh runner
 # =============================================================================
+
+# =============================================================================
+# STEP 20 - Dashboard refresh runner
+# =============================================================================
 # Purpose:
 # - Run the dashboard refresh sequence from the checked-out GitHub workflow file.
 # - This is orchestration only. It does not change scoring, priority, or export logic.
-#
-# Prerequisites:
-# - Run the GitHub pull/setup cell first.
-# - Confirm BRANCH is the branch you want to test.
-# - Run this only after the repo is ready and /content/health-tech-research-agent exists.
 
 from pathlib import Path
 import re
@@ -6339,10 +6338,41 @@ import time
 import traceback
 
 REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
 WORKFLOW_PATH = REPO_DIR / "colab_workflow.py"
 
+if not WORKFLOW_PATH.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {WORKFLOW_PATH}. "
+        "Run the GitHub pull/setup cell first."
+    )
+
+if not SRC_DIR.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {SRC_DIR}. "
+        "Run the GitHub pull/setup cell first."
+    )
+
+src_path = str(SRC_DIR)
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+from health_tech_research_agent.priority import (
+    apply_priority_fields,
+    extract_priority_code,
+    normalize_priority_level,
+    priority_code,
+    priority_rank,
+    safe_text,
+    is_blank_value,
+)
+
+print("PASS: Shared priority helper imported directly by Step 20 runner.")
+print("apply_priority_fields available:", "apply_priority_fields" in globals())
+
+workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+
 DASHBOARD_REFRESH_STEPS = [
-    "12B",
     "13",
     "14",
     "15",
@@ -6353,18 +6383,7 @@ DASHBOARD_REFRESH_STEPS = [
     "19A",
 ]
 
-if not WORKFLOW_PATH.exists():
-    raise FileNotFoundError(
-        f"STOP: Could not find {WORKFLOW_PATH}. "
-        "Run the GitHub pull/setup cell first."
-    )
-
-workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-
 def _step_marker_pattern(step_id):
-    # Matches markers like:
-    # # STEP 14 - Build market map view
-    # # STEP 19A - Workbook QA
     return re.compile(
         rf"(?m)^#\s*STEP\s+{re.escape(step_id)}\b.*$"
     )
@@ -6397,6 +6416,8 @@ def extract_step_code(step_id, source_text):
 
     return step_code
 
+runner_globals = globals()
+
 def run_workflow_step(step_id):
     print("\n" + "=" * 80)
     print(f"RUNNING STEP {step_id}")
@@ -6407,7 +6428,11 @@ def run_workflow_step(step_id):
     start_time = time.time()
 
     try:
-        exec(compile(step_code, f"colab_workflow.py::STEP_{step_id}", "exec"), globals())
+        exec(
+            compile(step_code, f"colab_workflow.py::STEP_{step_id}", "exec"),
+            runner_globals,
+            runner_globals,
+        )
     except Exception as exc:
         print("\n" + "!" * 80)
         print(f"FAILED STEP {step_id}")
