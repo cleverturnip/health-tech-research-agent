@@ -298,6 +298,12 @@ Current job-search thesis:
 - D2C is not automatically bad. Unsupported D2C is risky. D2C with credible paid-customer scale, ARR/revenue, subscriber/member growth, renewal/retention, pricing power, repeat usage, or strong recurring monetization can remain highly relevant.
 - Do not overvalue funding, valuation, brand heat, waitlists, downloads, app usage, pricing pages, or vague growth claims unless tied to paid usage, revenue quality, durable distribution, retention, or outcomes.
 
+Preferred stage and role-agency thesis:
+- Katelynd is not primarily looking for a mature enterprise-scale health tech company that already has professionalized executive layers, well-developed operating systems, and narrow leadership lanes.
+- Her highest-fit target is a Series A/B or early Series C company with early product-market fit signs that now needs to scale from early traction toward $100M ARR.
+- The company should have enough traction to prove the market is real, but still enough operating ambiguity that a senior product/operator can materially shape the business.
+- Mature companies can still be useful benchmarks or role-scope-dependent targets, but they should not receive high operator timing scores unless there is specific evidence of high-agency whitespace, a major operating rebuild, a new business line, or unusually immature operating systems relative to revenue/stage.
+
 Core PMF / scale scoring rule:
 For pmf_scale_score, DO NOT average commercial traction and institutional distribution as if both are required.
 
@@ -435,10 +441,39 @@ Scoring definitions:
    Estimated revenue from sources such as Sacra can support PMF/scale, but should usually keep evidence confidence moderate unless corroborated by company-reported data or multiple credible sources.
 
 4. katelynd_role_fit_score
-   Measures whether Katelynd's background fits the company's likely needs.
+   Measures whether the company's likely operating problems match Katelynd's specific spike: scaling consumer/patient-facing products through product strategy, operating model design, data-informed decision-making, lifecycle/engagement systems, cross-functional execution, and product-ops/GM leadership.
+
+   This is not a generic "could Katelynd add value?" score. A mature company can have relevant problems but still be a poor Katelynd role fit if the likely roles are narrow, highly specialized, or already owned by mature executive layers.
+
+   High scores require evidence of at least two of:
+   - consumer/patient behavior, engagement, retention, or lifecycle loops matter;
+   - product, operations, analytics, clinical, payer, or commercial functions need stronger connection;
+   - the company is scaling from early traction into repeatable execution;
+   - the business likely needs a senior operator to build systems, cadence, prioritization, and accountability;
+   - a VP Product, VP Ops, GM, Chief of Staff to CEO/COO, Product Ops, or Commercial/Product Strategy leader could own meaningful outcomes.
+
+   Lower scores apply when the company is mostly clinical services, enterprise sales, infrastructure, provider workflow, reimbursement, or narrow functional execution where Katelynd's consumer product/operator background is less central.
 
 5. operator_timing_score
-   Measures whether this is the right moment for her kind of operator role.
+   Measures whether this is the right maturity window for Katelynd to enter with high agency.
+
+   Katelynd's preferred timing is post-PMF but pre-professionalized scale: typically Series A/B or early Series C, with clear early traction and emerging complexity, but before the company has fully built out mature executive layers and operating systems.
+
+   High scores require evidence that the company likely needs to build or rebuild the operating system needed to scale toward $100M ARR.
+
+   Do not score timing highly just because the company is successful, well-funded, high-growth, famous, or high-revenue. Very mature companies may be excellent businesses but poor timing fits if Katelynd would likely enter a narrow lane with limited agency.
+
+   Timing caps:
+   - Series A/B or equivalent early growth: can score 80-95 if PMF signs and operating complexity are present.
+   - Early Series C / scale-up with major operating ambiguity: can score 70-90.
+   - Late Series C/D or $75M-$150M ARR: cap at 70 unless there is clear evidence of a new business line, major operating rebuild, or unusually high-agency role need.
+   - Series D+ / $100M+ ARR / heavily professionalized org: cap at 60 unless the company is still operationally immature or entering a major new scaling phase.
+   - Public company or post-IPO: cap at 50 unless evaluating a specific role with an unusually broad mandate.
+
+   For mature companies, explicitly distinguish:
+   - "strong company, weak timing";
+   - "strong company, role-scope dependent";
+   - "still early enough for high-agency operator impact."
 
 Calibration rules:
 - If a company has strong commercial traction but weak payer/institutional distribution, do not automatically downgrade PMF/scale. Instead, note that the scale path is commercial/D2C rather than institutional.
@@ -472,6 +507,13 @@ Use this JSON schema exactly:
   "business_model_classification": "short classification",
   "commercial_scale_assessment": "plain-English assessment of revenue quality, paid-customer scale, retention, pricing power, CAC/margin if available, and whether revenue is reported, estimated, or inferred",
   "pmf_scale_assessment": "plain-English assessment explaining the strongest scale engine, secondary scale engine if any, outcomes/product-value support, and key caveats",
+  "role_timing_assessment": {{
+    "company_maturity_read": "early / early-growth / scale-up / late-stage / public / unclear",
+    "likely_agency_level": "high / medium / low / role-dependent",
+    "stage_timing_fit": "ideal / good / borderline / too late / unclear",
+    "why_now_or_why_not": "short explanation of whether Katelynd can enter with high agency now",
+    "timing_penalty_applied": true
+  }},
   "scale_signal_assessment": {{
     "commercial_scale_signal": "strong / moderate / weak / none",
     "commercial_scale_signal_reason": "short reason",
@@ -1753,6 +1795,216 @@ for _, row in df.iterrows():
 summary_df = pd.DataFrame(summary_rows)
 
 # -----------------------------
+# Role/timing maturity assessment + timing caps
+# -----------------------------
+# Purpose:
+# - Separate "good company" from "right timing for Katelynd."
+# - Preserve raw timing score and apply deterministic caps for mature companies.
+# - Surface maturity/agency fields in summary exports and review packets.
+
+ROLE_TIMING_FIELDS = [
+    "company_maturity_read",
+    "likely_agency_level",
+    "stage_timing_fit",
+    "why_now_or_why_not",
+    "timing_penalty_applied",
+]
+
+for _col in ROLE_TIMING_FIELDS + [
+    "operator_timing_score_raw",
+    "operator_timing_score_cap",
+    "operator_timing_calibration_flag",
+]:
+    if _col not in summary_df.columns:
+        summary_df[_col] = ""
+
+def _rt_safe_text(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    return str(value).strip()
+
+def _rt_company_key(value):
+    return normalize_company_key(value)
+
+_rt_raw_lookup = {}
+if "df" in globals() and isinstance(df, pd.DataFrame) and "company" in df.columns:
+    for _, _raw_row in df.iterrows():
+        _rt_raw_lookup[_rt_company_key(_raw_row.get("company", ""))] = _raw_row
+
+def _rt_get_parsed_for_company(company):
+    _raw_row = _rt_raw_lookup.get(_rt_company_key(company))
+    if _raw_row is None:
+        return {}
+    try:
+        return parse_first_json_object(_raw_row.get("fit_brief_json", ""))
+    except Exception:
+        return {}
+
+def _rt_get_raw_text_for_company(company, parsed=None):
+    parsed = parsed or {}
+    _raw_row = _rt_raw_lookup.get(_rt_company_key(company))
+
+    pieces = [
+        company,
+        parsed.get("business_model_classification", ""),
+        parsed.get("commercial_scale_assessment", ""),
+        parsed.get("pmf_scale_assessment", ""),
+        parsed.get("final_takeaway", ""),
+        parsed.get("calibration_flag", ""),
+    ]
+
+    if _raw_row is not None:
+        pieces.extend([
+            _raw_row.get("funding_finding", ""),
+            _raw_row.get("payer_institutional_finding", ""),
+            _raw_row.get("outcomes_finding", ""),
+            _raw_row.get("commercial_scale_finding", ""),
+        ])
+
+    return " ".join([_rt_safe_text(piece).lower() for piece in pieces])
+
+def _rt_infer_maturity_read(text):
+    late_stage_terms = [
+        "series d", "series e", "series f", "late-stage", "late stage",
+        "unicorn", "$1b valuation", "over $1b", "> $1b", ">$1b",
+        "$100m arr", "100m arr", "$100m revenue", "100m revenue",
+        "$150m", "150m revenue", "revenue run-rate", "revenue run rate",
+    ]
+    public_terms = [
+        "public company", "post-ipo", "post ipo", "ipo", "s-1", "nyse", "nasdaq",
+    ]
+    early_c_terms = ["series c", "early series c"]
+    early_terms = ["series a", "series b", "seed", "pre-seed", "pre seed"]
+
+    if any(term in text for term in public_terms):
+        return "public"
+    if any(term in text for term in late_stage_terms):
+        return "late-stage"
+    if any(term in text for term in early_c_terms):
+        return "scale-up"
+    if any(term in text for term in early_terms):
+        return "early-growth"
+    return "unclear"
+
+def _rt_has_high_agency_exception(text):
+    exception_terms = [
+        "new business line", "new line of business", "operating rebuild", "rebuild",
+        "turnaround", "operationally immature", "founder-led", "founder led",
+        "needs operating system", "build the operating system", "high-agency",
+        "high agency", "white space", "whitespace", "major scaling phase",
+        "scaling from early traction", "pre-professionalized", "not yet professionalized",
+    ]
+    return any(term in text for term in exception_terms)
+
+def _rt_operator_timing_cap(maturity_read, high_agency_exception=False):
+    maturity = _rt_safe_text(maturity_read).lower()
+
+    if maturity == "public":
+        return 65 if high_agency_exception else 50
+    if maturity == "late-stage":
+        return 70 if high_agency_exception else 60
+    if maturity == "scale-up":
+        return 90 if high_agency_exception else 80
+    return None
+
+def _rt_default_agency_level(maturity_read, high_agency_exception):
+    maturity = _rt_safe_text(maturity_read).lower()
+    if high_agency_exception:
+        return "role-dependent"
+    if maturity in ["public", "late-stage"]:
+        return "low"
+    if maturity == "scale-up":
+        return "medium"
+    if maturity == "early-growth":
+        return "high"
+    return "unclear"
+
+def _rt_default_stage_timing_fit(maturity_read, high_agency_exception):
+    maturity = _rt_safe_text(maturity_read).lower()
+    if maturity == "early-growth":
+        return "ideal"
+    if maturity == "scale-up":
+        return "good" if high_agency_exception else "borderline"
+    if maturity in ["late-stage", "public"]:
+        return "borderline" if high_agency_exception else "too late"
+    return "unclear"
+
+def _rt_bool_text(value):
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    text = _rt_safe_text(value).lower()
+    if text in ["true", "yes", "1"]:
+        return "TRUE"
+    if text in ["false", "no", "0"]:
+        return "FALSE"
+    return ""
+
+for _idx, _summary_row in summary_df.iterrows():
+    _company = _summary_row.get("company", "")
+    _parsed = _rt_get_parsed_for_company(_company)
+    _role_timing = _parsed.get("role_timing_assessment", {})
+    if not isinstance(_role_timing, dict):
+        _role_timing = {}
+
+    _raw_text = _rt_get_raw_text_for_company(_company, _parsed)
+    _inferred_maturity = _rt_infer_maturity_read(_raw_text)
+    _high_agency_exception = _rt_has_high_agency_exception(_raw_text)
+
+    _maturity_read = _rt_safe_text(_role_timing.get("company_maturity_read", "")) or _inferred_maturity
+    _agency_level = _rt_safe_text(_role_timing.get("likely_agency_level", "")) or _rt_default_agency_level(_maturity_read, _high_agency_exception)
+    _stage_fit = _rt_safe_text(_role_timing.get("stage_timing_fit", "")) or _rt_default_stage_timing_fit(_maturity_read, _high_agency_exception)
+    _why_now = _rt_safe_text(_role_timing.get("why_now_or_why_not", ""))
+    _penalty_from_model = _rt_bool_text(_role_timing.get("timing_penalty_applied", ""))
+
+    if not _why_now:
+        if _maturity_read in ["late-stage", "public"] and not _high_agency_exception:
+            _why_now = "Mature company; likely lower agency unless a specific broad mandate exists."
+        elif _maturity_read == "early-growth":
+            _why_now = "Likely closer to Katelynd's preferred post-PMF / pre-professionalized scaling window."
+        elif _maturity_read == "scale-up":
+            _why_now = "Potentially relevant, but role scope and remaining operating whitespace need diligence."
+        else:
+            _why_now = "Timing unclear from public evidence."
+
+    _cap = _rt_operator_timing_cap(_maturity_read, _high_agency_exception)
+
+    _raw_score = summary_df.at[_idx, "operator_timing_score"] if "operator_timing_score" in summary_df.columns else None
+    summary_df.at[_idx, "operator_timing_score_raw"] = _raw_score
+    summary_df.at[_idx, "operator_timing_score_cap"] = "" if _cap is None else _cap
+
+    _penalty_applied = (_penalty_from_model == "TRUE")
+
+    try:
+        _numeric_raw_score = float(_raw_score)
+    except Exception:
+        _numeric_raw_score = None
+
+    _timing_flag = ""
+
+    if _cap is not None and _numeric_raw_score is not None and _numeric_raw_score > _cap:
+        summary_df.at[_idx, "operator_timing_score"] = _cap
+        _penalty_applied = True
+        _timing_flag = (
+            f"CHECK: timing score may be inflated by company quality; "
+            f"{_maturity_read} maturity capped operator timing from {int(_numeric_raw_score)} to {_cap}."
+        )
+    elif _maturity_read in ["late-stage", "public"] and _numeric_raw_score is not None and _numeric_raw_score >= 75:
+        _timing_flag = "CHECK: mature company may be too late for high-agency operator entry."
+
+    summary_df.at[_idx, "company_maturity_read"] = _maturity_read
+    summary_df.at[_idx, "likely_agency_level"] = _agency_level
+    summary_df.at[_idx, "stage_timing_fit"] = _stage_fit
+    summary_df.at[_idx, "why_now_or_why_not"] = _why_now
+    summary_df.at[_idx, "timing_penalty_applied"] = "TRUE" if _penalty_applied else "FALSE"
+    summary_df.at[_idx, "operator_timing_calibration_flag"] = _timing_flag
+
+print("PASS: role/timing maturity assessment and timing caps applied.")
+
+
+# -----------------------------
 # Normalize nested text fields
 # -----------------------------
 
@@ -1812,6 +2064,21 @@ if missing_summary_cols:
 # -----------------------------
 
 summary_df["calibration_flag"] = summary_df.apply(build_calibration_flag, axis=1)
+
+if "operator_timing_calibration_flag" in summary_df.columns:
+    def _append_operator_timing_flag(row):
+        base = safe_text(row.get("calibration_flag", ""))
+        extra = safe_text(row.get("operator_timing_calibration_flag", ""))
+
+        if not extra:
+            return base
+        if not base:
+            return extra
+        if extra in base:
+            return base
+        return base + " | " + extra
+
+    summary_df["calibration_flag"] = summary_df.apply(_append_operator_timing_flag, axis=1)
 
 # -----------------------------
 # Display summary
@@ -3317,7 +3584,15 @@ model_cols_to_update = [
 optional_model_cols = [
     "final_takeaway",
     "commercial_scale_finding",
-    "commercial_scale_assessment"
+    "commercial_scale_assessment",
+    "company_maturity_read",
+    "likely_agency_level",
+    "stage_timing_fit",
+    "why_now_or_why_not",
+    "timing_penalty_applied",
+    "operator_timing_score_raw",
+    "operator_timing_score_cap",
+    "operator_timing_calibration_flag"
 ]
 
 for col in optional_model_cols:
@@ -7079,6 +7354,13 @@ def step21_build_review_packet():
         "evidence_confidence_score",
         "katelynd_role_fit_score",
         "operator_timing_score",
+        "operator_timing_score_raw",
+        "operator_timing_score_cap",
+        "company_maturity_read",
+        "likely_agency_level",
+        "stage_timing_fit",
+        "why_now_or_why_not",
+        "timing_penalty_applied",
         "priority_level",
         "final_recommendation",
         "business_model_classification",
@@ -8140,6 +8422,13 @@ def step23_build_readable_outputs(batch_name):
             "pmf_scale_score": step23_get_row_value(row, ["pmf_scale_score"]),
             "role_fit_score": step23_get_row_value(row, ["katelynd_role_fit_score", "role_fit_score"]),
             "operator_timing_score": step23_get_row_value(row, ["operator_timing_score"]),
+            "operator_timing_score_raw": step23_get_row_value(row, ["operator_timing_score_raw"]),
+            "operator_timing_score_cap": step23_get_row_value(row, ["operator_timing_score_cap"]),
+            "company_maturity_read": step23_get_row_value(row, ["company_maturity_read"]),
+            "likely_agency_level": step23_get_row_value(row, ["likely_agency_level"]),
+            "stage_timing_fit": step23_get_row_value(row, ["stage_timing_fit"]),
+            "why_now_or_why_not": step23_get_row_value(row, ["why_now_or_why_not"]),
+            "timing_penalty_applied": step23_get_row_value(row, ["timing_penalty_applied"]),
             "business_model_classification": step23_get_row_value(row, ["business_model_classification"]),
             "key_verified_facts": verified_facts,
             "key_weak_or_unverified_claims": weak_claims,
@@ -8181,6 +8470,16 @@ def step23_build_readable_outputs(batch_name):
 
 def step23_write_dataframe_to_worksheet(worksheet, headers, df):
     worksheet.clear()
+
+    # Make sure the sheet is wide enough for newly added review columns.
+    # This prevents future schema additions from silently failing or truncating.
+    try:
+        target_rows = max(len(df) + 1, 2)
+        target_cols = max(len(headers), getattr(worksheet, "col_count", len(headers)))
+        worksheet.resize(rows=target_rows, cols=target_cols)
+    except Exception as resize_error:
+        print(f"WARNING: Could not resize worksheet before write: {resize_error}")
+
     worksheet.update("A1", [headers], value_input_option="USER_ENTERED")
 
     if df.empty:
@@ -8210,6 +8509,13 @@ def step23_write_outputs_to_sheet(spreadsheet, batch_name):
         "pmf_scale_score",
         "role_fit_score",
         "operator_timing_score",
+        "operator_timing_score_raw",
+        "operator_timing_score_cap",
+        "company_maturity_read",
+        "likely_agency_level",
+        "stage_timing_fit",
+        "why_now_or_why_not",
+        "timing_penalty_applied",
         "business_model_classification",
         "key_verified_facts",
         "key_weak_or_unverified_claims",
