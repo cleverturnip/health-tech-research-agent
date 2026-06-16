@@ -6832,6 +6832,258 @@ read_me = pd.DataFrame([
     }
 ])
 
+
+# -----------------------------
+# Candidate Priority V4.2 views
+# -----------------------------
+# CANDIDATE_PRIORITY_DASHBOARD_V42_PATCH_START
+# Purpose:
+# - Preserve final_priority_level as the human-reviewed dashboard source of truth.
+# - Add candidate_priority_level as the V4.2 recommendation layer.
+# - Surface P0/P1 candidate-priority targets in dedicated dashboard sheets.
+# - Do not overwrite final priority.
+
+candidate_default_columns = {
+    "candidate_priority_level": "",
+    "candidate_priority_reason": "",
+    "candidate_priority_framework_version": "",
+    "candidate_priority_source": "",
+    "candidate_priority_audit_file": "",
+    "candidate_priority_updated_at": "",
+    "target_archetype": "",
+    "scale_path_quality": "",
+    "katelynd_capability_fit_score": np.nan,
+    "operator_agency_entry_score": np.nan,
+    "reset_or_restructure_signal": "",
+    "reset_or_restructure_basis": "",
+    "commercial_scale_signal_inferred": np.nan,
+    "institutional_distribution_signal_inferred": np.nan,
+    "outcomes_signal_inferred": np.nan,
+    "candidate_priority_rank": 99,
+    "candidate_priority_code": ""
+}
+
+for col_name, default_value in candidate_default_columns.items():
+    if col_name not in dashboard_df.columns:
+        dashboard_df[col_name] = default_value
+
+dashboard_df["candidate_priority_code"] = dashboard_df["candidate_priority_level"].apply(extract_priority_code)
+dashboard_df["candidate_priority_rank"] = dashboard_df["candidate_priority_level"].apply(priority_rank)
+
+for score_col in [
+    "katelynd_capability_fit_score",
+    "operator_agency_entry_score",
+    "commercial_scale_signal_inferred",
+    "institutional_distribution_signal_inferred",
+    "outcomes_signal_inferred",
+    "candidate_priority_rank"
+]:
+    dashboard_df[score_col] = pd.to_numeric(
+        dashboard_df[score_col],
+        errors="coerce"
+    )
+
+dashboard_df["candidate_priority_rank"] = dashboard_df["candidate_priority_rank"].fillna(99).astype(int)
+
+def candidate_priority_movement(row):
+    candidate_rank = row.get("candidate_priority_rank", 99)
+    final_rank = row.get("final_priority_rank", 99)
+
+    try:
+        candidate_rank = int(candidate_rank)
+    except Exception:
+        candidate_rank = 99
+
+    try:
+        final_rank = int(final_rank)
+    except Exception:
+        final_rank = 99
+
+    if candidate_rank < final_rank:
+        return "Candidate promotes vs final"
+    if candidate_rank > final_rank:
+        return "Candidate demotes vs final"
+    return "No change"
+
+dashboard_df["candidate_vs_final_priority_movement"] = dashboard_df.apply(candidate_priority_movement, axis=1)
+
+candidate_master_cols = existing_cols(dashboard_df, [
+    "company",
+    "final_priority_level",
+    "priority_source",
+    "candidate_priority_level",
+    "candidate_vs_final_priority_movement",
+    "target_archetype",
+    "scale_path_quality",
+    "katelynd_capability_fit_score",
+    "operator_agency_entry_score",
+    "reset_or_restructure_signal",
+    "market_segment",
+    "strategic_bucket",
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "katelynd_role_fit_score",
+    "operator_timing_score",
+    "final_recommendation",
+    "business_model_classification",
+    "commercial_scale_assessment",
+    "pmf_scale_assessment",
+    "calibration_flag",
+    "final_takeaway",
+    "candidate_priority_reason",
+    "reset_or_restructure_basis"
+])
+
+master_view = safe_sort(
+    dashboard_df,
+    [
+        "candidate_priority_rank",
+        "operator_agency_entry_score",
+        "pmf_scale_score",
+        "evidence_confidence_score",
+        "final_priority_rank",
+        "company"
+    ],
+    [True, False, False, False, True, True]
+)[candidate_master_cols]
+
+candidate_focus_source = dashboard_df[
+    dashboard_df["candidate_priority_level"].apply(lambda value: contains_priority(value, ["P0", "P1"]))
+].copy()
+
+candidate_focus_cols = existing_cols(dashboard_df, [
+    "company",
+    "candidate_priority_level",
+    "final_priority_level",
+    "candidate_vs_final_priority_movement",
+    "target_archetype",
+    "scale_path_quality",
+    "katelynd_capability_fit_score",
+    "operator_agency_entry_score",
+    "reset_or_restructure_signal",
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "market_segment",
+    "strategic_bucket",
+    "business_model_classification",
+    "commercial_scale_assessment",
+    "payer_institutional_finding",
+    "outcomes_finding",
+    "candidate_priority_reason",
+    "reset_or_restructure_basis",
+    "final_takeaway"
+])
+
+candidate_p0_p1_focus = safe_sort(
+    candidate_focus_source,
+    [
+        "candidate_priority_rank",
+        "operator_agency_entry_score",
+        "pmf_scale_score",
+        "evidence_confidence_score",
+        "company"
+    ],
+    [True, False, False, False, True]
+)[candidate_focus_cols]
+
+candidate_p0 = candidate_p0_p1_focus[
+    candidate_p0_p1_focus["candidate_priority_level"].apply(lambda value: contains_priority(value, ["P0"]))
+].copy()
+
+candidate_p1 = candidate_p0_p1_focus[
+    candidate_p0_p1_focus["candidate_priority_level"].apply(lambda value: contains_priority(value, ["P1"]))
+].copy()
+
+priority_comparison_cols = existing_cols(dashboard_df, [
+    "company",
+    "final_priority_level",
+    "priority_source",
+    "candidate_priority_level",
+    "candidate_vs_final_priority_movement",
+    "target_archetype",
+    "scale_path_quality",
+    "katelynd_capability_fit_score",
+    "operator_agency_entry_score",
+    "reset_or_restructure_signal",
+    "company_maturity_read",
+    "stage_timing_fit",
+    "likely_agency_level",
+    "thesis_fit_score",
+    "pmf_scale_score",
+    "evidence_confidence_score",
+    "market_segment",
+    "strategic_bucket",
+    "candidate_priority_reason",
+    "reset_or_restructure_basis"
+])
+
+priority_comparison = safe_sort(
+    dashboard_df[priority_comparison_cols],
+    [
+        "candidate_priority_rank",
+        "operator_agency_entry_score",
+        "pmf_scale_score",
+        "evidence_confidence_score",
+        "company"
+    ],
+    [True, False, False, False, True]
+)
+
+candidate_priority_summary = (
+    dashboard_df
+    .groupby("candidate_priority_level", dropna=False)
+    .agg(company_count=("company", "nunique"))
+    .reset_index()
+)
+
+candidate_priority_summary["candidate_priority_rank"] = candidate_priority_summary["candidate_priority_level"].apply(priority_rank)
+candidate_priority_summary = candidate_priority_summary.sort_values("candidate_priority_rank").drop(columns=["candidate_priority_rank"])
+
+final_priority_summary = (
+    dashboard_df
+    .groupby("final_priority_level", dropna=False)
+    .agg(company_count=("company", "nunique"))
+    .reset_index()
+)
+
+final_priority_summary["final_priority_rank"] = final_priority_summary["final_priority_level"].apply(priority_rank)
+final_priority_summary = final_priority_summary.sort_values("final_priority_rank").drop(columns=["final_priority_rank"])
+
+read_me = pd.concat([
+    read_me,
+    pd.DataFrame([
+        {
+            "sheet": "Candidate P0 P1 Focus",
+            "description": "Candidate P0/P1 companies from V4.2 priority logic. This is a recommendation layer, not the human-reviewed final priority."
+        },
+        {
+            "sheet": "Candidate P0",
+            "description": "Potential active pursuit targets. Requires human review before promotion into final priority."
+        },
+        {
+            "sheet": "Candidate P1",
+            "description": "High-priority diligence candidates. Requires human review before promotion into final priority."
+        },
+        {
+            "sheet": "Priority Comparison",
+            "description": "Compares human-reviewed final priority with V4.2 candidate priority and flags promotions/demotions."
+        },
+        {
+            "sheet": "Candidate Summary",
+            "description": "Counts by candidate_priority_level."
+        },
+        {
+            "sheet": "Final Summary",
+            "description": "Counts by human-reviewed final_priority_level."
+        }
+    ])
+], ignore_index=True)
+
+# CANDIDATE_PRIORITY_DASHBOARD_V42_PATCH_END
+
+
 # -----------------------------
 # Export workbook
 # -----------------------------
@@ -6840,6 +7092,12 @@ with pd.ExcelWriter(local_export_path, engine="openpyxl") as writer:
     read_me.to_excel(writer, sheet_name="Read Me", index=False)
     master_view.to_excel(writer, sheet_name="Master Dashboard", index=False)
     priority_focus.to_excel(writer, sheet_name="Priority Focus", index=False)
+    candidate_p0_p1_focus.to_excel(writer, sheet_name="Candidate P0 P1 Focus", index=False)
+    candidate_p0.to_excel(writer, sheet_name="Candidate P0", index=False)
+    candidate_p1.to_excel(writer, sheet_name="Candidate P1", index=False)
+    priority_comparison.to_excel(writer, sheet_name="Priority Comparison", index=False)
+    candidate_priority_summary.to_excel(writer, sheet_name="Candidate Summary", index=False)
+    final_priority_summary.to_excel(writer, sheet_name="Final Summary", index=False)
     segment_summary_export.to_excel(writer, sheet_name="Segment Summary", index=False)
     company_by_segment_export.to_excel(writer, sheet_name="Companies by Segment", index=False)
     commercial_review.to_excel(writer, sheet_name="Commercial Scale Review", index=False)
@@ -6864,6 +7122,12 @@ exported_sheets = [
     "Read Me",
     "Master Dashboard",
     "Priority Focus",
+    "Candidate P0 P1 Focus",
+    "Candidate P0",
+    "Candidate P1",
+    "Priority Comparison",
+    "Candidate Summary",
+    "Final Summary",
     "Segment Summary",
     "Companies by Segment",
     "Commercial Scale Review",
