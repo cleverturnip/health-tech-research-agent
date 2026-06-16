@@ -9303,11 +9303,14 @@ def step26_candidate_source_paths():
         full = str(path).lower()
 
         skip_tokens = [
-            # Never use generated rescore / review outputs as evidence.
+            # Never use generated rescore / review / test outputs as evidence.
             "rescore_existing",
             "rescore",
             "full_master_rescore",
             "priority_gate_test",
+            "parse_retry_test",
+            "_retry_test",
+            "mae_parse_retry",
             "human_review_packet",
             "review_packet",
             "_summary",
@@ -9484,11 +9487,15 @@ STEP26_FORBIDDEN_EVIDENCE_SOURCE_TOKENS = [
     "rescore",
     "full_master_rescore",
     "priority_gate_test",
+    "parse_retry_test",
+    "_retry_test",
+    "mae_parse_retry",
     "human_review_packet",
     "review_packet",
     "_summary",
     "step26",
 ]
+
 
 def step26_assert_clean_evidence_sources(evidence_df):
     if evidence_df is None or evidence_df.empty:
@@ -9497,10 +9504,20 @@ def step26_assert_clean_evidence_sources(evidence_df):
     if "source_file" not in evidence_df.columns:
         raise RuntimeError("STOP: evidence_df has no source_file column; cannot validate source hygiene.")
 
+    generated_output_columns = [
+        "fit_brief_json",
+        "has_fit_brief_json",
+        "rescore_batch_name",
+        "rescore_saved_at",
+        "parse_attempt_count",
+        "parse_retry_errors",
+    ]
+
     bad_rows = []
 
     for _, row in evidence_df.iterrows():
         source_file = step26_safe_text(row.get("source_file", "")).lower()
+        source_name = step26_safe_text(row.get("source_name", "")).lower()
         company = step26_safe_text(row.get("requested_company_name", row.get("company", "")))
 
         matched_tokens = [
@@ -9508,23 +9525,42 @@ def step26_assert_clean_evidence_sources(evidence_df):
             if token in source_file
         ]
 
-        if matched_tokens:
+        generated_markers = []
+
+        for col in generated_output_columns:
+            if col in evidence_df.columns:
+                value = step26_safe_text(row.get(col, ""))
+
+                if value:
+                    generated_markers.append(col)
+
+        # Generated Step 26/test outputs often come from local research_batches
+        # and contain model-output columns. Raw archived evidence should not.
+        if matched_tokens or generated_markers:
             bad_rows.append({
                 "company": company,
+                "source_name": source_name,
                 "source_file": source_file,
                 "matched_forbidden_tokens": ",".join(matched_tokens),
+                "generated_output_markers": ",".join(generated_markers),
             })
 
     if bad_rows:
         preview = "\\n".join(
-            f"- {item['company']} | {item['matched_forbidden_tokens']} | {item['source_file']}"
+            (
+                f"- {item['company']} | "
+                f"tokens={item['matched_forbidden_tokens'] or 'none'} | "
+                f"generated_markers={item['generated_output_markers'] or 'none'} | "
+                f"source={item['source_file']}"
+            )
             for item in bad_rows[:20]
         )
 
         raise RuntimeError(
-            "STOP: Step 26 selected generated/rescore output files as evidence. "
+            "STOP: Step 26 selected generated/rescore/test output files as evidence. "
             "This would create a scoring feedback loop.\\n" + preview
         )
+
 
 # STEP26 SOURCE HYGIENE ASSERTION - END
 
