@@ -8267,7 +8267,7 @@ else:
 #
 # Optional before running:
 # - BATCH_CONTROL_SHEET_URL = "..."
-# - selected_batch_name = "..."
+# - STEP23_SELECTED_BATCH_NAME = "..."  # optional intentional override
 # - STEP_23_DRY_RUN = True
 
 from pathlib import Path
@@ -8919,15 +8919,17 @@ ready_df = queue_df[
 if ready_df.empty:
     raise ValueError("STOP: No READY rows found in Research Queue.")
 
-if "selected_batch_name" in globals() and step23_safe_text(selected_batch_name):
-    selected_batch_name_value = step23_safe_text(selected_batch_name)
+step23_selected_batch_override = step23_safe_text(globals().get("STEP23_SELECTED_BATCH_NAME", ""))
+
+if step23_selected_batch_override:
+    selected_batch_name_value = step23_selected_batch_override
     ready_df = ready_df[
         ready_df["batch_name"].astype(str).str.strip().eq(selected_batch_name_value)
     ].copy()
 
     if ready_df.empty:
         raise ValueError(
-            f"STOP: No READY rows found for selected_batch_name={selected_batch_name_value}"
+            f"STOP: No READY rows found for STEP23_SELECTED_BATCH_NAME={selected_batch_name_value}"
         )
 else:
     unique_ready_batches = sorted(
@@ -8937,7 +8939,7 @@ else:
     if len(unique_ready_batches) != 1:
         raise ValueError(
             "STOP: Multiple READY batch_name values found. "
-            "Set selected_batch_name before running Step 23. "
+            "Set STEP23_SELECTED_BATCH_NAME before running Step 23 only if multiple READY batches exist. "
             f"READY batches: {unique_ready_batches}"
         )
 
@@ -9382,8 +9384,10 @@ review_df = step24_dataframe_from_sheet(review_ws)
 if review_df.empty:
     raise ValueError("STOP: Review Packet is empty.")
 
-if "selected_batch_name" in globals() and step24_safe_text(selected_batch_name):
-    selected_batch_name_value = step24_safe_text(selected_batch_name)
+step24_selected_batch_override = step24_safe_text(globals().get("STEP24_SELECTED_BATCH_NAME", ""))
+
+if step24_selected_batch_override:
+    selected_batch_name_value = step24_selected_batch_override
 else:
     candidate_df = review_df[
         review_df["ready_for_master_update"].astype(str).str.strip().str.upper().eq("YES")
@@ -9395,7 +9399,7 @@ else:
 
     if len(unique_batches) != 1:
         raise ValueError(
-            "STOP: Set selected_batch_name before running Step 24. "
+            "STOP: Set STEP24_SELECTED_BATCH_NAME before running Step 24 only if multiple batches are ready. "
             f"Ready batches found: {unique_batches}"
         )
 
