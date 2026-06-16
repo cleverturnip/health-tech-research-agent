@@ -374,14 +374,22 @@ plausible_near_term_scale_path:
 Native priority model:
 - P0: Highest-priority target
   Use only for the clearest active-pursuit companies. Requires very strong thesis fit, strong PMF/scale, strong role fit, strong operator timing, and either multiple independently strong scale/value signals OR one exceptional scale engine with strong supporting evidence. P0 should be rare.
-- P1: Near-priority target
-  Use for former P1-border companies: companies that are differentiated from ordinary P2s and may become active targets after a small amount of diligence, but are not as clean as P0. These usually have strong thesis/role/timing fit and credible scale, but have a meaningful gap, caveat, or missing pillar.
+- P1: High-priority diligence
+  Use only for companies that are meaningfully stronger than ordinary P2s and close to active pursuit, but not clean enough for P0. P1 still requires strong thesis fit, strong PMF/scale, strong role fit, credible operator timing, and no major timing blocker. Do not use P1 for companies that are public, too late, low-agency, or mainly interesting as market comparables.
 - P2: Worth deeper diligence
   Use when the company clears the P2 priority gate but still has evidence gaps, timing ambiguity, role-fit questions, missing internal metrics, or one major missing pillar.
 - P3: Watch list
   Use when the company has some fit or interesting signals, but does not clear the P2 priority gate because scale, evidence, role fit, or timing is not strong enough yet.
 - P4: Low priority / likely reject
   Use when the company does not currently fit the thesis, has weak scale path, weak role fit, poor timing, or no compelling evidence of relevance.
+
+Hard priority gates:
+- P0 requires thesis_fit_score >= 85, pmf_scale_score >= 80, katelynd_role_fit_score >= 80, operator_timing_score >= 75, evidence_confidence_score >= 60, and stage_timing_fit must not be "too late". P0 should be rare.
+- P1 requires thesis_fit_score >= 80, pmf_scale_score >= 75, katelynd_role_fit_score >= 75, operator_timing_score >= 65, evidence_confidence_score >= 55, and stage_timing_fit must not be "too late".
+- If company_maturity_read is "public", maximum priority is P2 unless the role is explicitly a rare high-agency transformation role.
+- If stage_timing_fit is "too late", maximum priority is P2.
+- If likely_agency_level is "low", maximum priority is P2.
+- Do not use P0 or P1 just because the company is strong. Priority is about Katelynd fit, role agency, timing, and evidence quality together.
 
 Priority gate:
 - P2 requires at least one real reason to believe the company has scale or near-term scale potential.
@@ -550,7 +558,7 @@ Use this JSON schema exactly:
     }}
   }},
   "final_recommendation": "Strong fit, active pursuit / Strong fit, near-priority diligence / Possible fit, pending diligence / Watch list / Weak fit",
-  "priority_level": "P0: Highest-priority target / P1: Near-priority target / P2: Worth deeper diligence / P3: Watch list / P4: Low priority / likely reject",
+  "priority_level": "P0: Highest-priority target / P1: High-priority diligence / P2: Worth deeper diligence / P3: Watch list / P4: Low priority / likely reject",
   "calibration_flag": "short flag if needed, otherwise blank string",
   "final_takeaway": "1-3 sentence concise conclusion"
 }}
@@ -2377,7 +2385,7 @@ def normalize_priority_label(value):
         or "p1 border" in lower
         or "strong p2" in lower
     ):
-        return "P1: Near-priority target"
+        return "P1: High-priority diligence"
 
     # Backward compatibility: old P1 means new P0.
     if lower.startswith("p1: high-priority") or lower.startswith("p1: high priority"):
@@ -2754,7 +2762,7 @@ for idx, row in df.iterrows():
         adjudication_action = "assigned_P0"
 
     elif qualifies_for_p1:
-        adjudicated_priority = "P1: Near-priority target"
+        adjudicated_priority = "P1: High-priority diligence"
         adjudication_action = "assigned_P1"
 
     elif qualifies_for_p2:
@@ -3993,7 +4001,7 @@ from health_tech_research_agent.priority import (
 print("PASS: Step 12B priority helper imported from GitHub package.")
 print("Priority model:")
 print("- P0 = Highest-priority target / old P1")
-print("- P1 = Near-priority target / old P1-border")
+print("- P1 = High-priority diligence / old P1-border")
 print("- P2 = Worth deeper diligence")
 print("- P3 = Watch list")
 print("- P4 = Low priority / likely reject")
@@ -5212,7 +5220,7 @@ count_cols = [
     if col.startswith("count_")
     or col in [
         "Priority target",
-        "Near-priority target",
+        "High-priority diligence",
         "Diligence target",
         "Evidence / role-fit review",
         "Watch list",
@@ -5275,7 +5283,7 @@ quick_view_cols = [
     "p3_count",
     "p4_count",
     "Priority target",
-    "Near-priority target",
+    "High-priority diligence",
     "Diligence target",
     "Watch list",
     "Low priority",
@@ -7481,7 +7489,7 @@ else:
 # - batch_review_decisions = {
 #       "Company Name": {
 #           "decision": "approve",  # approve/include OR hold/exclude/skip
-#           "reviewed_priority_level": "P1: Near-priority target",
+#           "reviewed_priority_level": "P1: High-priority diligence",
 #           "review_status": "Human reviewed",
 #           "review_notes": "Why this decision was made.",
 #           "priority_review_note": "Short dashboard-facing note."
@@ -9295,8 +9303,17 @@ def step26_candidate_source_paths():
         full = str(path).lower()
 
         skip_tokens = [
+            # Never use generated rescore / review outputs as evidence.
             "rescore_existing",
+            "rescore",
+            "full_master_rescore",
+            "priority_gate_test",
+            "human_review_packet",
+            "review_packet",
+            "_summary",
             "step26",
+
+            # Historical quarantine folders / partial batches.
             "_ignored_partial_step25",
         ]
 
@@ -9458,6 +9475,60 @@ def step26_load_existing_evidence(companies):
 
     return evidence_df
 
+
+# STEP26 SOURCE HYGIENE ASSERTION - START
+# Hard guardrail: Step 26 must use raw archived evidence, not prior Step 26 outputs.
+
+STEP26_FORBIDDEN_EVIDENCE_SOURCE_TOKENS = [
+    "rescore_existing",
+    "rescore",
+    "full_master_rescore",
+    "priority_gate_test",
+    "human_review_packet",
+    "review_packet",
+    "_summary",
+    "step26",
+]
+
+def step26_assert_clean_evidence_sources(evidence_df):
+    if evidence_df is None or evidence_df.empty:
+        return
+
+    if "source_file" not in evidence_df.columns:
+        raise RuntimeError("STOP: evidence_df has no source_file column; cannot validate source hygiene.")
+
+    bad_rows = []
+
+    for _, row in evidence_df.iterrows():
+        source_file = step26_safe_text(row.get("source_file", "")).lower()
+        company = step26_safe_text(row.get("requested_company_name", row.get("company", "")))
+
+        matched_tokens = [
+            token for token in STEP26_FORBIDDEN_EVIDENCE_SOURCE_TOKENS
+            if token in source_file
+        ]
+
+        if matched_tokens:
+            bad_rows.append({
+                "company": company,
+                "source_file": source_file,
+                "matched_forbidden_tokens": ",".join(matched_tokens),
+            })
+
+    if bad_rows:
+        preview = "\\n".join(
+            f"- {item['company']} | {item['matched_forbidden_tokens']} | {item['source_file']}"
+            for item in bad_rows[:20]
+        )
+
+        raise RuntimeError(
+            "STOP: Step 26 selected generated/rescore output files as evidence. "
+            "This would create a scoring feedback loop.\\n" + preview
+        )
+
+# STEP26 SOURCE HYGIENE ASSERTION - END
+
+
 def step26_build_status_findings(row):
     company = step26_safe_text(row.get("requested_company_name", row.get("company", "")))
 
@@ -9485,7 +9556,17 @@ Prior batch/source metadata, for traceability only:
 - source_file: {step26_safe_text(row.get("source_file", ""))}
 """.strip()
 
+
 def step26_parse_json_object(text):
+    """
+    Parse a JSON object from model output.
+
+    Durable behavior:
+    - Handles fenced JSON.
+    - Extracts the first JSON object.
+    - Repairs the common model failure where the final closing brace/bracket is missing.
+    - Raises a clear error if repair still fails.
+    """
     raw = step26_safe_text(text)
     raw = re.sub(r"^```json", "", raw).strip()
     raw = re.sub(r"^```", "", raw).strip()
@@ -9496,10 +9577,81 @@ def step26_parse_json_object(text):
     if start == -1:
         raise ValueError("No JSON object found")
 
-    decoder = json.JSONDecoder()
-    parsed, _ = decoder.raw_decode(raw[start:])
+    candidate = raw[start:].strip()
 
-    return parsed
+    def try_parse(value):
+        return json.loads(value)
+
+    try:
+        return try_parse(candidate)
+    except Exception as first_error:
+        first_error_message = f"{type(first_error).__name__}: {first_error}"
+
+    # Repair common EOF truncation / missing closer cases.
+    repaired = candidate
+
+    stack = []
+    in_string = False
+    escape = False
+
+    for char in repaired:
+        if escape:
+            escape = False
+            continue
+
+        if char == "\\" and in_string:
+            escape = True
+            continue
+
+        if char == '"':
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if char in "{[":
+            stack.append(char)
+        elif char in "}]":
+            if not stack:
+                continue
+
+            opener = stack[-1]
+            if opener == "{" and char == "}":
+                stack.pop()
+            elif opener == "[" and char == "]":
+                stack.pop()
+
+    closer_map = {
+        "{": "}",
+        "[": "]",
+    }
+
+    if stack:
+        repaired = repaired + "".join(closer_map[item] for item in reversed(stack))
+
+        try:
+            parsed = try_parse(repaired)
+
+            if isinstance(parsed, dict):
+                return parsed
+
+            raise ValueError("Repaired JSON parsed but did not return an object.")
+
+        except Exception as repair_error:
+            raise ValueError(
+                "Could not parse model JSON. "
+                f"Initial error: {first_error_message}. "
+                f"Repair error: {type(repair_error).__name__}: {repair_error}. "
+                f"Raw preview: {candidate[:500]}"
+            )
+
+    raise ValueError(
+        "Could not parse model JSON and no simple missing-closer repair was available. "
+        f"Initial error: {first_error_message}. "
+        f"Raw preview: {candidate[:500]}"
+    )
+
 
 def step26_extract_score(scores, key):
     value = scores.get(key, None) if isinstance(scores, dict) else None
@@ -9743,6 +9895,114 @@ def step26_apply_timing_cap(raw_score, cap_info):
     capped = min(float(raw_score), float(cap))
 
     return capped, capped < float(raw_score)
+
+
+# STEP26 PRIORITY GATE CORRECTION - START
+# Deterministic correction layer:
+# The LLM can suggest a priority, but final Step 26 output must obey hard gates.
+
+def step26_priority_code(priority):
+    priority = step26_safe_text(priority)
+    match = re.search(r"\bP([0-4])\b", priority)
+    if not match:
+        return None
+    return int(match.group(1))
+
+def step26_priority_label(code):
+    labels = {
+        0: "P0: Highest-priority target",
+        1: "P1: High-priority diligence",
+        2: "P2: Worth deeper diligence",
+        3: "P3: Watch list",
+        4: "P4: Low priority / likely reject",
+    }
+    return labels.get(code, "P3: Watch list")
+
+def step26_cap_priority_code(code, max_code):
+    if code is None:
+        return max_code
+    return max(code, max_code)
+
+def step26_apply_priority_gates(parsed_priority, scores, cap_info):
+    original_code = step26_priority_code(parsed_priority)
+
+    thesis = step26_extract_score(scores, "thesis_fit_score") or 0
+    pmf = step26_extract_score(scores, "pmf_scale_score") or 0
+    confidence = (
+        step26_extract_score(scores, "evidence_confidence_score")
+        or step26_extract_score(scores, "overall_confidence")
+        or 0
+    )
+    role = step26_extract_score(scores, "katelynd_role_fit_score") or 0
+    timing = step26_extract_score(scores, "operator_timing_score") or 0
+
+    maturity = step26_safe_text(cap_info.get("company_maturity_read", "")).lower()
+    stage_fit = step26_safe_text(cap_info.get("stage_timing_fit", "")).lower()
+    agency = step26_safe_text(cap_info.get("likely_agency_level", "")).lower()
+
+    # First assign a score-based priority from gates.
+    if (
+        thesis >= 85
+        and pmf >= 80
+        and role >= 80
+        and timing >= 75
+        and confidence >= 60
+        and stage_fit != "too late"
+        and maturity != "public"
+        and agency != "low"
+    ):
+        gated_code = 0
+    elif (
+        thesis >= 80
+        and pmf >= 75
+        and role >= 75
+        and timing >= 65
+        and confidence >= 55
+        and stage_fit != "too late"
+        and agency != "low"
+        and maturity != "public"
+    ):
+        gated_code = 1
+    elif (
+        thesis >= 70
+        and pmf >= 65
+        and role >= 65
+        and timing >= 55
+        and confidence >= 50
+    ):
+        gated_code = 2
+    elif (
+        thesis >= 55
+        or pmf >= 50
+        or role >= 55
+    ):
+        gated_code = 3
+    else:
+        gated_code = 4
+
+    # Then apply hard blockers.
+    # Lower numeric code = higher priority, so max() demotes.
+    if maturity == "public":
+        gated_code = step26_cap_priority_code(gated_code, 2)
+
+    if stage_fit == "too late":
+        gated_code = step26_cap_priority_code(gated_code, 2)
+
+    if agency == "low":
+        gated_code = step26_cap_priority_code(gated_code, 2)
+
+    if confidence < 50:
+        gated_code = step26_cap_priority_code(gated_code, 3)
+
+    # If the LLM was more conservative than the gates, keep the conservative result.
+    # This prevents the correction layer from upgrading companies.
+    if original_code is not None:
+        gated_code = max(gated_code, original_code)
+
+    return step26_priority_label(gated_code)
+
+# STEP26 PRIORITY GATE CORRECTION - END
+
 
 def step26_recommended_decision(priority):
     priority = step26_safe_text(priority)
@@ -10076,12 +10336,29 @@ def step26_recompute_timing_fields_for_maturity(cap_info, inferred, combined_low
 
     return cap_info
 
-def step26_correct_public_status(company, evidence_text, parsed, cap_info):
+
+def step26_correct_public_status(company, evidence_text, parsed, cap_info, raw_evidence_text=None):
+    """
+    Correct public-company status using only raw archived evidence for hard public signals.
+
+    Important:
+    - Do not trust model-generated parsed/final_takeaway/calibration text for hard public detection.
+    - Raw evidence includes archived funding, payer/institutional, outcomes, and commercial findings.
+    """
     company_key = step26_normalize_key(company)
 
+    # Hard public detection scans raw archived evidence only.
+    raw_scan_text = " ".join([
+        company,
+        step26_safe_text(raw_evidence_text if raw_evidence_text is not None else evidence_text),
+    ])
+
+    raw_scan_lower = raw_scan_text.lower()
+
+    # Combined text is used only for audit flags and maturity fallback, not hard public detection.
     combined = " ".join([
         company,
-        evidence_text,
+        step26_safe_text(raw_evidence_text if raw_evidence_text is not None else evidence_text),
         step26_text_from_any(parsed),
         step26_text_from_any(cap_info),
     ])
@@ -10091,14 +10368,77 @@ def step26_correct_public_status(company, evidence_text, parsed, cap_info):
     override = STEP26_PUBLIC_COMPANY_OVERRIDES.get(company_key, {})
     override_public = bool(override.get("is_public", False))
 
-    hard_public_signal = bool(cap_info.get("public_company_hard_signal_present", False))
-    signal_basis = step26_safe_text(cap_info.get("public_company_signal_basis", ""))
+    public_signal_patterns = {
+        "exchange_ticker": [
+            r"\b(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\s*[:：]\s*[A-Z]{1,6}\b",
+            r"\b[A-Z]{1,6}\s*\(\s*(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\s*\)",
+            r"\b(?:ticker|stock ticker|ticker symbol)\s*(?:is|:|=)\s*[A-Z]{1,6}\b",
+            r"\btrades?\s+(?:on|under)\s+(?:the\s+)?(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\b",
+            r"\blisted\s+(?:on|under)\s+(?:the\s+)?(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\b",
+        ],
+        "ipo": [
+            r"\bipo date\b",
+            r"\binitial public offering\b",
+            r"\bcompleted\s+(?:its|an|the)?\s*ipo\b",
+            r"\bwent public\b",
+            r"\bpost[- ]ipo\b",
+        ],
+        "sec_s1": [
+            r"\bfiled\s+(?:an?\s+)?(?:form\s+)?s[- ]1\b",
+            r"\bform\s+s[- ]1\b",
+            r"\bs[- ]1\s+(?:registration statement|filing)\b",
+            r"\bregistration statement\b.{0,80}\b(?:ipo|public offering)\b",
+        ],
+        "publicly_traded": [
+            r"\bpublicly traded\b",
+            r"\bpublicly listed\b",
+            r"\blisted company\b",
+            r"\bpublicly held company\b",
+        ],
+    }
+
+    negative_context_terms = [
+        "no ",
+        "not ",
+        "without ",
+        "none ",
+        "no evidence",
+        "not public",
+        "privately held",
+        "private company",
+        "has not",
+        "have not",
+        "does not",
+        "did not",
+    ]
+
+    def positive_pattern_present(pattern):
+        for match in re.finditer(pattern, raw_scan_text, flags=re.IGNORECASE | re.DOTALL):
+            left = max(0, match.start() - 80)
+            right = min(len(raw_scan_text), match.end() + 80)
+            context = raw_scan_text[left:right].lower()
+
+            if any(term in context for term in negative_context_terms):
+                continue
+
+            return True
+
+        return False
+
+    public_signal_basis = []
 
     if override_public:
         ticker = override.get("ticker", "")
         basis = override.get("basis", "manual_override")
-        hard_public_signal = True
-        signal_basis = f"{basis}:{ticker}" if ticker else basis
+        public_signal_basis.append(f"{basis}:{ticker}" if ticker else basis)
+
+    for basis, patterns in public_signal_patterns.items():
+        for pattern in patterns:
+            if positive_pattern_present(pattern):
+                public_signal_basis.append(basis)
+                break
+
+    hard_public_signal = len(public_signal_basis) > 0
 
     false_positive_public_language = any(
         phrase in combined_lower
@@ -10126,13 +10466,12 @@ def step26_correct_public_status(company, evidence_text, parsed, cap_info):
     )
 
     cap_info["public_company_hard_signal_present"] = hard_public_signal
-    cap_info["public_company_signal_basis"] = signal_basis
+    cap_info["public_company_signal_basis"] = ",".join(sorted(set(public_signal_basis))) if public_signal_basis else ""
     cap_info["public_company_language_without_hard_signal"] = (
         public_company_language and not hard_public_signal
     )
     cap_info["public_false_positive_language_present"] = false_positive_public_language
 
-    # The actual safety rule.
     # If there is no hard public signal, do not allow public-company maturity.
     if cap_info.get("company_maturity_read") == "public" and not hard_public_signal:
         if any(term in combined_lower for term in [
@@ -10180,7 +10519,8 @@ def step26_correct_public_status(company, evidence_text, parsed, cap_info):
             combined_lower=combined_lower,
         )
 
-    if override_public:
+    # If there is a true hard public signal, enforce public maturity.
+    if hard_public_signal:
         cap_info = step26_recompute_timing_fields_for_maturity(
             cap_info=cap_info,
             inferred="public",
@@ -10189,7 +10529,44 @@ def step26_correct_public_status(company, evidence_text, parsed, cap_info):
 
     return cap_info
 
+
 # STEP26 PUBLIC STATUS SAFETY CORRECTION - END
+
+
+
+# STEP26 PARSE ERROR ASSERTION - START
+# Hard guardrail: Step 26 should not silently succeed with unparsed company rows.
+
+def step26_assert_no_parse_errors(summary_df):
+    if summary_df is None or summary_df.empty:
+        return
+
+    if "error" not in summary_df.columns:
+        return
+
+    error_rows = summary_df[
+        summary_df["error"].apply(lambda value: step26_safe_text(value) != "")
+    ].copy()
+
+    if error_rows.empty:
+        return
+
+    preview_rows = []
+
+    for _, row in error_rows.head(20).iterrows():
+        preview_rows.append(
+            f"- {step26_safe_text(row.get('company', 'UNKNOWN'))}: "
+            f"{step26_safe_text(row.get('error', ''))[:300]}"
+        )
+
+    preview = "\\n".join(preview_rows)
+
+    raise RuntimeError(
+        "STOP: Step 26 produced parse errors for one or more companies. "
+        "Do not update the workbook until these are fixed.\\n" + preview
+    )
+
+# STEP26 PARSE ERROR ASSERTION - END
 
 
 def step26_main():
@@ -10270,6 +10647,7 @@ def step26_main():
                 evidence_text=evidence_text,
                 parsed=parsed,
                 cap_info=cap_info,
+                raw_evidence_text=latest_status_findings,
             )
 
             operator_raw = step26_extract_score(scores, "operator_timing_score")
@@ -10290,6 +10668,12 @@ def step26_main():
                 calibration_parts.append(
                     "CHECK: mature company may be too late for high-agency operator entry"
                 )
+
+            gated_priority_level = step26_apply_priority_gates(
+                parsed_priority=parsed.get("priority_level", ""),
+                scores=scores,
+                cap_info=cap_info,
+            )
 
             summary_rows.append({
                 "batch_name": STEP_26_BATCH_NAME,
@@ -10314,8 +10698,8 @@ def step26_main():
                 "why_now_or_why_not": cap_info["why_now_or_why_not"],
                 "timing_penalty_applied": penalty_applied,
                 "final_recommendation": parsed.get("final_recommendation", ""),
-                "priority_level": parsed.get("priority_level", ""),
-                "recommended_decision": step26_recommended_decision(parsed.get("priority_level", "")),
+                "priority_level": gated_priority_level,
+                "recommended_decision": step26_recommended_decision(gated_priority_level),
                 "business_model_classification": parsed.get("business_model_classification", ""),
                 "commercial_scale_assessment": step26_text_from_any(
                     parsed.get("commercial_scale_assessment", "")
