@@ -5590,12 +5590,74 @@ raw_inventory["date_researched_parsed"] = pd.to_datetime(
 )
 
 # -----------------------------
-# Choose best raw record per company
+# Classify active vs historical/generated source rows
 # -----------------------------
 
-if not raw_inventory.empty:
+STEP17_GENERATED_OR_HISTORICAL_TOKENS = [
+    # Generated / rescore / review artifacts should not count as raw evidence.
+    "rescore_existing",
+    "full_master_rescore",
+    "priority_gate_test",
+    "parse_retry_test",
+    "_retry_test",
+    "mae_parse_retry",
+    "role_timing_benchmark_1_rescore_existing",
+    "human_review_packet",
+    "review_packet",
+    "_summary",
+    "summary_before",
+    "before_step22",
+    "step26",
+
+    # Explicit test artifacts.
+    "test_research_",
+    "commercial_scale_test_",
+
+    # Archive/quarantine folders.
+    "_archive_generated_test_runs_",
+
+    # Master/dashboard summary files are useful context but should not be counted as raw evidence.
+    "health_tech_market_research_summary_master",
+    "health_tech_market_map_snapshot",
+    "health_tech_dashboard_export",
+]
+
+def step17_source_status(row):
+    batch_name = safe_text(row.get("batch_name", "")).lower()
+    source_file = safe_text(row.get("source_file", "")).lower()
+    source_blob = f"{batch_name} {source_file}"
+
+    if "_archive_generated_test_runs_" in source_blob:
+        return "historical_archived_generated_or_test_artifact"
+
+    if "health_tech_market_research_summary_master" in source_blob:
+        return "summary_metadata_not_raw_evidence"
+
+    if any(token in source_blob for token in STEP17_GENERATED_OR_HISTORICAL_TOKENS):
+        return "historical_generated_review_rescore_or_test_artifact"
+
+    return "active_raw_evidence"
+
+raw_inventory["step17_source_status"] = raw_inventory.apply(step17_source_status, axis=1)
+raw_inventory["step17_is_active_raw_evidence"] = (
+    raw_inventory["step17_source_status"] == "active_raw_evidence"
+)
+
+active_raw_inventory = raw_inventory[
+    raw_inventory["step17_is_active_raw_evidence"]
+].copy()
+
+historical_raw_inventory = raw_inventory[
+    ~raw_inventory["step17_is_active_raw_evidence"]
+].copy()
+
+# -----------------------------
+# Choose best active raw record per company
+# -----------------------------
+
+if not active_raw_inventory.empty:
     raw_best = (
-        raw_inventory
+        active_raw_inventory
         .sort_values(
             by=[
                 "company",
@@ -5607,8 +5669,8 @@ if not raw_inventory.empty:
         .drop_duplicates(subset=["company"], keep="first")
     )
 
-    raw_source_summary = (
-        raw_inventory
+    active_raw_source_summary = (
+        active_raw_inventory
         .groupby("company", dropna=False)
         .agg(
             raw_record_count=("company", "count"),
@@ -5618,7 +5680,7 @@ if not raw_inventory.empty:
         .reset_index()
     )
 
-    raw_best = raw_best.merge(raw_source_summary, on="company", how="left")
+    raw_best = raw_best.merge(active_raw_source_summary, on="company", how="left")
 
 else:
     raw_best = pd.DataFrame(columns=[
@@ -5636,6 +5698,32 @@ else:
     ])
 
 # -----------------------------
+# Add historical/generated metadata summary separately
+# -----------------------------
+
+if not historical_raw_inventory.empty:
+    historical_source_summary = (
+        historical_raw_inventory
+        .groupby("company", dropna=False)
+        .agg(
+            historical_raw_record_count=("company", "count"),
+            historical_raw_source_statuses=("step17_source_status", lambda x: " | ".join(sorted(set([str(v) for v in x if nonblank(v)]))))
+        )
+        .reset_index()
+    )
+
+    raw_best = raw_best.merge(historical_source_summary, on="company", how="outer")
+
+else:
+    raw_best["historical_raw_record_count"] = 0
+    raw_best["historical_raw_source_statuses"] = ""
+
+# Keep raw_best scoped to known companies if possible.
+if "audit_base" in globals() and isinstance(audit_base, pd.DataFrame) and "company" in audit_base.columns:
+    known_companies = set(audit_base["company"].astype(str))
+    raw_best = raw_best[raw_best["company"].astype(str).isin(known_companies)].copy()
+
+# -----------------------------
 # Merge audit base with raw evidence inventory
 # -----------------------------
 
@@ -5644,6 +5732,8 @@ raw_best_cols = [
     "raw_record_count",
     "raw_source_files",
     "raw_batch_names",
+    "historical_raw_record_count",
+    "historical_raw_source_statuses",
     "has_funding_raw",
     "has_payer_raw",
     "has_outcomes_raw",
@@ -5664,6 +5754,7 @@ data_depth_audit = audit_base.merge(
 # Fill missing raw indicators
 for col in [
     "raw_record_count",
+    "historical_raw_record_count",
     "has_funding_raw",
     "has_payer_raw",
     "has_outcomes_raw",
@@ -5677,8 +5768,21 @@ for col in [
 
     data_depth_audit[col] = data_depth_audit[col].fillna(0)
 
-data_depth_audit["raw_source_files"] = data_depth_audit.get("raw_source_files", "").fillna("")
-data_depth_audit["raw_batch_names"] = data_depth_audit.get("raw_batch_names", "").fillna("")
+for col in [
+    "raw_source_files",
+    "raw_batch_names",
+    "historical_raw_source_statuses"
+]:
+    if col not in data_depth_audit.columns:
+        data_depth_audit[col] = ""
+
+    data_depth_audit[col] = data_depth_audit[col].fillna("")
+
+# Make the semantics explicit for dashboard users.
+data_depth_audit["active_raw_record_count"] = data_depth_audit["raw_record_count"]
+data_depth_audit["excluded_historical_or_generated_record_count"] = data_depth_audit["historical_raw_record_count"]
+data_depth_audit["active_raw_batch_names"] = data_depth_audit["raw_batch_names"]
+data_depth_audit["active_raw_source_files"] = data_depth_audit["raw_source_files"]
 
 # -----------------------------
 # Data depth status logic
@@ -5769,7 +5873,8 @@ display_cols = [
     "review_status",
     "evidence_confidence_score",
     "calibration_flag",
-    "raw_record_count",
+    "active_raw_record_count",
+    "excluded_historical_or_generated_record_count",
     "raw_completeness_score",
     "has_funding_raw",
     "has_payer_raw",
@@ -5778,14 +5883,24 @@ display_cols = [
     "has_fit_brief_raw",
     "fit_brief_json_parseable",
     "data_depth_status",
-    "raw_batch_names",
-    "raw_source_files"
+    "active_raw_batch_names",
+    "historical_raw_source_statuses",
+    "active_raw_source_files"
 ]
 
 display_cols = [col for col in display_cols if col in data_depth_audit.columns]
 
 print("DATA DEPTH AUDIT")
 display(data_depth_audit[display_cols])
+
+print("STEP 17 SOURCE CLASSIFICATION SUMMARY")
+if "active_raw_record_count" in data_depth_audit.columns:
+    print("Active raw evidence records:", int(data_depth_audit["active_raw_record_count"].fillna(0).sum()))
+if "excluded_historical_or_generated_record_count" in data_depth_audit.columns:
+    print(
+        "Excluded historical/generated records:",
+        int(data_depth_audit["excluded_historical_or_generated_record_count"].fillna(0).sum())
+    )
 
 print("SUMMARY BY DATA DEPTH STATUS")
 display(
