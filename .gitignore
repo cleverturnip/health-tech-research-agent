@@ -7,3 +7,19 @@ health_tech_market_research_summary_MASTER.csv
 __pycache__/
 *.pyc
 src/**/__pycache__/
+
+# Local Colab backup files
+colab_workflow_backup_*.py
+
+# Generated research exports / local data artifacts
+health_tech_market_research_summary_MASTER_12_change_log_*.csv
+health_tech_market_research_summary_MASTER_after_*.csv
+health_tech_raw_research_ARCHIVE.csv
+
+# Generated batch outputs
+research_batches/
+
+# Python cache
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
