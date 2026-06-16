@@ -1,0 +1,13 @@
+data_input_code,data_input_label,definition
+WEARABLE_BIOMETRICS,Wearable biometrics,Wearable-derived biometric data
+CGM,Continuous glucose monitor,CGM glucose data
+LABS_BIOMARKERS,Labs / biomarkers,"Bloodwork, biomarker, or lab data"
+EHR_CLINICAL,EHR / clinical records,Electronic health records and clinical chart data
+CLAIMS,Claims / utilization,"Claims, spend, utilization, risk/coverage data"
+PATIENT_REPORTED,Patient-reported outcomes / symptoms,"Survey, symptom, PROMs, daily check-in data"
+PROVIDER_DOCUMENTATION,Provider notes / documentation,"Clinical notes, transcriptions, provider documentation"
+IMAGING,Imaging,"Radiology, pathology, and imaging-derived data"
+DEVICE_SENSOR,Device / sensor data,"Medical device, home sensor, or ambient sensor data"
+SELF_LOGGED_BEHAVIOR,Self-logged behavior,"Food, exercise, sleep, medication, or symptom logging"
+ENVIRONMENTAL_HOME,Environmental / home data,"Sleep environment, home monitoring, ambient context"
+UNKNOWN_OR_NONE,Unknown / not central,No central data layer known or data layer is not material

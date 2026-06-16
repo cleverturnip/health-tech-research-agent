@@ -1,0 +1,16 @@
+product_model_code,product_model_label,definition
+VIRTUAL_CARE,Virtual care delivery,Clinical services delivered virtually
+HYBRID_CARE,Hybrid virtual + physical care,"Mix of virtual, in-person, clinic, or home-based care"
+PROVIDER_MARKETPLACE,Provider marketplace / network,Provider supply/network is a core operating asset
+CARE_NAVIGATION_SERVICE,Care navigation / concierge service,"Human/software navigation, advocacy, care coordination"
+COACHING_BEHAVIOR_CHANGE,Coaching / behavior-change app,"Habit formation, coaching, engagement loops, lifestyle behavior change"
+DEVICE_HARDWARE,Device / hardware-led product,"Hardware, connected medical device, home device"
+WEARABLE_COMPANION_APP,Wearable + companion app,Wearable device plus app experience
+DIAGNOSTIC_TESTING,Diagnostic testing / labs,"Lab testing, imaging, biomarker or screening workflow"
+DIGITAL_THERAPEUTIC,Digital therapeutic,"Software-based treatment, regulated or evidence-backed therapeutic workflow"
+AI_CLINICAL_WORKFLOW,AI clinical workflow,"Clinical decision support, clinical AI, provider intelligence"
+AI_ADMIN_WORKFLOW,AI admin workflow,"Scribing, coding, prior auth, RCM, admin automation"
+BENEFITS_PLATFORM,Benefits / insurance platform,"Benefits management, insurance operations, plan infrastructure"
+DATA_ANALYTICS_PLATFORM,Data / analytics platform,"Analytics, risk stratification, population intelligence"
+TRIALS_RWE_PLATFORM,Trials / RWE / pharma platform,"Clinical trials, RWE, drug development support"
+UNKNOWN_REVIEW,Needs product model review,Temporary review state; should be resolved when possible

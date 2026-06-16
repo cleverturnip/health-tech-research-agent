@@ -271,7 +271,33 @@ Keep under 150 words.
 #   revenue quality/commercial traction OR institutional distribution can each be a primary scale engine
 # - Do not let high role fit or thesis relevance override weak PMF/scale evidence
 
+
+def load_taxonomy_prompt_block_for_fit_brief():
+    """Load controlled taxonomy instructions for the LLM fit brief."""
+    try:
+        from pathlib import Path
+        import sys
+
+        repo_dir = Path("/content/health-tech-research-agent")
+        src_dir = repo_dir / "src"
+
+        if src_dir.exists() and str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
+
+        from health_tech_research_agent.taxonomy import build_taxonomy_prompt_block
+
+        return build_taxonomy_prompt_block(repo_dir / "taxonomy")
+    except Exception as e:
+        return (
+            "CONTROLLED HEALTH-TECH TAXONOMY UNAVAILABLE. "
+            "Still return taxonomy_classification using best effort. "
+            f"Taxonomy load error: {e}"
+        )
+
+
 def run_company_fit_brief(company_name, latest_status_findings):
+    taxonomy_prompt_block = load_taxonomy_prompt_block_for_fit_brief()
+
     prompt = f"""
 You are evaluating a health tech company for Katelynd LaVallee's job search.
 
@@ -497,6 +523,15 @@ Calibration rules:
 
 Return ONLY valid JSON. No markdown. No commentary outside JSON.
 
+Controlled taxonomy instructions:
+{taxonomy_prompt_block}
+
+Important taxonomy rule:
+- Return exactly one primary_market_segment code.
+- Do not put distribution model, wearable/device modality, CGM, D2C, or virtual care into the primary market segment.
+- Use subsegment_tags, product_model_tags, distribution_model_tags, and data_input_tags for nuance.
+- If two primary segments seem plausible, choose the broader mutually exclusive umbrella segment from the taxonomy.
+
 Use this JSON schema exactly:
 
 {{
@@ -513,6 +548,14 @@ Use this JSON schema exactly:
     "claim or gap"
   ],
   "business_model_classification": "short classification",
+  "taxonomy_classification": {{
+    "primary_market_segment": "ONE approved primary market segment code from the controlled taxonomy. Do not invent new codes.",
+    "subsegment_tags": ["zero or more approved subsegment tag codes from the controlled taxonomy"],
+    "product_model_tags": ["zero or more approved product model codes from the controlled taxonomy"],
+    "distribution_model_tags": ["zero or more approved distribution model codes from the controlled taxonomy"],
+    "data_input_tags": ["zero or more approved data/input layer codes from the controlled taxonomy"],
+    "classification_rationale": "short explanation of why the company belongs in the selected primary segment and how nuance was handled"
+  }},
   "commercial_scale_assessment": "plain-English assessment of revenue quality, paid-customer scale, retention, pricing power, CAC/margin if available, and whether revenue is reported, estimated, or inferred",
   "pmf_scale_assessment": "plain-English assessment explaining the strongest scale engine, secondary scale engine if any, outcomes/product-value support, and key caveats",
   "role_timing_assessment": {{
@@ -1764,6 +1807,16 @@ def build_calibration_flag(row):
 # Parse fit briefs
 # -----------------------------
 
+
+def step10_taxonomy_join(value):
+    """Flatten taxonomy tag arrays or strings into semicolon-separated strings."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "; ".join([str(item).strip() for item in value if str(item).strip()])
+    return str(value).strip()
+
+
 summary_rows = []
 
 for _, row in df.iterrows():
@@ -1773,6 +1826,9 @@ for _, row in df.iterrows():
     try:
         parsed = parse_first_json_object(raw)
         scores = parsed.get("scores", {})
+        taxonomy_classification = parsed.get("taxonomy_classification", {})
+        if not isinstance(taxonomy_classification, dict):
+            taxonomy_classification = {}
 
         summary_rows.append({
             "company": company,
@@ -1787,6 +1843,14 @@ for _, row in df.iterrows():
             "final_recommendation": parsed.get("final_recommendation"),
             "priority_level": parsed.get("priority_level"),
             "business_model_classification": parsed.get("business_model_classification"),
+            "primary_market_segment_code": taxonomy_classification.get("primary_market_segment", ""),
+            "primary_market_segment": taxonomy_classification.get("primary_market_segment", ""),
+            "subsegment_tags": step10_taxonomy_join(taxonomy_classification.get("subsegment_tags", "")),
+            "product_model_tags": step10_taxonomy_join(taxonomy_classification.get("product_model_tags", "")),
+            "distribution_model_tags": step10_taxonomy_join(taxonomy_classification.get("distribution_model_tags", "")),
+            "data_input_tags": step10_taxonomy_join(taxonomy_classification.get("data_input_tags", "")),
+            "taxonomy_assignment_method": "llm_fit_brief",
+            "taxonomy_assignment_basis": taxonomy_classification.get("classification_rationale", ""),
             "commercial_scale_assessment": parsed.get("commercial_scale_assessment"),
             "final_takeaway": parsed.get("final_takeaway"),
             "commercial_scale_finding": row.get("commercial_scale_finding", "")
@@ -3589,6 +3653,18 @@ model_cols_to_update = [
     "calibration_flag"
 ]
 
+taxonomy_model_cols = [
+    "primary_market_segment_code",
+    "primary_market_segment",
+    "market_segment",
+    "subsegment_tags",
+    "product_model_tags",
+    "distribution_model_tags",
+    "data_input_tags",
+    "taxonomy_assignment_method",
+    "taxonomy_assignment_basis",
+]
+
 optional_model_cols = [
     "final_takeaway",
     "commercial_scale_finding",
@@ -3603,8 +3679,12 @@ optional_model_cols = [
     "operator_timing_calibration_flag"
 ]
 
+for col in taxonomy_model_cols:
+    if col in summary_df.columns and col not in model_cols_to_update:
+        model_cols_to_update.append(col)
+
 for col in optional_model_cols:
-    if col in summary_df.columns:
+    if col in summary_df.columns and col not in model_cols_to_update:
         model_cols_to_update.append(col)
 
 # Ensure master has all necessary columns
@@ -4256,6 +4336,14 @@ from health_tech_research_agent.dashboard import (
 default_columns = {
     "company": "",
     "market_segment": "",
+    "primary_market_segment_code": "",
+    "primary_market_segment": "",
+    "subsegment_tags": "",
+    "product_model_tags": "",
+    "distribution_model_tags": "",
+    "data_input_tags": "",
+    "taxonomy_assignment_method": "",
+    "taxonomy_assignment_basis": "",
     "strategic_bucket": "",
     "final_priority_level": "",
     "priority_source": "",
@@ -4632,31 +4720,63 @@ def infer_market_segment(row, segment_map):
     # Do not silently call this Unmapped. Make the needed human action explicit.
     return "Needs segment review"
 
-market_map_df["market_segment"] = market_map_df.apply(
-    lambda row: infer_market_segment(row, segment_map),
-    axis=1,
+
+# -----------------------------
+# Controlled taxonomy classification
+# -----------------------------
+# This replaces loose market-segment inference with the controlled taxonomy.
+# Existing downstream dashboard logic still uses market_segment as a label alias,
+# but the source-of-truth fields are primary_market_segment_code and primary_market_segment.
+
+from health_tech_research_agent.taxonomy import classify_dataframe
+
+market_map_df = classify_dataframe(
+    market_map_df,
+    taxonomy_dir=REPO_DIR / "taxonomy",
+    hard_stop=True,
 )
 
-segment_review_df = market_map_df[
-    market_map_df["market_segment"].astype(str).str.lower().isin(
-        ["unmapped", "unassigned", "needs segment review"]
-    )
-].copy()
+taxonomy_cols = existing_cols(market_map_df, [
+    "company",
+    "primary_market_segment_code",
+    "primary_market_segment",
+    "market_segment",
+    "subsegment_tags",
+    "product_model_tags",
+    "distribution_model_tags",
+    "data_input_tags",
+    "taxonomy_assignment_method",
+    "taxonomy_assignment_basis",
+    "business_model_classification",
+    "final_takeaway",
+])
 
-if not segment_review_df.empty:
-    print("")
-    print("SEGMENT MAPPING REVIEW NEEDED")
-    print("=" * 80)
-    print("These companies could not be confidently mapped by exact name or inference rules.")
-    print("Add explicit mappings to segment_map or improve inference rules before relying on segment dashboards.")
-    display_cols = existing_cols(segment_review_df, [
-        "company",
-        "market_segment",
-        "business_model_classification",
-        "final_takeaway",
-        "review_notes",
-    ])
-    display(segment_review_df[display_cols])
+print("")
+print("CONTROLLED TAXONOMY CLASSIFICATION COMPLETE")
+print("=" * 80)
+print("Taxonomy columns added:")
+for col in taxonomy_cols:
+    print("-", col)
+
+print("")
+print("Taxonomy assignment method summary:")
+display(
+    market_map_df
+    .groupby("taxonomy_assignment_method", dropna=False)["company"]
+    .nunique()
+    .reset_index(name="company_count")
+    .sort_values(["company_count", "taxonomy_assignment_method"], ascending=[False, True])
+)
+
+print("")
+print("Primary market segment summary:")
+display(
+    market_map_df
+    .groupby(["primary_market_segment", "primary_market_segment_code"], dropna=False)["company"]
+    .nunique()
+    .reset_index(name="company_count")
+    .sort_values(["company_count", "primary_market_segment"], ascending=[False, True])
+)
 
 # -----------------------------
 # Strategic bucket mapping
@@ -4748,6 +4868,12 @@ preview_cols = existing_cols(market_map_df, [
     "final_priority_level",
     "priority_source",
     "market_segment",
+    "primary_market_segment_code",
+    "subsegment_tags",
+    "product_model_tags",
+    "distribution_model_tags",
+    "data_input_tags",
+    "taxonomy_assignment_method",
     "strategic_bucket",
     "thesis_fit_score",
     "pmf_scale_score",
@@ -6321,6 +6447,14 @@ dashboard_df["decision_priority_sort"] = dashboard_df["final_priority_rank"]
 default_columns = {
     "company": "",
     "market_segment": "Unmapped",
+    "primary_market_segment_code": "",
+    "primary_market_segment": "",
+    "subsegment_tags": "",
+    "product_model_tags": "",
+    "distribution_model_tags": "",
+    "data_input_tags": "",
+    "taxonomy_assignment_method": "",
+    "taxonomy_assignment_basis": "",
     "strategic_bucket": "Unmapped",
     "calibration_flag": "",
     "review_status": "",
@@ -6393,6 +6527,12 @@ master_cols = existing_cols(dashboard_df, [
     "final_priority_level",
     "priority_source",
     "market_segment",
+    "primary_market_segment_code",
+    "subsegment_tags",
+    "product_model_tags",
+    "distribution_model_tags",
+    "data_input_tags",
+    "taxonomy_assignment_method",
     "strategic_bucket",
     "thesis_fit_score",
     "pmf_scale_score",
@@ -6435,6 +6575,12 @@ priority_focus_cols = existing_cols(dashboard_df, [
     "final_priority_level",
     "priority_source",
     "market_segment",
+    "primary_market_segment_code",
+    "subsegment_tags",
+    "product_model_tags",
+    "distribution_model_tags",
+    "data_input_tags",
+    "taxonomy_assignment_method",
     "strategic_bucket",
     "thesis_fit_score",
     "pmf_scale_score",
@@ -8684,6 +8830,18 @@ def step23_write_outputs_to_sheet(spreadsheet, batch_name):
 
     return review_packet_df, evidence_detail_df
 
+
+def step23_column_letter(zero_based_index):
+    """Convert zero-based column index to Google Sheets column letters."""
+    number = int(zero_based_index) + 1
+    letters = ""
+
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        letters = chr(65 + remainder) + letters
+
+    return letters
+
 def step23_mark_queue_done(queue_ws, queue_df, selected_batch_name_value):
     values = queue_ws.get_all_values()
 
@@ -8704,7 +8862,7 @@ def step23_mark_queue_done(queue_ws, queue_df, selected_batch_name_value):
         row_batch = step23_safe_text(padded[batch_idx])
 
         if row_batch == selected_batch_name_value:
-            cell_a1 = f"{step24_column_letter(status_idx)}{row_number}"
+            cell_a1 = f"{step23_column_letter(status_idx)}{row_number}"
             updates.append({
                 "range": cell_a1,
                 "values": [["DONE"]],
@@ -11136,3 +11294,1411 @@ def step26_main():
     display(summary_df[display_cols])
 
 step26_main()
+
+
+
+# STEP 27 - LLM taxonomy backfill for existing master
+# Purpose:
+# - Classify existing master companies using the controlled taxonomy.
+# - Make LLM taxonomy assignment the source of truth.
+# - Validate all outputs against allowed taxonomy codes.
+# - Persist taxonomy fields to the active master without rerunning research.
+
+from pathlib import Path
+from datetime import datetime
+import os
+import re
+import json
+import shutil
+import subprocess
+import sys
+import pandas as pd
+
+from google.colab import drive
+
+drive.mount("/content/drive", force_remount=False)
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+TAXONOMY_DIR = REPO_DIR / "taxonomy"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from health_tech_research_agent.taxonomy import (
+    safe_text,
+    split_tags,
+    join_tags,
+    normalize_code,
+    allowed_codes,
+    load_taxonomy_tables,
+    code_label_maps,
+)
+
+MASTER_PATH = Path("/content/drive/MyDrive/Job Search/Health Tech Research/health_tech_market_research_summary_MASTER.csv")
+RESEARCH_DIR = Path("/content/drive/MyDrive/Job Search/Health Tech Research")
+OUTPUT_DIR = RESEARCH_DIR / "taxonomy_backfills"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+TAXONOMY_BACKFILL_MODEL = globals().get("TAXONOMY_BACKFILL_MODEL", "gpt-5.4-mini")
+TAXONOMY_BACKFILL_CONFIDENCE_REVIEW_THRESHOLD = int(globals().get("TAXONOMY_BACKFILL_CONFIDENCE_REVIEW_THRESHOLD", 65))
+
+print("Taxonomy backfill model:", TAXONOMY_BACKFILL_MODEL)
+print("Confidence review threshold:", TAXONOMY_BACKFILL_CONFIDENCE_REVIEW_THRESHOLD)
+
+if not MASTER_PATH.exists():
+    raise FileNotFoundError(f"Master file not found: {MASTER_PATH}")
+
+# ---------------------------------------------------------------------
+# Load taxonomy tables.
+# ---------------------------------------------------------------------
+
+tables = load_taxonomy_tables(TAXONOMY_DIR)
+code_to_label, label_to_code = code_label_maps(tables)
+
+market_segments = tables["market_segments"]
+subsegments = tables["subsegment_tags"]
+product_models = tables["product_models"]
+distribution_models = tables["distribution_models"]
+data_layers = tables["data_input_layers"]
+
+allowed_primary = allowed_codes(market_segments, "segment_code")
+allowed_subsegments = allowed_codes(subsegments, "tag_code")
+allowed_product = allowed_codes(product_models, "product_model_code")
+allowed_distribution = allowed_codes(distribution_models, "distribution_model_code")
+allowed_data = allowed_codes(data_layers, "data_input_code")
+
+if not allowed_primary:
+    raise RuntimeError("No allowed primary market segments loaded.")
+
+print("Allowed primary segments:", len(allowed_primary))
+print("Allowed subsegment tags:", len(allowed_subsegments))
+print("Allowed product model tags:", len(allowed_product))
+print("Allowed distribution model tags:", len(allowed_distribution))
+print("Allowed data input tags:", len(allowed_data))
+
+# ---------------------------------------------------------------------
+# Build taxonomy prompt block directly from current CSVs.
+# ---------------------------------------------------------------------
+
+def taxonomy_options_block():
+    lines = []
+    lines.append("CONTROLLED HEALTH-TECH TAXONOMY")
+    lines.append("")
+    lines.append("Primary market segment: choose exactly ONE segment_code.")
+    lines.append("Do not invent new primary market segments.")
+    lines.append("If multiple categories seem plausible, choose the broader mutually exclusive umbrella segment and put nuance in tags.")
+    lines.append("")
+
+    lines.append("PRIMARY MARKET SEGMENTS")
+    for _, row in market_segments.iterrows():
+        code = safe_text(row.get("segment_code"))
+        label = safe_text(row.get("segment_label"))
+        definition = safe_text(row.get("definition"))
+        assignment_rule = safe_text(row.get("assignment_rule"))
+        if code:
+            lines.append(f"- {code}: {label}. Definition: {definition}. Assignment rule: {assignment_rule}")
+
+    lines.append("")
+    lines.append("SUBSEGMENT TAGS")
+    for _, row in subsegments.iterrows():
+        code = safe_text(row.get("tag_code"))
+        label = safe_text(row.get("tag_label"))
+        parent = safe_text(row.get("parent_market_segment"))
+        definition = safe_text(row.get("definition"))
+        if code:
+            lines.append(f"- {code}: {label}. Parent: {parent}. Definition: {definition}")
+
+    lines.append("")
+    lines.append("PRODUCT MODEL TAGS")
+    for _, row in product_models.iterrows():
+        code = safe_text(row.get("product_model_code"))
+        label = safe_text(row.get("product_model_label"))
+        definition = safe_text(row.get("definition"))
+        if code:
+            lines.append(f"- {code}: {label}. Definition: {definition}")
+
+    lines.append("")
+    lines.append("DISTRIBUTION MODEL TAGS")
+    for _, row in distribution_models.iterrows():
+        code = safe_text(row.get("distribution_model_code"))
+        label = safe_text(row.get("distribution_model_label"))
+        definition = safe_text(row.get("definition"))
+        if code:
+            lines.append(f"- {code}: {label}. Definition: {definition}")
+
+    lines.append("")
+    lines.append("DATA INPUT TAGS")
+    for _, row in data_layers.iterrows():
+        code = safe_text(row.get("data_input_code"))
+        label = safe_text(row.get("data_input_label"))
+        definition = safe_text(row.get("definition"))
+        if code:
+            lines.append(f"- {code}: {label}. Definition: {definition}")
+
+    return "\n".join(lines)
+
+TAXONOMY_PROMPT_BLOCK = taxonomy_options_block()
+
+# ---------------------------------------------------------------------
+# OpenAI client.
+# ---------------------------------------------------------------------
+
+try:
+    from openai import OpenAI
+except ImportError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "openai"], check=True)
+    from openai import OpenAI
+
+api_key = os.environ.get("OPENAI_API_KEY", "")
+
+try:
+    from google.colab import userdata
+    api_key = userdata.get("OPENAI_API_KEY") or api_key
+except Exception:
+    pass
+
+if api_key:
+    client = OpenAI(api_key=api_key)
+else:
+    client = OpenAI()
+
+# ---------------------------------------------------------------------
+# Output schema.
+# ---------------------------------------------------------------------
+
+taxonomy_schema = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "primary_market_segment_code": {
+            "type": "string",
+            "enum": sorted(list(allowed_primary)),
+        },
+        "subsegment_tags": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": sorted(list(allowed_subsegments)),
+            },
+        },
+        "product_model_tags": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": sorted(list(allowed_product)),
+            },
+        },
+        "distribution_model_tags": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": sorted(list(allowed_distribution)),
+            },
+        },
+        "data_input_tags": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": sorted(list(allowed_data)),
+            },
+        },
+        "taxonomy_confidence": {
+            "type": "integer",
+        },
+        "taxonomy_rationale": {
+            "type": "string",
+        },
+        "taxonomy_needs_review": {
+            "type": "boolean",
+        },
+        "taxonomy_review_reason": {
+            "type": "string",
+        },
+    },
+    "required": [
+        "primary_market_segment_code",
+        "subsegment_tags",
+        "product_model_tags",
+        "distribution_model_tags",
+        "data_input_tags",
+        "taxonomy_confidence",
+        "taxonomy_rationale",
+        "taxonomy_needs_review",
+        "taxonomy_review_reason",
+    ],
+}
+
+SYSTEM_PROMPT = """
+You are a strict health-tech taxonomy classifier.
+
+Your job:
+- Assign exactly one primary_market_segment_code from the controlled taxonomy.
+- Put nuance into subsegment_tags, product_model_tags, distribution_model_tags, and data_input_tags.
+- Do not invent codes.
+- Do not use distribution, modality, data source, or care model as the primary segment unless the taxonomy explicitly defines that as the market problem.
+
+Critical rules:
+- D2C, employer, payer, Medicaid, and provider network are distribution_model_tags, not primary market segments.
+- Wearables, CGM, labs, imaging, biomarkers, and EHR are data/product inputs, not primary market segments.
+- Virtual care, marketplace, coaching, diagnostics, and navigation are product models unless the company’s actual market is infrastructure or access/navigation.
+- Consumer labs/biomarkers/screening/longevity companies such as Function Health, InsideTracker, and Neko Health map to CONSUMER_HEALTH_OPTIMIZATION, not DIAGNOSTICS_LIFE_SCIENCES.
+- Clinical diagnostics, pharma, trials, RWE, drug discovery, and medicine/treatment advancement map to DIAGNOSTICS_LIFE_SCIENCES.
+- Equip-style eating disorder care maps to MENTAL_BEHAVIORAL_HEALTH.
+- Pomelo/Mae-style maternity or maternal care maps to WOMENS_FAMILY_HEALTH.
+- Oncology patient support/navigation maps to SPECIALTY_CONDITION_CARE with oncology_cancer, not diagnostics/life sciences merely because it uses data or patient support.
+"""
+
+def extract_response_text(response):
+    text = getattr(response, "output_text", None)
+    if text:
+        return text
+
+    try:
+        chunks = []
+        for item in response.output:
+            for content in getattr(item, "content", []):
+                value = getattr(content, "text", None)
+                if value:
+                    chunks.append(value)
+        if chunks:
+            return "\n".join(chunks)
+    except Exception:
+        pass
+
+    return str(response)
+
+def parse_json_object(raw_text):
+    raw_text = safe_text(raw_text)
+
+    try:
+        return json.loads(raw_text)
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", raw_text, flags=re.DOTALL)
+    if match:
+        return json.loads(match.group(0))
+
+    raise ValueError(f"Could not parse JSON object from response: {raw_text[:500]}")
+
+def call_taxonomy_llm(company_context):
+    user_prompt = f"""
+{TAXONOMY_PROMPT_BLOCK}
+
+Classify this company.
+
+COMPANY CONTEXT:
+{company_context}
+
+Return only the requested JSON object.
+"""
+
+    # Prefer Responses API structured output.
+    try:
+        response = client.responses.create(
+            model=TAXONOMY_BACKFILL_MODEL,
+            input=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "taxonomy_classification",
+                    "strict": True,
+                    "schema": taxonomy_schema,
+                }
+            },
+        )
+
+        return parse_json_object(extract_response_text(response)), "responses_structured_output"
+
+    except Exception as structured_error:
+        print("Structured output call failed; falling back to JSON mode.")
+        print("Structured error:", structured_error)
+
+        response = client.chat.completions.create(
+            model=TAXONOMY_BACKFILL_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        return parse_json_object(response.choices[0].message.content), "chat_json_mode_fallback"
+
+def build_company_context(row):
+    fields = [
+        "company",
+        "business_model_classification",
+        "final_takeaway",
+        "commercial_scale_assessment",
+        "pmf_scale_assessment",
+        "market_segment",
+        "strategic_bucket",
+        "priority_level",
+        "reviewed_priority_level",
+        "final_priority_level",
+        "priority_review_note",
+        "review_status",
+        "review_notes",
+        "calibration_flag",
+        "funding_finding",
+        "commercial_scale_finding",
+        "payer_institutional_finding",
+        "outcomes_finding",
+        "katelynd_fit_reasoning",
+        "why_now_or_why_not",
+    ]
+
+    parts = []
+    for field in fields:
+        if field in row.index:
+            value = safe_text(row.get(field, ""))
+            if value:
+                parts.append(f"{field}: {value}")
+
+    return "\n".join(parts)
+
+def validate_llm_result(result):
+    result = dict(result)
+
+    primary = normalize_code(
+        result.get("primary_market_segment_code", ""),
+        allowed_primary,
+        label_to_code,
+    )
+
+    if not primary:
+        primary = "OTHER_REVIEW"
+
+    def clean_tags(raw_value, allowed):
+        cleaned = []
+        if isinstance(raw_value, list):
+            values = raw_value
+        else:
+            values = split_tags(raw_value)
+
+        for value in values:
+            value = safe_text(value)
+            if value in allowed and value not in cleaned:
+                cleaned.append(value)
+
+        return cleaned
+
+    sub_tags = clean_tags(result.get("subsegment_tags", []), allowed_subsegments)
+    product_tags = clean_tags(result.get("product_model_tags", []), allowed_product)
+    distribution_tags = clean_tags(result.get("distribution_model_tags", []), allowed_distribution)
+    data_tags = clean_tags(result.get("data_input_tags", []), allowed_data)
+
+    try:
+        confidence = int(result.get("taxonomy_confidence", 0))
+    except Exception:
+        confidence = 0
+
+    confidence = max(0, min(100, confidence))
+
+    needs_review = bool(result.get("taxonomy_needs_review", False))
+    review_reason = safe_text(result.get("taxonomy_review_reason", ""))
+    rationale = safe_text(result.get("taxonomy_rationale", ""))
+
+    if primary == "OTHER_REVIEW":
+        needs_review = True
+        review_reason = review_reason or "LLM could not assign an approved primary market segment."
+
+    if confidence < TAXONOMY_BACKFILL_CONFIDENCE_REVIEW_THRESHOLD:
+        needs_review = True
+        review_reason = review_reason or f"Taxonomy confidence below threshold: {confidence}"
+
+    return {
+        "primary_market_segment_code": primary,
+        "primary_market_segment": code_to_label.get(primary, primary),
+        "market_segment": code_to_label.get(primary, primary),
+        "subsegment_tags": join_tags(sub_tags),
+        "product_model_tags": join_tags(product_tags),
+        "distribution_model_tags": join_tags(distribution_tags),
+        "data_input_tags": join_tags(data_tags),
+        "taxonomy_confidence": confidence,
+        "taxonomy_rationale": rationale,
+        "taxonomy_needs_review": "YES" if needs_review else "NO",
+        "taxonomy_review_reason": review_reason,
+    }
+
+# ---------------------------------------------------------------------
+# Run backfill.
+# ---------------------------------------------------------------------
+
+master_df = pd.read_csv(MASTER_PATH).fillna("")
+
+if "company" not in master_df.columns:
+    raise RuntimeError("Master file must contain a company column.")
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+backup_path = MASTER_PATH.with_name(f"{MASTER_PATH.stem}_backup_before_taxonomy_backfill_{timestamp}.csv")
+shutil.copy2(MASTER_PATH, backup_path)
+
+print("Master backup created:", backup_path)
+print("Companies to classify:", master_df["company"].nunique())
+
+results = []
+
+for idx, row in master_df.iterrows():
+    company = safe_text(row.get("company"))
+
+    print("")
+    print("=" * 80)
+    print(f"Classifying taxonomy for {idx + 1}/{len(master_df)}: {company}")
+    print("=" * 80)
+
+    context = build_company_context(row)
+    raw_result, api_mode = call_taxonomy_llm(context)
+    validated = validate_llm_result(raw_result)
+
+    validated["company"] = company
+    validated["api_mode"] = api_mode
+    validated["taxonomy_assignment_method"] = "llm_taxonomy_backfill"
+    validated["taxonomy_assignment_basis"] = validated["taxonomy_rationale"]
+
+    results.append(validated)
+
+    print(
+        company,
+        "→",
+        validated["primary_market_segment_code"],
+        "| confidence:",
+        validated["taxonomy_confidence"],
+        "| review:",
+        validated["taxonomy_needs_review"],
+    )
+
+results_df = pd.DataFrame(results)
+
+# Persist fields to master.
+fields_to_write = [
+    "primary_market_segment_code",
+    "primary_market_segment",
+    "market_segment",
+    "subsegment_tags",
+    "product_model_tags",
+    "distribution_model_tags",
+    "data_input_tags",
+    "taxonomy_confidence",
+    "taxonomy_rationale",
+    "taxonomy_needs_review",
+    "taxonomy_review_reason",
+    "taxonomy_assignment_method",
+    "taxonomy_assignment_basis",
+]
+
+for col in fields_to_write:
+    if col not in master_df.columns:
+        master_df[col] = ""
+
+for _, result_row in results_df.iterrows():
+    company = result_row["company"]
+    mask = master_df["company"].astype(str).str.strip().eq(company)
+
+    if not mask.any():
+        continue
+
+    idx = master_df[mask].index[0]
+
+    for col in fields_to_write:
+        master_df.at[idx, col] = result_row.get(col, "")
+
+master_df.to_csv(MASTER_PATH, index=False)
+
+backfill_path = OUTPUT_DIR / f"taxonomy_backfill_results_{timestamp}.csv"
+results_df.to_csv(backfill_path, index=False)
+
+review_packet = results_df[
+    (results_df["taxonomy_needs_review"].astype(str).str.upper() == "YES")
+    | (results_df["primary_market_segment_code"].astype(str) == "OTHER_REVIEW")
+].copy()
+
+review_packet_path = OUTPUT_DIR / f"taxonomy_backfill_review_packet_{timestamp}.csv"
+review_packet.to_csv(review_packet_path, index=False)
+
+print("")
+print("=" * 80)
+print("TAXONOMY BACKFILL COMPLETE")
+print("=" * 80)
+print("Master updated:", MASTER_PATH)
+print("Backfill results:", backfill_path)
+print("Review packet:", review_packet_path)
+print("Companies needing review:", len(review_packet))
+
+print("")
+print("Primary segment summary:")
+display(
+    results_df
+    .groupby(["primary_market_segment", "primary_market_segment_code"], dropna=False)["company"]
+    .nunique()
+    .reset_index(name="company_count")
+    .sort_values(["company_count", "primary_market_segment"], ascending=[False, True])
+)
+
+print("")
+print("Review packet preview:")
+if len(review_packet):
+    display(review_packet[[
+        "company",
+        "primary_market_segment_code",
+        "taxonomy_confidence",
+        "taxonomy_review_reason",
+        "taxonomy_rationale",
+    ]])
+else:
+    print("No taxonomy review items.")
+
+
+
+# STEP 28_DEPRECATED - Taxonomy QA and adjudication pass
+# Purpose:
+# - Audit LLM-created taxonomy assignments for suspicious mappings.
+# - Use deterministic QA checks to find likely mistakes.
+# - Use a second-pass LLM adjudicator only on flagged rows.
+# - Auto-apply only high-confidence corrections.
+# - Preserve human review only for genuinely ambiguous cases.
+
+from pathlib import Path
+from datetime import datetime
+import os
+import re
+import json
+import shutil
+import subprocess
+import sys
+import pandas as pd
+
+from google.colab import drive
+
+drive.mount("/content/drive", force_remount=False)
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+TAXONOMY_DIR = REPO_DIR / "taxonomy"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from health_tech_research_agent.taxonomy import (
+    safe_text,
+    split_tags,
+    join_tags,
+    normalize_code,
+    allowed_codes,
+    load_taxonomy_tables,
+    code_label_maps,
+)
+
+MASTER_PATH = Path("/content/drive/MyDrive/Job Search/Health Tech Research/health_tech_market_research_summary_MASTER.csv")
+RESEARCH_DIR = Path("/content/drive/MyDrive/Job Search/Health Tech Research")
+OUTPUT_DIR = RESEARCH_DIR / "taxonomy_backfills"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+TAXONOMY_QA_MODEL = globals().get("TAXONOMY_QA_MODEL", "gpt-5.4-mini")
+TAXONOMY_QA_CONFIDENCE_AUTO_APPLY_THRESHOLD = int(globals().get("TAXONOMY_QA_CONFIDENCE_AUTO_APPLY_THRESHOLD", 80))
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+if not MASTER_PATH.exists():
+    raise FileNotFoundError(f"Master not found: {MASTER_PATH}")
+
+master_df = pd.read_csv(MASTER_PATH).fillna("")
+
+tables = load_taxonomy_tables(TAXONOMY_DIR)
+code_to_label, label_to_code = code_label_maps(tables)
+
+market_segments = tables["market_segments"]
+subsegments = tables["subsegment_tags"]
+product_models = tables["product_models"]
+distribution_models = tables["distribution_models"]
+data_layers = tables["data_input_layers"]
+
+allowed_primary = allowed_codes(market_segments, "segment_code")
+allowed_subsegments = allowed_codes(subsegments, "tag_code")
+allowed_product = allowed_codes(product_models, "product_model_code")
+allowed_distribution = allowed_codes(distribution_models, "distribution_model_code")
+allowed_data = allowed_codes(data_layers, "data_input_code")
+
+subsegment_parent = {}
+for _, row in subsegments.iterrows():
+    tag = safe_text(row.get("tag_code"))
+    parent = safe_text(row.get("parent_market_segment"))
+    if tag and parent:
+        subsegment_parent[tag] = parent
+
+def filter_subsegments_for_primary(tags, primary_code):
+    clean = []
+    for tag in tags:
+        tag = safe_text(tag)
+        if not tag:
+            continue
+        parent = subsegment_parent.get(tag)
+        if parent and parent != primary_code:
+            continue
+        if tag not in clean:
+            clean.append(tag)
+    return clean
+
+def row_text(row):
+    fields = [
+        "company",
+        "business_model_classification",
+        "final_takeaway",
+        "taxonomy_rationale",
+        "taxonomy_assignment_basis",
+        "commercial_scale_assessment",
+        "pmf_scale_assessment",
+        "priority_review_note",
+        "review_notes",
+        "funding_finding",
+        "commercial_scale_finding",
+        "payer_institutional_finding",
+        "outcomes_finding",
+    ]
+    return " | ".join(safe_text(row.get(field, "")) for field in fields).lower()
+
+def tags_from_row(row, col):
+    return split_tags(row.get(col, ""))
+
+def deterministic_taxonomy_flags(row):
+    flags = []
+    primary = safe_text(row.get("primary_market_segment_code"))
+    company = safe_text(row.get("company"))
+    text = row_text(row)
+
+    sub_tags = tags_from_row(row, "subsegment_tags")
+
+    mismatched_tags = []
+    for tag in sub_tags:
+        expected_parent = subsegment_parent.get(tag)
+        if expected_parent and expected_parent != primary:
+            mismatched_tags.append(f"{tag} expects {expected_parent}")
+
+    if mismatched_tags:
+        flags.append("SUBSEGMENT_PARENT_MISMATCH: " + "; ".join(mismatched_tags))
+
+    metabolic_tags = {
+        "obesity_glp1",
+        "diabetes_cardiometabolic",
+        "nutrition_care",
+        "food_as_medicine",
+        "cgm_glucose_behavior",
+    }
+
+    if primary == "CONSUMER_HEALTH_OPTIMIZATION":
+        if any(tag in metabolic_tags for tag in sub_tags):
+            flags.append("CONSUMER_PRIMARY_WITH_METABOLIC_SUBSEGMENT")
+
+    if primary == "DIAGNOSTICS_LIFE_SCIENCES":
+        consumer_longevity_signals = [
+            "consumer",
+            "longevity",
+            "health optimization",
+            "preventive wellness",
+            "membership",
+            "cash-pay",
+            "cash pay",
+        ]
+        if any(signal in text for signal in consumer_longevity_signals):
+            flags.append("DIAGNOSTICS_PRIMARY_WITH_CONSUMER_LONGEVITY_TEXT")
+
+    if primary == "CARE_NAVIGATION_ACCESS":
+        # These are regex-based and intentionally avoid bare substring checks.
+        # Example: "gi" should only match GI as a standalone acronym, not inside unrelated words.
+        condition_signal_patterns = [
+            (r"\boncology\b|\bcancer\b", "SPECIALTY_CONDITION_CARE", "oncology/cancer"),
+            (r"\bgi\b|\bgastroenterology\b|\bgastrointestinal\b|\bdigestive\b|\bibs\b|\bibd\b|\bcrohn\b|\bcolitis\b", "SPECIALTY_CONDITION_CARE", "GI/digestive"),
+            (r"\bmsk\b|\bmusculoskeletal\b|\bphysical therapy\b", "SPECIALTY_CONDITION_CARE", "MSK"),
+            (r"\bkidney\b|\brenal\b", "SPECIALTY_CONDITION_CARE", "kidney/renal"),
+        ]
+
+        for pattern, expected_parent, label in condition_signal_patterns:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                flags.append(f"CARE_NAV_PRIMARY_WITH_CONDITION_SIGNAL:{label}->{expected_parent}")
+                break
+
+    if primary == "PAYER_BENEFITS_INFRASTRUCTURE":
+        clinical_terms = [
+            "maternity",
+            "maternal",
+            "pregnancy",
+            "postpartum",
+            "eating disorder",
+            "therapy",
+            "oncology",
+            "cancer",
+            "diabetes",
+            "nutrition",
+            "gi",
+            "msk",
+        ]
+        if any(term in text for term in clinical_terms):
+            flags.append("PAYER_PRIMARY_WITH_CLINICAL_CONDITION_TEXT")
+
+    known_high_risk = {
+        "levels health": "Known CGM/metabolic behavior company; verify against METABOLIC_NUTRITION_HEALTH.",
+        "zoe": "Known nutrition/metabolic/microbiome company; verify against METABOLIC_NUTRITION_HEALTH.",
+        "jasper health": "Known oncology support/navigation company; verify against SPECIALTY_CONDITION_CARE.",
+    }
+
+    key = company.lower().strip()
+    if key in known_high_risk:
+        flags.append("KNOWN_HIGH_RISK_TAXONOMY_CHECK: " + known_high_risk[key])
+
+    return flags
+
+audit_rows = []
+
+for idx, row in master_df.iterrows():
+    flags = deterministic_taxonomy_flags(row)
+    if flags:
+        audit_rows.append({
+            "row_index": idx,
+            "company": safe_text(row.get("company")),
+            "current_primary_market_segment_code": safe_text(row.get("primary_market_segment_code")),
+            "current_primary_market_segment": safe_text(row.get("primary_market_segment")),
+            "subsegment_tags": safe_text(row.get("subsegment_tags")),
+            "product_model_tags": safe_text(row.get("product_model_tags")),
+            "distribution_model_tags": safe_text(row.get("distribution_model_tags")),
+            "data_input_tags": safe_text(row.get("data_input_tags")),
+            "taxonomy_confidence": safe_text(row.get("taxonomy_confidence")),
+            "taxonomy_rationale": safe_text(row.get("taxonomy_rationale")),
+            "qa_flags": " | ".join(flags),
+        })
+
+audit_df = pd.DataFrame(audit_rows)
+
+audit_path = OUTPUT_DIR / f"taxonomy_qa_audit_{timestamp}.csv"
+audit_df.to_csv(audit_path, index=False)
+
+print("Deterministic taxonomy QA audit complete.")
+print("Flagged companies:", len(audit_df))
+print("Audit path:", audit_path)
+
+if len(audit_df):
+    display(audit_df)
+else:
+    print("No deterministic flags found.")
+    print("No second-pass LLM adjudication needed.")
+
+if not audit_df.empty:
+    try:
+        from openai import OpenAI
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "openai"], check=True)
+        from openai import OpenAI
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    try:
+        from google.colab import userdata
+        api_key = userdata.get("OPENAI_API_KEY") or api_key
+    except Exception:
+        pass
+
+    if api_key:
+        client = OpenAI(api_key=api_key)
+    else:
+        client = OpenAI()
+
+    taxonomy_options = {
+        "primary_market_segment_codes": sorted(list(allowed_primary)),
+        "subsegment_tag_codes": sorted(list(allowed_subsegments)),
+        "product_model_codes": sorted(list(allowed_product)),
+        "distribution_model_codes": sorted(list(allowed_distribution)),
+        "data_input_codes": sorted(list(allowed_data)),
+    }
+
+    adjudication_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "current_assignment_valid": {"type": "boolean"},
+            "corrected_primary_market_segment_code": {
+                "type": "string",
+                "enum": sorted(list(allowed_primary)),
+            },
+            "corrected_subsegment_tags": {
+                "type": "array",
+                "items": {"type": "string", "enum": sorted(list(allowed_subsegments))},
+            },
+            "corrected_product_model_tags": {
+                "type": "array",
+                "items": {"type": "string", "enum": sorted(list(allowed_product))},
+            },
+            "corrected_distribution_model_tags": {
+                "type": "array",
+                "items": {"type": "string", "enum": sorted(list(allowed_distribution))},
+            },
+            "corrected_data_input_tags": {
+                "type": "array",
+                "items": {"type": "string", "enum": sorted(list(allowed_data))},
+            },
+            "qa_confidence": {"type": "integer"},
+            "qa_decision_rationale": {"type": "string"},
+            "needs_human_review": {"type": "boolean"},
+            "human_review_reason": {"type": "string"},
+        },
+        "required": [
+            "current_assignment_valid",
+            "corrected_primary_market_segment_code",
+            "corrected_subsegment_tags",
+            "corrected_product_model_tags",
+            "corrected_distribution_model_tags",
+            "corrected_data_input_tags",
+            "qa_confidence",
+            "qa_decision_rationale",
+            "needs_human_review",
+            "human_review_reason",
+        ],
+    }
+
+    system_prompt = """
+You are a skeptical taxonomy QA reviewer.
+
+Your job:
+- Review a prior taxonomy assignment.
+- Decide whether it follows the controlled taxonomy.
+- Correct it when the primary market segment is wrong.
+- Be strict about not confusing distribution, data input, or product model with market segment.
+- Treat deterministic QA flags as hypotheses to investigate, not facts.
+- Do not infer a GI/digestive market from a stray substring. Require explicit GI, gastroenterology, digestive, IBS, IBD, Crohn's, or colitis evidence.
+- If the corrected primary segment differs from the current primary segment, set needs_human_review=true unless the evidence is extremely explicit.
+- Subsegment tags should belong under the corrected primary market segment. Do not include subsegment tags whose parent segment conflicts with the corrected primary segment.
+
+Key governance:
+- Primary market segment = the main buyer/user problem.
+- Distribution model = who pays / controls access.
+- Product model = how value is delivered.
+- Data input layer = what powers the product.
+- Consumer labs/biomarkers/longevity can be CONSUMER_HEALTH_OPTIMIZATION.
+- CGM/nutrition/metabolic behavior companies generally belong in METABOLIC_NUTRITION_HEALTH, not consumer optimization.
+- Oncology support/navigation belongs in SPECIALTY_CONDITION_CARE with oncology_cancer, not broad care navigation, unless the company is broad cross-condition navigation.
+"""
+
+    def build_adjudication_context(master_row, audit_row):
+        fields = [
+            "company",
+            "business_model_classification",
+            "final_takeaway",
+            "commercial_scale_assessment",
+            "pmf_scale_assessment",
+            "priority_review_note",
+            "review_notes",
+            "funding_finding",
+            "commercial_scale_finding",
+            "payer_institutional_finding",
+            "outcomes_finding",
+            "taxonomy_rationale",
+        ]
+
+        context = []
+        for field in fields:
+            if field in master_row.index:
+                value = safe_text(master_row.get(field, ""))
+                if value:
+                    context.append(f"{field}: {value}")
+
+        context.append("")
+        context.append("CURRENT TAXONOMY ASSIGNMENT:")
+        for field in [
+            "primary_market_segment_code",
+            "subsegment_tags",
+            "product_model_tags",
+            "distribution_model_tags",
+            "data_input_tags",
+            "taxonomy_confidence",
+            "taxonomy_rationale",
+        ]:
+            context.append(f"{field}: {safe_text(master_row.get(field, ''))}")
+
+        context.append("")
+        context.append("DETERMINISTIC QA FLAGS:")
+        context.append(safe_text(audit_row.get("qa_flags", "")))
+
+        return "\\n".join(context)
+
+    def parse_json_response(response):
+        text = getattr(response, "output_text", None)
+        if not text:
+            try:
+                chunks = []
+                for item in response.output:
+                    for content in getattr(item, "content", []):
+                        value = getattr(content, "text", None)
+                        if value:
+                            chunks.append(value)
+                text = "\\n".join(chunks)
+            except Exception:
+                text = str(response)
+
+        try:
+            return json.loads(text)
+        except Exception:
+            match = re.search(r"\\{.*\\}", text, flags=re.DOTALL)
+            if not match:
+                raise
+            return json.loads(match.group(0))
+
+    adjudicated_rows = []
+
+    for _, audit_row in audit_df.iterrows():
+        idx = int(audit_row["row_index"])
+        master_row = master_df.loc[idx]
+        company = safe_text(master_row.get("company"))
+
+        print("")
+        print("=" * 80)
+        print("QA adjudicating:", company)
+        print("=" * 80)
+
+        user_prompt = f"""
+CONTROLLED TAXONOMY OPTIONS:
+{json.dumps(taxonomy_options, indent=2)}
+
+COMPANY AND CURRENT ASSIGNMENT:
+{build_adjudication_context(master_row, audit_row)}
+
+Return only the requested JSON object.
+"""
+
+        response = client.responses.create(
+            model=TAXONOMY_QA_MODEL,
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "taxonomy_qa_adjudication",
+                    "strict": True,
+                    "schema": adjudication_schema,
+                }
+            },
+        )
+
+        result = parse_json_response(response)
+
+        corrected_primary = normalize_code(
+            result["corrected_primary_market_segment_code"],
+            allowed_primary,
+            label_to_code,
+        )
+
+        if not corrected_primary:
+            corrected_primary = safe_text(master_row.get("primary_market_segment_code"))
+
+        corrected_subsegments = filter_subsegments_for_primary(
+            result["corrected_subsegment_tags"],
+            corrected_primary,
+        )
+
+        corrected = {
+            "row_index": idx,
+            "company": company,
+            "previous_primary_market_segment_code": safe_text(master_row.get("primary_market_segment_code")),
+            "corrected_primary_market_segment_code": corrected_primary,
+            "corrected_primary_market_segment": code_to_label.get(corrected_primary, corrected_primary),
+            "current_assignment_valid": result["current_assignment_valid"],
+            "qa_confidence": int(result["qa_confidence"]),
+            "needs_human_review": result["needs_human_review"],
+            "human_review_reason": safe_text(result["human_review_reason"]),
+            "qa_decision_rationale": safe_text(result["qa_decision_rationale"]),
+            "corrected_subsegment_tags": join_tags(corrected_subsegments),
+            "corrected_product_model_tags": join_tags(result["corrected_product_model_tags"]),
+            "corrected_distribution_model_tags": join_tags(result["corrected_distribution_model_tags"]),
+            "corrected_data_input_tags": join_tags(result["corrected_data_input_tags"]),
+            "qa_flags": safe_text(audit_row.get("qa_flags")),
+        }
+
+        adjudicated_rows.append(corrected)
+
+        print(
+            company,
+            "previous:",
+            corrected["previous_primary_market_segment_code"],
+            "corrected:",
+            corrected["corrected_primary_market_segment_code"],
+            "valid:",
+            corrected["current_assignment_valid"],
+            "human review:",
+            corrected["needs_human_review"],
+        )
+
+    adjudicated_df = pd.DataFrame(adjudicated_rows)
+    adjudicated_path = OUTPUT_DIR / f"taxonomy_qa_adjudication_{timestamp}.csv"
+    adjudicated_df.to_csv(adjudicated_path, index=False)
+
+    print("")
+    print("Adjudication complete.")
+    print("Adjudication path:", adjudicated_path)
+    display(adjudicated_df)
+
+    adjudicated_df["primary_segment_changed"] = (
+        adjudicated_df["previous_primary_market_segment_code"].astype(str).str.strip()
+        != adjudicated_df["corrected_primary_market_segment_code"].astype(str).str.strip()
+    )
+
+    adjudicated_df["has_subsegment_parent_mismatch"] = (
+        adjudicated_df["qa_flags"].astype(str).str.contains("SUBSEGMENT_PARENT_MISMATCH", case=False, na=False)
+    )
+
+    # Auto-apply is intentionally conservative:
+    # - No primary segment changes auto-apply.
+    # - Same-primary tag/product cleanup can auto-apply.
+    # - Anything asking for human review stays in review.
+    apply_df = adjudicated_df[
+        (adjudicated_df["primary_segment_changed"] == False)
+        & (adjudicated_df["needs_human_review"] == False)
+        & (adjudicated_df["qa_confidence"] >= TAXONOMY_QA_CONFIDENCE_AUTO_APPLY_THRESHOLD)
+        & (
+            (adjudicated_df["current_assignment_valid"] == False)
+            | (adjudicated_df["has_subsegment_parent_mismatch"] == True)
+        )
+    ].copy()
+
+    confirmed_valid_df = adjudicated_df[
+        (adjudicated_df["current_assignment_valid"] == True)
+        & (adjudicated_df["needs_human_review"] == False)
+        & (adjudicated_df["has_subsegment_parent_mismatch"] == False)
+    ].copy()
+
+    human_review_df = adjudicated_df[
+        (adjudicated_df["needs_human_review"] == True)
+        | (adjudicated_df["primary_segment_changed"] == True)
+    ].copy()
+
+    print("")
+    print("Corrections eligible for auto-apply:", len(apply_df))
+    print("QA-flagged rows confirmed valid:", len(confirmed_valid_df))
+    print("Rows needing human review:", len(human_review_df))
+
+    if len(apply_df):
+        backup_path = MASTER_PATH.with_name(f"{MASTER_PATH.stem}_backup_before_taxonomy_qa_apply_{timestamp}.csv")
+        shutil.copy2(MASTER_PATH, backup_path)
+        print("Master backup before QA apply:", backup_path)
+
+        for _, correction in apply_df.iterrows():
+            idx = int(correction["row_index"])
+
+            master_df.at[idx, "primary_market_segment_code"] = correction["corrected_primary_market_segment_code"]
+            master_df.at[idx, "primary_market_segment"] = correction["corrected_primary_market_segment"]
+            master_df.at[idx, "market_segment"] = correction["corrected_primary_market_segment"]
+            master_df.at[idx, "subsegment_tags"] = correction["corrected_subsegment_tags"]
+            master_df.at[idx, "product_model_tags"] = correction["corrected_product_model_tags"]
+            master_df.at[idx, "distribution_model_tags"] = correction["corrected_distribution_model_tags"]
+            master_df.at[idx, "data_input_tags"] = correction["corrected_data_input_tags"]
+            master_df.at[idx, "taxonomy_assignment_method"] = "llm_taxonomy_qa_corrected"
+            master_df.at[idx, "taxonomy_assignment_basis"] = correction["qa_decision_rationale"]
+            master_df.at[idx, "taxonomy_rationale"] = correction["qa_decision_rationale"]
+            master_df.at[idx, "taxonomy_confidence"] = correction["qa_confidence"]
+            master_df.at[idx, "taxonomy_needs_review"] = "NO"
+            master_df.at[idx, "taxonomy_review_reason"] = ""
+
+        master_df.to_csv(MASTER_PATH, index=False)
+        print("Applied taxonomy QA corrections to master:", MASTER_PATH)
+
+    review_path = OUTPUT_DIR / f"taxonomy_qa_human_review_packet_{timestamp}.csv"
+    human_review_df.to_csv(review_path, index=False)
+    print("Human review packet:", review_path)
+
+
+
+# STEP 28 - Taxonomy QA and safe cleanup pass
+# Purpose:
+# - Mechanically clean taxonomy inconsistencies.
+# - Avoid substring false positives like "gi" inside unrelated words.
+# - Never auto-apply primary market segment changes.
+# - Auto-apply safe same-primary cleanup only: cross-parent subsegment tags and obvious product-model mismatches.
+# - Produce a review packet only for true unresolved primary-segment conflicts.
+
+from pathlib import Path
+from datetime import datetime
+import re
+import shutil
+import sys
+import pandas as pd
+
+from google.colab import drive
+
+drive.mount("/content/drive", force_remount=False)
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+TAXONOMY_DIR = REPO_DIR / "taxonomy"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from health_tech_research_agent.taxonomy import (
+    safe_text,
+    split_tags,
+    join_tags,
+    load_taxonomy_tables,
+    code_label_maps,
+    allowed_codes,
+)
+
+MASTER_PATH = Path("/content/drive/MyDrive/Job Search/Health Tech Research/health_tech_market_research_summary_MASTER.csv")
+RESEARCH_DIR = Path("/content/drive/MyDrive/Job Search/Health Tech Research")
+OUTPUT_DIR = RESEARCH_DIR / "taxonomy_backfills"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+if not MASTER_PATH.exists():
+    raise FileNotFoundError(f"Master not found: {MASTER_PATH}")
+
+master_df = pd.read_csv(MASTER_PATH).fillna("")
+
+tables = load_taxonomy_tables(TAXONOMY_DIR)
+code_to_label, label_to_code = code_label_maps(tables)
+
+subsegments = tables["subsegment_tags"]
+
+subsegment_parent = {}
+for _, row in subsegments.iterrows():
+    tag = safe_text(row.get("tag_code"))
+    parent = safe_text(row.get("parent_market_segment"))
+    if tag and parent:
+        subsegment_parent[tag] = parent
+
+def normalize_tag_list(value):
+    tags = []
+    for tag in split_tags(value):
+        tag = safe_text(tag)
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+def filter_subsegments_for_primary(raw_tags, primary_code):
+    kept = []
+    removed = []
+
+    for tag in normalize_tag_list(raw_tags):
+        parent = subsegment_parent.get(tag)
+        if parent and parent != primary_code:
+            removed.append(tag)
+            continue
+        kept.append(tag)
+
+    return kept, removed
+
+def clean_product_tags(raw_tags, distribution_tags):
+    tags = normalize_tag_list(raw_tags)
+    dist = set(normalize_tag_list(distribution_tags))
+
+    removed = []
+
+    # BENEFITS_PLATFORM should usually require an employer/payer/institutional channel.
+    institutional_distribution = {
+        "EMPLOYER",
+        "PAYER",
+        "B2B2C",
+        "GOV_MEDICAID",
+        "HEALTH_SYSTEM",
+        "PROVIDER_GROUP",
+    }
+
+    if "BENEFITS_PLATFORM" in tags and not (dist & institutional_distribution):
+        tags = [tag for tag in tags if tag != "BENEFITS_PLATFORM"]
+        removed.append("BENEFITS_PLATFORM")
+
+    return tags, removed
+
+def row_text(row):
+    fields = [
+        "company",
+        "business_model_classification",
+        "final_takeaway",
+        "taxonomy_rationale",
+        "taxonomy_assignment_basis",
+        "commercial_scale_assessment",
+        "pmf_scale_assessment",
+        "review_notes",
+        "priority_review_note",
+    ]
+    return " | ".join(safe_text(row.get(field, "")) for field in fields)
+
+def explicit_condition_signals(text_value):
+    text_value = safe_text(text_value)
+
+    patterns = [
+        (r"\boncology\b|\bcancer\b", "SPECIALTY_CONDITION_CARE", "oncology/cancer"),
+        (r"\bGI\b|\bgastroenterology\b|\bgastrointestinal\b|\bdigestive\b|\bIBS\b|\bIBD\b|\bCrohn'?s\b|\bcolitis\b", "SPECIALTY_CONDITION_CARE", "GI/digestive"),
+        (r"\bMSK\b|\bmusculoskeletal\b|\bphysical therapy\b", "SPECIALTY_CONDITION_CARE", "MSK"),
+        (r"\bkidney\b|\brenal\b", "SPECIALTY_CONDITION_CARE", "kidney/renal"),
+    ]
+
+    matches = []
+    for pattern, expected_segment, label in patterns:
+        if re.search(pattern, text_value, flags=re.IGNORECASE):
+            matches.append((label, expected_segment))
+
+    return matches
+
+audit_rows = []
+cleanup_rows = []
+human_review_rows = []
+
+for idx, row in master_df.iterrows():
+    company = safe_text(row.get("company"))
+    primary = safe_text(row.get("primary_market_segment_code"))
+
+    if not primary:
+        primary = safe_text(row.get("market_segment"))
+
+    current_subsegments = safe_text(row.get("subsegment_tags"))
+    current_products = safe_text(row.get("product_model_tags"))
+    current_distribution = safe_text(row.get("distribution_model_tags"))
+
+    filtered_subsegments, removed_subsegments = filter_subsegments_for_primary(
+        current_subsegments,
+        primary,
+    )
+
+    cleaned_products, removed_products = clean_product_tags(
+        current_products,
+        current_distribution,
+    )
+
+    flags = []
+
+    if removed_subsegments:
+        flags.append(f"REMOVED_CROSS_PARENT_SUBSEGMENTS: {', '.join(removed_subsegments)}")
+
+    if removed_products:
+        flags.append(f"REMOVED_PRODUCT_MODEL_TAGS: {', '.join(removed_products)}")
+
+    # Primary-segment conflict detection is review-only, never auto-apply.
+    condition_matches = explicit_condition_signals(row_text(row))
+
+    if primary == "CARE_NAVIGATION_ACCESS" and condition_matches:
+        # Only flag when the evidence explicitly says a condition area.
+        condition_labels = ", ".join([m[0] for m in condition_matches])
+        flags.append(f"REVIEW_ONLY_CONDITION_SIGNAL_IN_CARE_NAV: {condition_labels}")
+
+    if primary == "PAYER_BENEFITS_INFRASTRUCTURE":
+        clinical_review_terms = [
+            r"\bmaternity\b",
+            r"\bmaternal\b",
+            r"\bpregnancy\b",
+            r"\bpostpartum\b",
+            r"\beating disorder\b",
+            r"\boncology\b",
+            r"\bcancer\b",
+            r"\bdiabetes\b",
+            r"\bnutrition\b",
+            r"\bGI\b",
+            r"\bgastroenterology\b",
+            r"\bdigestive\b",
+            r"\bMSK\b",
+        ]
+
+        clinical_hits = [
+            term for term in clinical_review_terms
+            if re.search(term, row_text(row), flags=re.IGNORECASE)
+        ]
+
+        if clinical_hits:
+            flags.append("REVIEW_ONLY_CLINICAL_SIGNAL_IN_PAYER_INFRASTRUCTURE")
+
+    if flags:
+        audit_rows.append({
+            "row_index": idx,
+            "company": company,
+            "primary_market_segment_code": primary,
+            "market_segment": safe_text(row.get("market_segment")),
+            "before_subsegment_tags": current_subsegments,
+            "after_subsegment_tags": join_tags(filtered_subsegments),
+            "before_product_model_tags": current_products,
+            "after_product_model_tags": join_tags(cleaned_products),
+            "distribution_model_tags": current_distribution,
+            "qa_flags": " | ".join(flags),
+        })
+
+    # Safe auto-cleanup: same primary only; no primary segment changes.
+    if removed_subsegments or removed_products:
+        cleanup_rows.append({
+            "row_index": idx,
+            "company": company,
+            "primary_market_segment_code": primary,
+            "subsegment_tags": join_tags(filtered_subsegments),
+            "product_model_tags": join_tags(cleaned_products),
+            "qa_cleanup_reason": " | ".join(flags),
+        })
+
+    # Human review packet only for possible primary-segment conflicts.
+    if any(flag.startswith("REVIEW_ONLY") for flag in flags):
+        human_review_rows.append({
+            "row_index": idx,
+            "company": company,
+            "current_primary_market_segment_code": primary,
+            "current_market_segment": safe_text(row.get("market_segment")),
+            "qa_flags": " | ".join(flags),
+            "taxonomy_rationale": safe_text(row.get("taxonomy_rationale")),
+            "business_model_classification": safe_text(row.get("business_model_classification")),
+            "final_takeaway": safe_text(row.get("final_takeaway")),
+        })
+
+audit_df = pd.DataFrame(audit_rows)
+cleanup_df = pd.DataFrame(cleanup_rows)
+human_review_df = pd.DataFrame(human_review_rows)
+
+audit_path = OUTPUT_DIR / f"taxonomy_qa_audit_{timestamp}.csv"
+cleanup_path = OUTPUT_DIR / f"taxonomy_qa_cleanup_applied_{timestamp}.csv"
+human_review_path = OUTPUT_DIR / f"taxonomy_qa_human_review_packet_{timestamp}.csv"
+
+audit_df.to_csv(audit_path, index=False)
+cleanup_df.to_csv(cleanup_path, index=False)
+human_review_df.to_csv(human_review_path, index=False)
+
+print("Deterministic taxonomy QA audit complete.")
+print("Flagged rows:", len(audit_df))
+print("Safe cleanup rows:", len(cleanup_df))
+print("Rows needing human review:", len(human_review_df))
+print("Audit path:", audit_path)
+print("Cleanup path:", cleanup_path)
+print("Human review packet:", human_review_path)
+
+if len(audit_df):
+    display(audit_df)
+
+if len(cleanup_df):
+    backup_path = MASTER_PATH.with_name(f"{MASTER_PATH.stem}_backup_before_taxonomy_safe_cleanup_{timestamp}.csv")
+    shutil.copy2(MASTER_PATH, backup_path)
+    print("Master backup before safe cleanup:", backup_path)
+
+    for _, cleanup in cleanup_df.iterrows():
+        idx = int(cleanup["row_index"])
+
+        master_df.at[idx, "subsegment_tags"] = cleanup["subsegment_tags"]
+        master_df.at[idx, "product_model_tags"] = cleanup["product_model_tags"]
+
+        previous_method = safe_text(master_df.at[idx, "taxonomy_assignment_method"])
+        if previous_method:
+            master_df.at[idx, "taxonomy_assignment_method"] = previous_method
+        else:
+            master_df.at[idx, "taxonomy_assignment_method"] = "llm_taxonomy_safe_cleanup"
+
+        existing_basis = safe_text(master_df.at[idx, "taxonomy_assignment_basis"])
+        cleanup_note = safe_text(cleanup["qa_cleanup_reason"])
+
+        if existing_basis:
+            master_df.at[idx, "taxonomy_assignment_basis"] = existing_basis + " | Step 28 safe cleanup: " + cleanup_note
+        else:
+            master_df.at[idx, "taxonomy_assignment_basis"] = "Step 28 safe cleanup: " + cleanup_note
+
+    master_df.to_csv(MASTER_PATH, index=False)
+    print("Applied safe taxonomy cleanup to master:", MASTER_PATH)
+else:
+    print("No safe cleanup needed.")
+
+print("")
+print("Step 28 complete.")
+

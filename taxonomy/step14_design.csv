@@ -1,0 +1,8 @@
+step_order,stage,behavior
+1,Load taxonomy tables,"Read Market Segments, Subsegment Tags, Product Models, Distribution Models, Data Input Layers, Company Overrides, and keyword rules from Drive/repo."
+2,Normalize company name,"Lowercase, trim, remove punctuation/corporate suffixes for matching."
+3,Exact override,"If company exists in Company Overrides, assign all taxonomy fields from override."
+4,Keyword classification,"If no override, apply deterministic rules by dimension. Only approved codes accepted."
+5,LLM review aid,"If deterministic mapping is weak, ask LLM to recommend only among approved codes and record suggestion/basis."
+6,Validation,"If primary_market_segment is missing or OTHER_REVIEW, hard stop and write a segment review packet."
+7,Dashboard,Dashboard groups by primary_market_segment and allows filters by subsegment/product/distribution/data tags.

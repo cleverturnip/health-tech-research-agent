@@ -1,0 +1,12 @@
+distribution_model_code,distribution_model_label,definition
+D2C,Direct-to-consumer,Consumer pays or subscribes directly
+EMPLOYER,Employer-sponsored,"Employer is buyer, sponsor, or key channel"
+PAYER,Payer / health plan,"Commercial payer, Medicare Advantage, Medicaid MCO, insurer"
+HEALTH_SYSTEM,Health system / provider enterprise,"Hospital, health system, clinic network, or provider enterprise buyer"
+PROVIDER_GROUP,Provider group / clinical organization,Provider group or clinical organization is buyer/user
+GOV_MEDICAID,Government / Medicaid,"Government program, Medicaid, public-sector funding"
+PHARMA,Pharma / life sciences,"Pharma, biotech, CRO, or clinical-trial sponsor"
+B2B2C,B2B2C,Institutional buyer plus patient/consumer-facing product
+MARKETPLACE,Marketplace / network monetization,Marketplace or network model where access/supply drives monetization
+HYBRID_MULTI_CHANNEL,Hybrid / multi-channel,Multiple meaningful channels; no single channel dominates
+UNKNOWN_REVIEW,Needs distribution review,Temporary review state

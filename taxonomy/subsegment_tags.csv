@@ -1,0 +1,43 @@
+tag_code,tag_label,parent_market_segment,definition
+fertility_family_building,Fertility / family building,WOMENS_FAMILY_HEALTH,"Fertility, egg freezing, IVF, pregnancy planning, family-building benefits"
+maternity_postpartum,Maternity / postpartum,WOMENS_FAMILY_HEALTH,"Pregnancy, birth, postpartum, doulas, lactation, maternal health"
+menopause_midlife,Menopause / midlife women’s health,WOMENS_FAMILY_HEALTH,"Perimenopause, menopause, midlife health, hormonal care"
+pcos_hormonal,PCOS / hormonal health,WOMENS_FAMILY_HEALTH,"PCOS, hormonal conditions, endocrine-oriented women’s health"
+pediatrics_family,Pediatrics / family health,WOMENS_FAMILY_HEALTH,"Pediatric care, family benefits, child/adolescent support"
+obesity_glp1,Obesity / GLP-1,METABOLIC_NUTRITION_HEALTH,"Weight management, obesity care, GLP-1 prescribing and support"
+diabetes_cardiometabolic,Diabetes / cardiometabolic,METABOLIC_NUTRITION_HEALTH,"Diabetes, hypertension, cardiometabolic chronic care"
+nutrition_care,Nutrition care,METABOLIC_NUTRITION_HEALTH,"Dietitian-led care, nutrition coaching, nutrition therapy"
+food_as_medicine,Food as medicine,METABOLIC_NUTRITION_HEALTH,"Medically tailored food, food benefits, grocery/nutrition benefit programs"
+cgm_glucose_behavior,CGM / glucose behavior,METABOLIC_NUTRITION_HEALTH,"CGM-led behavior loops, glucose tracking, metabolic self-optimization"
+therapy_psychiatry,Therapy / psychiatry,MENTAL_BEHAVIORAL_HEALTH,"Therapy, psychiatry, medication management, behavioral care access"
+substance_use,Substance use treatment,MENTAL_BEHAVIORAL_HEALTH,"Addiction, opioid/alcohol use disorder, recovery programs"
+eating_disorder,Eating disorder care,MENTAL_BEHAVIORAL_HEALTH,Eating disorder specialty care
+gi_digestive,GI / digestive,SPECIALTY_CONDITION_CARE,"IBS, IBD, digestive health, gastroenterology, gut health"
+msk_movement,MSK / movement,SPECIALTY_CONDITION_CARE,"MSK, physical therapy, pain, movement recovery, injury rehab"
+oncology_cancer,Oncology / cancer,SPECIALTY_CONDITION_CARE,"Cancer navigation, oncology care, treatment support"
+kidney_renal,Kidney / renal,SPECIALTY_CONDITION_CARE,"CKD, kidney care, dialysis alternatives, renal VBC"
+cardiovascular,Cardiovascular,SPECIALTY_CONDITION_CARE,"Cardiac care, hypertension if condition-specific, heart failure"
+dermatology_skin,Dermatology / skin,SPECIALTY_CONDITION_CARE,"Skin health, dermatology, skincare as clinical care"
+neurology_brain,Neurology / brain,SPECIALTY_CONDITION_CARE,"Brain health, cognitive health, neurological care"
+primary_care,Primary care,PRIMARY_LONGITUDINAL_CARE,Longitudinal primary care or broad care front door
+urgent_care,Urgent care,PRIMARY_LONGITUDINAL_CARE,Virtual/hybrid urgent care
+senior_care,Senior care,SENIOR_HOME_CARE,"Aging, senior care, eldercare"
+home_care,Home care,SENIOR_HOME_CARE,"Home-based care delivery, hospital-at-home, caregiver ops"
+sleep,Sleep,CONSUMER_HEALTH_OPTIMIZATION,"Sleep health, sleep environment, recovery-through-sleep"
+fitness_performance,Fitness / performance,CONSUMER_HEALTH_OPTIMIZATION,"Fitness, athletic performance, training, recovery"
+longevity_prevention,Longevity / prevention,CONSUMER_HEALTH_OPTIMIZATION,"Wellness optimization, preventive tracking, longevity"
+longevity_prevention,Longevity / preventive wellness,CONSUMER_HEALTH_OPTIMIZATION,"Consumer preventive health, wellness optimization, healthspan, longevity programs, and self-directed health optimization."
+benefits_navigation,Benefits navigation,CARE_NAVIGATION_ACCESS,Help users understand/use benefits and coverage
+patient_advocacy,Patient advocacy,CARE_NAVIGATION_ACCESS,"Advocacy, healthcare support, appointment/claims help"
+insurance_infrastructure,Insurance infrastructure,PAYER_BENEFITS_INFRASTRUCTURE,"Health plans, benefits admin, insurance operations"
+employer_benefits,Employer benefits,PAYER_BENEFITS_INFRASTRUCTURE,Employer-sponsored health benefits platform
+medicaid_vbc,Medicaid / VBC,PAYER_BENEFITS_INFRASTRUCTURE,"Medicaid, value-based care, population/risk management"
+clinical_ai_search,Clinical AI / medical search,PROVIDER_INFRASTRUCTURE_AI,Provider-facing clinical knowledge and decision intelligence
+ai_scribe_documentation,AI scribe / documentation,PROVIDER_INFRASTRUCTURE_AI,"Ambient scribe, notes, documentation automation"
+prior_auth_rcm,Prior auth / RCM / coding,PROVIDER_INFRASTRUCTURE_AI,"Revenue cycle, coding, prior auth, billing workflow"
+diagnostics_labs,Diagnostics / labs,DIAGNOSTICS_LIFE_SCIENCES,"Labs, biomarker tests, imaging, screening diagnostics"
+imaging_ai,Imaging AI,DIAGNOSTICS_LIFE_SCIENCES,"Radiology, pathology, imaging AI diagnostics"
+clinical_trials_rwe,Clinical trials / RWE,DIAGNOSTICS_LIFE_SCIENCES,"Trial recruitment, real-world evidence, pharma analytics"
+drug_discovery,Drug discovery,DIAGNOSTICS_LIFE_SCIENCES,AI-enabled drug discovery and life sciences tooling
+consumer_labs_biomarkers,Consumer labs / biomarkers,CONSUMER_HEALTH_OPTIMIZATION,"Consumer-facing lab and biomarker testing used for preventive health, longevity, and self-optimization rather than clinical diagnostic decision-making."
+advanced_screening,Advanced screening,CONSUMER_HEALTH_OPTIMIZATION,"Consumer-facing full-body, imaging, sensor, or multimodal screening used for preventive risk detection and longevity/health optimization."

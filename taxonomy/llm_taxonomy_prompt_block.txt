@@ -1,0 +1,104 @@
+CONTROLLED HEALTH-TECH TAXONOMY
+
+Primary market segment: choose exactly ONE segment_code. Do not invent new primary market segments.
+If the company seems to fit multiple areas, choose the broad umbrella segment and put nuance in subsegment_tags.
+
+Allowed primary_market_segment codes:
+- WOMENS_FAMILY_HEALTH: Women’s, reproductive & family health — Women’s health, fertility, maternity, menopause, hormonal health, pediatrics, and family-building/family-benefits care.
+- METABOLIC_NUTRITION_HEALTH: Metabolic, nutrition & weight health — Obesity, GLP-1/weight management, diabetes, cardiometabolic care, metabolic behavior change, CGM-led metabolic coaching, nutrition care, and food-as-medicine.
+- MENTAL_BEHAVIORAL_HEALTH: Mental & behavioral health — Therapy, psychiatry, behavioral health access, substance-use treatment, eating-disorder care, and related care models.
+- SPECIALTY_CONDITION_CARE: Specialty condition care — Specialty-condition care that is not women/family, metabolic/nutrition, or mental/behavioral: GI, MSK, oncology, kidney, cardiovascular, dermatology, neurology, autoimmune, respiratory, etc.
+- PRIMARY_LONGITUDINAL_CARE: Primary, urgent & longitudinal care — Primary care, urgent care, longitudinal virtual/hybrid care, full-stack digital clinic, or broad front-door care that is not primarily a specialty category.
+- SENIOR_HOME_CARE: Senior, home & caregiver health — Senior care, aging-in-place, caregiver support, home care, home health, hospital-at-home, PACE enablement, and eldercare-focused platforms.
+- CONSUMER_HEALTH_OPTIMIZATION: Consumer health optimization — Consumer-led health optimization that is not primarily clinical treatment: sleep, fitness, recovery, longevity, preventive wellness, biometric self-optimization.
+- CARE_NAVIGATION_ACCESS: Care navigation, access & advocacy — Care matching, care navigation, patient advocacy, benefits navigation, care concierge, and helping users access/coordinate care as the core market.
+- PAYER_BENEFITS_INFRASTRUCTURE: Payer, benefits & value-based care infrastructure — Health insurance, employer benefits platforms, payer enablement, value-based care infrastructure, risk/population management, and Medicaid/VBC infrastructure.
+- PROVIDER_INFRASTRUCTURE_AI: Provider infrastructure & clinical AI — Provider-facing AI, clinical intelligence, documentation, scribing, prior authorization, coding, RCM, workflow automation, and provider admin infrastructure.
+- DIAGNOSTICS_LIFE_SCIENCES: Diagnostics, pharma & life sciences — Diagnostics, labs, imaging AI, screening, pharma/life-sciences enablement, clinical trials, RWE, and drug-discovery tooling.
+- OTHER_REVIEW: Other / needs review — Temporary value only when a company cannot be mapped into an approved top-level segment.
+
+Allowed subsegment tag codes. Use zero or more:
+- fertility_family_building: Fertility / family building [parent: WOMENS_FAMILY_HEALTH]
+- maternity_postpartum: Maternity / postpartum [parent: WOMENS_FAMILY_HEALTH]
+- menopause_midlife: Menopause / midlife women’s health [parent: WOMENS_FAMILY_HEALTH]
+- pcos_hormonal: PCOS / hormonal health [parent: WOMENS_FAMILY_HEALTH]
+- pediatrics_family: Pediatrics / family health [parent: WOMENS_FAMILY_HEALTH]
+- obesity_glp1: Obesity / GLP-1 [parent: METABOLIC_NUTRITION_HEALTH]
+- diabetes_cardiometabolic: Diabetes / cardiometabolic [parent: METABOLIC_NUTRITION_HEALTH]
+- nutrition_care: Nutrition care [parent: METABOLIC_NUTRITION_HEALTH]
+- food_as_medicine: Food as medicine [parent: METABOLIC_NUTRITION_HEALTH]
+- cgm_glucose_behavior: CGM / glucose behavior [parent: METABOLIC_NUTRITION_HEALTH]
+- therapy_psychiatry: Therapy / psychiatry [parent: MENTAL_BEHAVIORAL_HEALTH]
+- substance_use: Substance use treatment [parent: MENTAL_BEHAVIORAL_HEALTH]
+- eating_disorder: Eating disorder care [parent: MENTAL_BEHAVIORAL_HEALTH]
+- gi_digestive: GI / digestive [parent: SPECIALTY_CONDITION_CARE]
+- msk_movement: MSK / movement [parent: SPECIALTY_CONDITION_CARE]
+- oncology_cancer: Oncology / cancer [parent: SPECIALTY_CONDITION_CARE]
+- kidney_renal: Kidney / renal [parent: SPECIALTY_CONDITION_CARE]
+- cardiovascular: Cardiovascular [parent: SPECIALTY_CONDITION_CARE]
+- dermatology_skin: Dermatology / skin [parent: SPECIALTY_CONDITION_CARE]
+- neurology_brain: Neurology / brain [parent: SPECIALTY_CONDITION_CARE]
+- primary_care: Primary care [parent: PRIMARY_LONGITUDINAL_CARE]
+- urgent_care: Urgent care [parent: PRIMARY_LONGITUDINAL_CARE]
+- senior_care: Senior care [parent: SENIOR_HOME_CARE]
+- home_care: Home care [parent: SENIOR_HOME_CARE]
+- sleep: Sleep [parent: CONSUMER_HEALTH_OPTIMIZATION]
+- fitness_performance: Fitness / performance [parent: CONSUMER_HEALTH_OPTIMIZATION]
+- longevity_prevention: Longevity / prevention [parent: CONSUMER_HEALTH_OPTIMIZATION]
+- care_navigation: Care navigation [parent: CARE_NAVIGATION_ACCESS]
+- benefits_navigation: Benefits navigation [parent: CARE_NAVIGATION_ACCESS]
+- patient_advocacy: Patient advocacy [parent: CARE_NAVIGATION_ACCESS]
+- insurance_infrastructure: Insurance infrastructure [parent: PAYER_BENEFITS_INFRASTRUCTURE]
+- employer_benefits: Employer benefits [parent: PAYER_BENEFITS_INFRASTRUCTURE]
+- medicaid_vbc: Medicaid / VBC [parent: PAYER_BENEFITS_INFRASTRUCTURE]
+- clinical_ai_search: Clinical AI / medical search [parent: PROVIDER_INFRASTRUCTURE_AI]
+- ai_scribe_documentation: AI scribe / documentation [parent: PROVIDER_INFRASTRUCTURE_AI]
+- prior_auth_rcm: Prior auth / RCM / coding [parent: PROVIDER_INFRASTRUCTURE_AI]
+- diagnostics_labs: Diagnostics / labs [parent: DIAGNOSTICS_LIFE_SCIENCES]
+- imaging_ai: Imaging AI [parent: DIAGNOSTICS_LIFE_SCIENCES]
+- clinical_trials_rwe: Clinical trials / RWE [parent: DIAGNOSTICS_LIFE_SCIENCES]
+- drug_discovery: Drug discovery [parent: DIAGNOSTICS_LIFE_SCIENCES]
+
+Allowed product_model_tags. Use zero or more:
+- VIRTUAL_CARE: Virtual care delivery
+- HYBRID_CARE: Hybrid virtual + physical care
+- PROVIDER_MARKETPLACE: Provider marketplace / network
+- CARE_NAVIGATION_SERVICE: Care navigation / concierge service
+- COACHING_BEHAVIOR_CHANGE: Coaching / behavior-change app
+- DEVICE_HARDWARE: Device / hardware-led product
+- WEARABLE_COMPANION_APP: Wearable + companion app
+- DIAGNOSTIC_TESTING: Diagnostic testing / labs
+- DIGITAL_THERAPEUTIC: Digital therapeutic
+- AI_CLINICAL_WORKFLOW: AI clinical workflow
+- AI_ADMIN_WORKFLOW: AI admin workflow
+- BENEFITS_PLATFORM: Benefits / insurance platform
+- DATA_ANALYTICS_PLATFORM: Data / analytics platform
+- TRIALS_RWE_PLATFORM: Trials / RWE / pharma platform
+- UNKNOWN_REVIEW: Needs product model review
+
+Allowed distribution_model_tags. Use zero or more:
+- D2C: Direct-to-consumer
+- EMPLOYER: Employer-sponsored
+- PAYER: Payer / health plan
+- HEALTH_SYSTEM: Health system / provider enterprise
+- PROVIDER_GROUP: Provider group / clinical organization
+- GOV_MEDICAID: Government / Medicaid
+- PHARMA: Pharma / life sciences
+- B2B2C: B2B2C
+- MARKETPLACE: Marketplace / network monetization
+- HYBRID_MULTI_CHANNEL: Hybrid / multi-channel
+- UNKNOWN_REVIEW: Needs distribution review
+
+Allowed data_input_tags. Use zero or more:
+- WEARABLE_BIOMETRICS: Wearable biometrics
+- CGM: Continuous glucose monitor
+- LABS_BIOMARKERS: Labs / biomarkers
+- EHR_CLINICAL: EHR / clinical records
+- CLAIMS: Claims / utilization
+- PATIENT_REPORTED: Patient-reported outcomes / symptoms
+- PROVIDER_DOCUMENTATION: Provider notes / documentation
+- IMAGING: Imaging
+- DEVICE_SENSOR: Device / sensor data
+- SELF_LOGGED_BEHAVIOR: Self-logged behavior
+- ENVIRONMENTAL_HOME: Environmental / home data
+- UNKNOWN_OR_NONE: Unknown / not central

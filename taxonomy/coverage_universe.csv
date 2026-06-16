@@ -1,0 +1,101 @@
+#,company,primary_market_segment,subsegment_tags,coverage_note
+1,Maven Clinic,WOMENS_FAMILY_HEALTH,fertility_family_building; maternity_postpartum; menopause_midlife,Representative wide-market coverage seed; not a ranked top-100 list.
+2,Midi Health,WOMENS_FAMILY_HEALTH,menopause_midlife,Representative wide-market coverage seed; not a ranked top-100 list.
+3,Pomelo Care,WOMENS_FAMILY_HEALTH,maternity_postpartum; pediatrics_family,Representative wide-market coverage seed; not a ranked top-100 list.
+4,Allara Health,WOMENS_FAMILY_HEALTH,pcos_hormonal,Representative wide-market coverage seed; not a ranked top-100 list.
+5,Oula,WOMENS_FAMILY_HEALTH,maternity_postpartum,Representative wide-market coverage seed; not a ranked top-100 list.
+6,Tia,WOMENS_FAMILY_HEALTH,womens_health,Representative wide-market coverage seed; not a ranked top-100 list.
+7,Carrot Fertility,WOMENS_FAMILY_HEALTH,fertility_family_building,Representative wide-market coverage seed; not a ranked top-100 list.
+8,Progyny,WOMENS_FAMILY_HEALTH,fertility_family_building,Representative wide-market coverage seed; not a ranked top-100 list.
+9,Kindbody,WOMENS_FAMILY_HEALTH,fertility_family_building,Representative wide-market coverage seed; not a ranked top-100 list.
+10,Flo Health,WOMENS_FAMILY_HEALTH,womens_health; cycle_tracking,Representative wide-market coverage seed; not a ranked top-100 list.
+11,Noom Med,METABOLIC_NUTRITION_HEALTH,obesity_glp1; metabolic_behavior,Representative wide-market coverage seed; not a ranked top-100 list.
+12,ZOE,METABOLIC_NUTRITION_HEALTH,nutrition_care; metabolic_behavior,Representative wide-market coverage seed; not a ranked top-100 list.
+13,Levels,METABOLIC_NUTRITION_HEALTH,cgm_glucose_behavior,Representative wide-market coverage seed; not a ranked top-100 list.
+14,Signos,METABOLIC_NUTRITION_HEALTH,cgm_glucose_behavior; obesity_glp1,Representative wide-market coverage seed; not a ranked top-100 list.
+15,Omada Health,METABOLIC_NUTRITION_HEALTH,diabetes_cardiometabolic,Representative wide-market coverage seed; not a ranked top-100 list.
+16,9amHealth,METABOLIC_NUTRITION_HEALTH,diabetes_cardiometabolic,Representative wide-market coverage seed; not a ranked top-100 list.
+17,Foodsmart,METABOLIC_NUTRITION_HEALTH,food_as_medicine; nutrition_care,Representative wide-market coverage seed; not a ranked top-100 list.
+18,Fay,METABOLIC_NUTRITION_HEALTH,nutrition_care,Representative wide-market coverage seed; not a ranked top-100 list.
+19,Nourish,METABOLIC_NUTRITION_HEALTH,nutrition_care,Representative wide-market coverage seed; not a ranked top-100 list.
+20,Culina Health,METABOLIC_NUTRITION_HEALTH,nutrition_care,Representative wide-market coverage seed; not a ranked top-100 list.
+21,Calibrate,METABOLIC_NUTRITION_HEALTH,obesity_glp1,Representative wide-market coverage seed; not a ranked top-100 list.
+22,Found,METABOLIC_NUTRITION_HEALTH,obesity_glp1,Representative wide-market coverage seed; not a ranked top-100 list.
+23,Rula Health,MENTAL_BEHAVIORAL_HEALTH,therapy_psychiatry,Representative wide-market coverage seed; not a ranked top-100 list.
+24,Headway,MENTAL_BEHAVIORAL_HEALTH,therapy_psychiatry,Representative wide-market coverage seed; not a ranked top-100 list.
+25,Grow Therapy,MENTAL_BEHAVIORAL_HEALTH,therapy_psychiatry,Representative wide-market coverage seed; not a ranked top-100 list.
+26,Lyra Health,MENTAL_BEHAVIORAL_HEALTH,therapy_psychiatry,Representative wide-market coverage seed; not a ranked top-100 list.
+27,Spring Health,MENTAL_BEHAVIORAL_HEALTH,therapy_psychiatry,Representative wide-market coverage seed; not a ranked top-100 list.
+28,Talkspace,MENTAL_BEHAVIORAL_HEALTH,therapy_psychiatry,Representative wide-market coverage seed; not a ranked top-100 list.
+29,Brightside Health,MENTAL_BEHAVIORAL_HEALTH,therapy_psychiatry,Representative wide-market coverage seed; not a ranked top-100 list.
+30,Equip,MENTAL_BEHAVIORAL_HEALTH,eating_disorder,Representative wide-market coverage seed; not a ranked top-100 list.
+31,Affect Therapeutics,MENTAL_BEHAVIORAL_HEALTH,substance_use,Representative wide-market coverage seed; not a ranked top-100 list.
+32,Boulder Care,MENTAL_BEHAVIORAL_HEALTH,substance_use,Representative wide-market coverage seed; not a ranked top-100 list.
+33,Oshi Health,SPECIALTY_CONDITION_CARE,gi_digestive,Representative wide-market coverage seed; not a ranked top-100 list.
+34,Cylinder Health,SPECIALTY_CONDITION_CARE,gi_digestive,Representative wide-market coverage seed; not a ranked top-100 list.
+35,Sword Health,SPECIALTY_CONDITION_CARE,msk_movement,Representative wide-market coverage seed; not a ranked top-100 list.
+36,Hinge Health,SPECIALTY_CONDITION_CARE,msk_movement,Representative wide-market coverage seed; not a ranked top-100 list.
+37,OneStep,SPECIALTY_CONDITION_CARE,msk_movement,Representative wide-market coverage seed; not a ranked top-100 list.
+38,Thyme Care,SPECIALTY_CONDITION_CARE,oncology_cancer,Representative wide-market coverage seed; not a ranked top-100 list.
+39,Jasper Health,SPECIALTY_CONDITION_CARE,oncology_cancer,Representative wide-market coverage seed; not a ranked top-100 list.
+40,Outcomes4Me,SPECIALTY_CONDITION_CARE,oncology_cancer,Representative wide-market coverage seed; not a ranked top-100 list.
+41,Strive Health,SPECIALTY_CONDITION_CARE,kidney_renal,Representative wide-market coverage seed; not a ranked top-100 list.
+42,Monogram Health,SPECIALTY_CONDITION_CARE,kidney_renal,Representative wide-market coverage seed; not a ranked top-100 list.
+43,HeartFlow,SPECIALTY_CONDITION_CARE,cardiovascular,Representative wide-market coverage seed; not a ranked top-100 list.
+44,Cleerly,SPECIALTY_CONDITION_CARE,cardiovascular,Representative wide-market coverage seed; not a ranked top-100 list.
+45,Curology,SPECIALTY_CONDITION_CARE,dermatology_skin,Representative wide-market coverage seed; not a ranked top-100 list.
+46,Nurx Dermatology,SPECIALTY_CONDITION_CARE,dermatology_skin,Representative wide-market coverage seed; not a ranked top-100 list.
+47,K Health,PRIMARY_LONGITUDINAL_CARE,primary_care,Representative wide-market coverage seed; not a ranked top-100 list.
+48,Carbon Health,PRIMARY_LONGITUDINAL_CARE,primary_care; urgent_care,Representative wide-market coverage seed; not a ranked top-100 list.
+49,One Medical,PRIMARY_LONGITUDINAL_CARE,primary_care,Representative wide-market coverage seed; not a ranked top-100 list.
+50,Galileo,PRIMARY_LONGITUDINAL_CARE,primary_care,Representative wide-market coverage seed; not a ranked top-100 list.
+51,Firefly Health,PRIMARY_LONGITUDINAL_CARE,primary_care,Representative wide-market coverage seed; not a ranked top-100 list.
+52,98point6,PRIMARY_LONGITUDINAL_CARE,urgent_care,Representative wide-market coverage seed; not a ranked top-100 list.
+53,Cera,SENIOR_HOME_CARE,senior_care; home_care,Representative wide-market coverage seed; not a ranked top-100 list.
+54,Honor,SENIOR_HOME_CARE,senior_care; home_care,Representative wide-market coverage seed; not a ranked top-100 list.
+55,Papa,SENIOR_HOME_CARE,senior_care; caregiver,Representative wide-market coverage seed; not a ranked top-100 list.
+56,Medically Home,SENIOR_HOME_CARE,home_care,Representative wide-market coverage seed; not a ranked top-100 list.
+57,IntusCare,SENIOR_HOME_CARE,senior_care; medicaid_vbc,Representative wide-market coverage seed; not a ranked top-100 list.
+58,DispatchHealth,SENIOR_HOME_CARE,home_care,Representative wide-market coverage seed; not a ranked top-100 list.
+59,Oura,CONSUMER_HEALTH_OPTIMIZATION,sleep; fitness_performance,Representative wide-market coverage seed; not a ranked top-100 list.
+60,Eight Sleep,CONSUMER_HEALTH_OPTIMIZATION,sleep,Representative wide-market coverage seed; not a ranked top-100 list.
+61,Whoop,CONSUMER_HEALTH_OPTIMIZATION,fitness_performance; sleep,Representative wide-market coverage seed; not a ranked top-100 list.
+62,Ultrahuman,CONSUMER_HEALTH_OPTIMIZATION,fitness_performance; longevity_prevention,Representative wide-market coverage seed; not a ranked top-100 list.
+63,Future,CONSUMER_HEALTH_OPTIMIZATION,fitness_performance,Representative wide-market coverage seed; not a ranked top-100 list.
+67,Neko Health,CONSUMER_HEALTH_OPTIMIZATION,longevity_prevention; advanced_screening,Consumer advanced screening/longevity seed; not a diagnostics/life-sciences treatment advancement company.
+68,InsideTracker,CONSUMER_HEALTH_OPTIMIZATION,longevity_prevention; consumer_labs_biomarkers,"Consumer biomarker/longevity seed; labs are input layer, not primary market segment."
+66,Superpower,CONSUMER_HEALTH_OPTIMIZATION,longevity_prevention,Representative wide-market coverage seed; not a ranked top-100 list.
+67,Neko Health,CONSUMER_HEALTH_OPTIMIZATION,longevity_prevention,Representative wide-market coverage seed; not a ranked top-100 list.
+68,InsideTracker,CONSUMER_HEALTH_OPTIMIZATION,longevity_prevention,Representative wide-market coverage seed; not a ranked top-100 list.
+69,Included Health,CARE_NAVIGATION_ACCESS,care_navigation; benefits_navigation,Representative wide-market coverage seed; not a ranked top-100 list.
+70,Transcarent,CARE_NAVIGATION_ACCESS,care_navigation,Representative wide-market coverage seed; not a ranked top-100 list.
+71,Solace,CARE_NAVIGATION_ACCESS,patient_advocacy,Representative wide-market coverage seed; not a ranked top-100 list.
+72,Accolade,CARE_NAVIGATION_ACCESS,care_navigation; benefits_navigation,Representative wide-market coverage seed; not a ranked top-100 list.
+73,Rightway,CARE_NAVIGATION_ACCESS,benefits_navigation,Representative wide-market coverage seed; not a ranked top-100 list.
+74,Quantum Health,CARE_NAVIGATION_ACCESS,care_navigation; benefits_navigation,Representative wide-market coverage seed; not a ranked top-100 list.
+75,Angle Health,PAYER_BENEFITS_INFRASTRUCTURE,insurance_infrastructure,Representative wide-market coverage seed; not a ranked top-100 list.
+76,Collective Health,PAYER_BENEFITS_INFRASTRUCTURE,employer_benefits,Representative wide-market coverage seed; not a ranked top-100 list.
+77,Cityblock Health,PAYER_BENEFITS_INFRASTRUCTURE,medicaid_vbc,Representative wide-market coverage seed; not a ranked top-100 list.
+78,Waymark,PAYER_BENEFITS_INFRASTRUCTURE,medicaid_vbc,Representative wide-market coverage seed; not a ranked top-100 list.
+79,Oscar Health,PAYER_BENEFITS_INFRASTRUCTURE,insurance_infrastructure,Representative wide-market coverage seed; not a ranked top-100 list.
+80,Devoted Health,PAYER_BENEFITS_INFRASTRUCTURE,insurance_infrastructure; senior_care,Representative wide-market coverage seed; not a ranked top-100 list.
+81,Aledade,PAYER_BENEFITS_INFRASTRUCTURE,medicaid_vbc; value_based_care,Representative wide-market coverage seed; not a ranked top-100 list.
+82,Vytalize Health,PAYER_BENEFITS_INFRASTRUCTURE,value_based_care,Representative wide-market coverage seed; not a ranked top-100 list.
+83,OpenEvidence,PROVIDER_INFRASTRUCTURE_AI,clinical_ai_search,Representative wide-market coverage seed; not a ranked top-100 list.
+84,Abridge,PROVIDER_INFRASTRUCTURE_AI,ai_scribe_documentation,Representative wide-market coverage seed; not a ranked top-100 list.
+85,Ambience Healthcare,PROVIDER_INFRASTRUCTURE_AI,ai_scribe_documentation,Representative wide-market coverage seed; not a ranked top-100 list.
+86,Nabla,PROVIDER_INFRASTRUCTURE_AI,ai_scribe_documentation,Representative wide-market coverage seed; not a ranked top-100 list.
+87,Suki,PROVIDER_INFRASTRUCTURE_AI,ai_scribe_documentation,Representative wide-market coverage seed; not a ranked top-100 list.
+88,Tandem Health,PROVIDER_INFRASTRUCTURE_AI,ai_scribe_documentation,Representative wide-market coverage seed; not a ranked top-100 list.
+89,Akasa,PROVIDER_INFRASTRUCTURE_AI,prior_auth_rcm,Representative wide-market coverage seed; not a ranked top-100 list.
+93,Function Health,CONSUMER_HEALTH_OPTIMIZATION,longevity_prevention; consumer_labs_biomarkers,"Consumer preventive wellness/longevity seed; labs/biomarkers are input layer, not primary market segment."
+91,Cohere Health,PROVIDER_INFRASTRUCTURE_AI,prior_auth_rcm,Representative wide-market coverage seed; not a ranked top-100 list.
+92,Commure,PROVIDER_INFRASTRUCTURE_AI,provider_workflow,Representative wide-market coverage seed; not a ranked top-100 list.
+93,Function Health,DIAGNOSTICS_LIFE_SCIENCES,diagnostics_labs; longevity_prevention,Representative wide-market coverage seed; not a ranked top-100 list.
+94,Tempus,DIAGNOSTICS_LIFE_SCIENCES,diagnostics_labs; clinical_trials_rwe,Representative wide-market coverage seed; not a ranked top-100 list.
+95,Komodo Health,DIAGNOSTICS_LIFE_SCIENCES,clinical_trials_rwe,Representative wide-market coverage seed; not a ranked top-100 list.
+96,Qure.ai,DIAGNOSTICS_LIFE_SCIENCES,imaging_ai,Representative wide-market coverage seed; not a ranked top-100 list.
+97,Viz.ai,DIAGNOSTICS_LIFE_SCIENCES,imaging_ai,Representative wide-market coverage seed; not a ranked top-100 list.
+98,Freenome,DIAGNOSTICS_LIFE_SCIENCES,diagnostics_labs,Representative wide-market coverage seed; not a ranked top-100 list.
+99,Grail,DIAGNOSTICS_LIFE_SCIENCES,diagnostics_labs,Representative wide-market coverage seed; not a ranked top-100 list.
+100,PathAI,DIAGNOSTICS_LIFE_SCIENCES,imaging_ai,Representative wide-market coverage seed; not a ranked top-100 list.

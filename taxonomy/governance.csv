@@ -1,0 +1,10 @@
+governance_area,rule
+Primary segment rule,Exactly one primary_market_segment is allowed per company.
+Mutual exclusivity test,"If a company can plausibly fit two primary segments, broaden the primary taxonomy and move specificity into subsegment tags."
+Nuance rule,Condition/use-case details belong in subsegment_tags. Product mechanics belong in product_model_tags. Buyer/access details belong in distribution_model_tags. Data sources belong in data_input_tags.
+No silent fallback,OTHER_REVIEW should block dashboard export until the taxonomy or override table is updated.
+Override precedence,Company override beats keyword rules. This prevents repeated edge-case failures and preserves human judgment.
+LLM limitation,"LLM may suggest taxonomy fields, but only approved codes should be accepted."
+Review cadence,Review taxonomy after every 10-20 newly researched companies or when 2+ companies land in OTHER_REVIEW.
+Versioning,"When taxonomy changes materially, bump taxonomy_version and rerun Step 14/dashboard only; do not rerun research unless data changed."
+Consumer lab/biomarker distinction,"Consumer-facing labs, biomarkers, and advanced screening should map to CONSUMER_HEALTH_OPTIMIZATION when the buyer/user problem is preventive wellness, longevity, or self-directed health optimization. DIAGNOSTICS_LIFE_SCIENCES is reserved for clinical diagnostics, trials, RWE, pharma/life sciences, drug discovery, and medicine/treatment advancement."
