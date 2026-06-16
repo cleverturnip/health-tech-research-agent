@@ -658,6 +658,17 @@ def classify_dataframe(df: pd.DataFrame, taxonomy_dir: str | Path | None = None,
     allowed_distribution = allowed_codes(distribution_models, "distribution_model_code")
     allowed_data = allowed_codes(data_layers, "data_input_code")
 
+    # Subsegment tags are segment-specific. They should not contradict the selected primary segment.
+    # This is especially important for LLM-first classification, where the primary segment may be
+    # valid but one nuance tag may belong to a different parent segment.
+    subsegment_parent = {}
+    if not subsegments.empty and "tag_code" in subsegments.columns and "parent_market_segment" in subsegments.columns:
+        for _, sub_row in subsegments.iterrows():
+            tag = safe_text(sub_row.get("tag_code"))
+            parent = safe_text(sub_row.get("parent_market_segment"))
+            if tag and parent:
+                subsegment_parent[tag] = parent
+
     override_by_company = {}
     if not overrides.empty and "company" in overrides.columns:
         for _, row in overrides.iterrows():
@@ -781,6 +792,13 @@ def classify_dataframe(df: pd.DataFrame, taxonomy_dir: str | Path | None = None,
                 tag for tag in match_rules(haystack, DATA_INPUT_RULES)
                 if tag in allowed_data
             ]
+
+        # Drop subsegment tags whose configured parent does not match the selected primary segment.
+        # This prevents contradictions like METABOLIC_NUTRITION_HEALTH + longevity_prevention.
+        subsegment_tags = [
+            tag for tag in subsegment_tags
+            if not subsegment_parent.get(tag) or subsegment_parent.get(tag) == primary_code
+        ]
 
         primary_label = code_to_label.get(primary_code, primary_code)
 

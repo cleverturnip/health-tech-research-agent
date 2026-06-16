@@ -8174,14 +8174,17 @@ else:
     _step22_reapplied_count = 0
 
 
-    for _company, _decision in batch_review_decisions.items():
+    for _, _approved_row in approved_df.iterrows():
 
-        _decision_type = str(_decision.get("decision", "")).strip().lower()
+        _company_raw = str(_approved_row.get("company", "")).strip()
 
+        if "canonical_company_name" in globals():
 
-        if _decision_type != "approve":
+            _company = canonical_company_name(_company_raw)
 
-            continue
+        else:
+
+            _company = _company_raw
 
 
         _mask = _step22_master_df["company"].astype(str).str.strip().eq(str(_company).strip())
@@ -8191,18 +8194,18 @@ else:
 
             raise RuntimeError(
 
-                f"STOP: expected exactly one master row for {_company}, found {_mask.sum()}."
+                f"STOP: expected exactly one master row for {_company} after Step 12, found {_mask.sum()}."
 
             )
 
 
-        _reviewed_priority = str(_decision.get("reviewed_priority_level", "")).strip()
+        _reviewed_priority = str(_approved_row.get("reviewed_priority_level", "")).strip()
 
-        _review_status = str(_decision.get("review_status", "Human reviewed")).strip() or "Human reviewed"
+        _review_status = str(_approved_row.get("review_status", "Human reviewed")).strip() or "Human reviewed"
 
-        _review_notes = str(_decision.get("review_notes", "")).strip()
+        _review_notes = str(_approved_row.get("review_notes", "")).strip()
 
-        _priority_review_note = str(_decision.get("priority_review_note", _review_notes)).strip() or _review_notes
+        _priority_review_note = str(_approved_row.get("priority_review_note", _review_notes)).strip() or _review_notes
 
 
         if _reviewed_priority:
@@ -8703,6 +8706,15 @@ def step23_build_readable_outputs(batch_name):
             "why_now_or_why_not": step23_get_row_value(row, ["why_now_or_why_not"]),
             "timing_penalty_applied": step23_get_row_value(row, ["timing_penalty_applied"]),
             "business_model_classification": step23_get_row_value(row, ["business_model_classification"]),
+            "primary_market_segment_code": step23_get_row_value(row, ["primary_market_segment_code"]),
+            "primary_market_segment": step23_get_row_value(row, ["primary_market_segment"]),
+            "market_segment": step23_get_row_value(row, ["market_segment"]),
+            "subsegment_tags": step23_get_row_value(row, ["subsegment_tags"]),
+            "product_model_tags": step23_get_row_value(row, ["product_model_tags"]),
+            "distribution_model_tags": step23_get_row_value(row, ["distribution_model_tags"]),
+            "data_input_tags": step23_get_row_value(row, ["data_input_tags"]),
+            "taxonomy_assignment_method": step23_get_row_value(row, ["taxonomy_assignment_method"]),
+            "taxonomy_assignment_basis": step23_get_row_value(row, ["taxonomy_assignment_basis"]),
             "key_verified_facts": verified_facts,
             "key_weak_or_unverified_claims": weak_claims,
             "sources_summary": sources_summary,
@@ -8790,6 +8802,15 @@ def step23_write_outputs_to_sheet(spreadsheet, batch_name):
         "why_now_or_why_not",
         "timing_penalty_applied",
         "business_model_classification",
+        "primary_market_segment_code",
+        "primary_market_segment",
+        "market_segment",
+        "subsegment_tags",
+        "product_model_tags",
+        "distribution_model_tags",
+        "data_input_tags",
+        "taxonomy_assignment_method",
+        "taxonomy_assignment_basis",
         "key_verified_facts",
         "key_weak_or_unverified_claims",
         "sources_summary",
@@ -9225,12 +9246,45 @@ def step24_build_decisions(review_df, selected_batch_name_value):
 
         normalized_decision = step24_normalize_decision(raw_review_decision)
 
+        # Human review consistency checks. These prevent accidental partial approvals
+        # or silent holds caused by a blank/ambiguous review_decision cell.
+        if raw_review_decision == "":
+            raise ValueError(f"STOP: {company} has blank review_decision. Use approve or hold.")
+
+        if normalized_decision not in ["approve", "hold"]:
+            raise ValueError(
+                f"STOP: {company} has unsupported review_decision={raw_review_decision}. "
+                "Use approve or hold."
+            )
+
+        if ready_for_master_update not in ["YES", "NO", ""]:
+            raise ValueError(
+                f"STOP: {company} has unsupported ready_for_master_update={ready_for_master_update}. "
+                "Use YES or NO."
+            )
+
+        if ready_for_master_update == "YES" and normalized_decision != "approve":
+            raise ValueError(
+                f"STOP: {company} is marked ready_for_master_update=YES but review_decision is not approve."
+            )
+
+        if normalized_decision == "approve" and ready_for_master_update != "YES":
+            raise ValueError(
+                f"STOP: {company} has review_decision=approve but ready_for_master_update is not YES."
+            )
+
         if ready_for_master_update != "YES":
             normalized_decision = "hold"
 
         if normalized_decision == "approve":
             if reviewed_priority == "":
                 raise ValueError(f"STOP: {company} is approved but reviewed_priority is blank.")
+
+            if not re.search(r"\bP[0-4]\b", reviewed_priority):
+                raise ValueError(
+                    f"STOP: {company} reviewed_priority must include P0, P1, P2, P3, or P4. "
+                    f"Got: {reviewed_priority}"
+                )
 
             if review_notes == "":
                 raise ValueError(f"STOP: {company} is approved but review_notes is blank.")
