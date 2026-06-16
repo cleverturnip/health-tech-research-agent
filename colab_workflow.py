@@ -7356,6 +7356,10 @@ def step21_build_review_packet():
         "operator_timing_score",
         "operator_timing_score_raw",
         "operator_timing_score_cap",
+        "public_company_hard_signal_present",
+        "public_company_signal_basis",
+        "public_company_language_without_hard_signal",
+        "public_false_positive_language_present",
         "company_maturity_read",
         "likely_agency_level",
         "stage_timing_fit",
@@ -9128,3 +9132,1281 @@ else:
     print("=" * 80)
     print("Approved batch was sent through Step 22.")
     print("Master should be updated and dashboard should be refreshed.")
+
+# =============================================================================
+# STEP 26 - Rescore existing companies without fresh web research
+# =============================================================================
+# Purpose:
+# - Reuse previously archived evidence for selected companies.
+# - Re-run only the company fit synthesis / scoring prompt.
+# - Do NOT run fresh web research.
+# - Stop before master update.
+#
+# Optional before running:
+# - STEP_26_DRY_RUN = True / False
+# - STEP_26_BATCH_NAME = "..."
+# - STEP_26_COMPANIES = [...]
+
+from pathlib import Path
+from datetime import datetime
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import pandas as pd
+
+REPO_DIR = Path("/content/health-tech-research-agent")
+WORKFLOW_PATH = REPO_DIR / "colab_workflow.py"
+DRIVE_FOLDER = Path("/content/drive/MyDrive/Job Search/Health Tech Research")
+DRIVE_BATCHES_FOLDER = DRIVE_FOLDER / "research_batches"
+LOCAL_BATCHES_FOLDER = Path("research_batches")
+LOCAL_BATCHES_FOLDER.mkdir(parents=True, exist_ok=True)
+
+STEP_26_DRY_RUN = bool(globals().get("STEP_26_DRY_RUN", True))
+STEP_26_BATCH_NAME = globals().get(
+    "STEP_26_BATCH_NAME",
+    "role_timing_benchmark_1_rescore_existing",
+)
+STEP_26_COMPANIES = globals().get(
+    "STEP_26_COMPANIES",
+    [
+        "Omada Health",
+        "Function Health",
+        "Midi Health",
+        "Mae Health",
+        "Oshi Health",
+        "Levels Health",
+    ],
+)
+
+if not WORKFLOW_PATH.exists():
+    raise FileNotFoundError(
+        f"STOP: Could not find {WORKFLOW_PATH}. Run the GitHub setup / pull cell first."
+    )
+
+def step26_safe_text(value):
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    return str(value).strip()
+
+def step26_normalize_key(value):
+    text = step26_safe_text(value).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+def step26_text_from_any(value):
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        pieces = [step26_text_from_any(item) for item in value]
+        pieces = [piece for piece in pieces if piece]
+        return "\n".join(f"- {piece}" for piece in pieces)
+    if isinstance(value, dict):
+        pieces = []
+        for key, item in value.items():
+            item_text = step26_text_from_any(item)
+            if item_text:
+                pieces.append(f"{key}: {item_text}")
+        return "\n".join(pieces)
+    return str(value).strip()
+
+def step26_load_latest_scoring_runtime():
+    """
+    Reloads the setup/prompt section from the current colab_workflow.py so Step 26 uses
+    the latest Step 5 scoring rubric. Strips notebook magic/shell lines before exec.
+    """
+    workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+    step_6_match = re.search(r"(?m)^#\s*STEP\s+6\b", workflow_text)
+
+    if not step_6_match:
+        raise RuntimeError("Could not find Step 6 marker for setup loader.")
+
+    setup_code = workflow_text[:step_6_match.start()]
+
+    clean_lines = []
+    for line in setup_code.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("!") or stripped.startswith("%"):
+            continue
+        clean_lines.append(line)
+
+    setup_code = "\n".join(clean_lines)
+
+    exec(
+        compile(setup_code, "colab_workflow.py::SETUP_LOADER_FROM_STEP_26", "exec"),
+        globals(),
+        globals(),
+    )
+
+    required = ["client", "MODEL", "call_openai", "run_company_fit_brief"]
+    missing = [name for name in required if name not in globals()]
+
+    if missing:
+        raise RuntimeError("Research runtime missing after load: " + ", ".join(missing))
+
+    print("PASS: loaded latest Step 5 scoring rubric.")
+    print("MODEL:", globals().get("MODEL"))
+
+def step26_load_csv_safely(path, source_name):
+    try:
+        if not Path(path).exists():
+            return pd.DataFrame()
+
+        temp = pd.read_csv(path)
+
+        if "company" not in temp.columns:
+            return pd.DataFrame()
+
+        temp["source_name"] = source_name
+        temp["source_file"] = str(path)
+        return temp
+
+    except Exception as e:
+        print(f"Skipping unreadable CSV: {path} | {e}")
+        return pd.DataFrame()
+
+
+def step26_candidate_source_paths():
+    """
+    Returns previously archived research files that are safe to use as input evidence.
+
+    Important:
+    - Do NOT use Step 26 output files as input evidence.
+    - Do NOT use rescore files as input evidence.
+    - Do NOT use the accidental Step 25 benchmark files if they were partial.
+    """
+    paths = []
+
+    def should_skip(path):
+        name = path.name.lower()
+        full = str(path).lower()
+
+        skip_tokens = [
+            "rescore_existing",
+            "step26",
+            "_ignored_partial_step25",
+        ]
+
+        if any(token in name for token in skip_tokens):
+            return True
+
+        if any(token in full for token in skip_tokens):
+            return True
+
+        # Never let the current Step 26 batch feed back into itself.
+        try:
+            current_batch = str(STEP_26_BATCH_NAME).lower()
+            if current_batch and current_batch in name:
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    archive_candidates = [
+        (Path("health_tech_raw_research_ARCHIVE.csv"), "local_raw_archive"),
+        (DRIVE_FOLDER / "health_tech_raw_research_ARCHIVE.csv", "drive_raw_archive"),
+    ]
+
+    for path, label in archive_candidates:
+        if not should_skip(path):
+            paths.append((path, label))
+
+    for folder, label in [
+        (Path("research_batches"), "local_research_batches"),
+        (DRIVE_BATCHES_FOLDER, "drive_research_batches"),
+    ]:
+        if folder.exists():
+            for pattern in ["*_checkpoint.csv", "*_raw.csv", "*_raw_*.csv"]:
+                for path in folder.glob(pattern):
+                    if should_skip(path):
+                        continue
+                    paths.append((path, label))
+
+    seen = set()
+    deduped = []
+
+    for path, label in paths:
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            deduped.append((path, label))
+
+    return deduped
+
+def step26_load_existing_evidence(companies):
+    try:
+        from google.colab import drive
+        drive.mount("/content/drive")
+    except Exception as e:
+        print("Drive mount warning:", e)
+
+    required_cols = [
+        "company",
+        "date_researched",
+        "funding_finding",
+        "payer_institutional_finding",
+        "outcomes_finding",
+        "commercial_scale_finding",
+        "fit_brief_json",
+    ]
+
+    company_keys = {step26_normalize_key(company): company for company in companies}
+    source_frames = []
+
+    for path, label in step26_candidate_source_paths():
+        temp = step26_load_csv_safely(path, label)
+
+        if temp.empty:
+            continue
+
+        for col in required_cols:
+            if col not in temp.columns:
+                temp[col] = ""
+
+        temp["company_key"] = temp["company"].apply(step26_normalize_key)
+        temp = temp[temp["company_key"].isin(company_keys.keys())].copy()
+
+        if not temp.empty:
+            source_frames.append(temp)
+
+    if not source_frames:
+        raise RuntimeError("STOP: No existing archived evidence found for requested companies.")
+
+    all_sources = pd.concat(source_frames, ignore_index=True)
+
+    evidence_cols = [
+        "funding_finding",
+        "payer_institutional_finding",
+        "outcomes_finding",
+        "commercial_scale_finding",
+    ]
+
+    for col in evidence_cols:
+        all_sources[f"has_{col}"] = all_sources[col].apply(
+            lambda value: step26_safe_text(value) != ""
+        )
+
+    all_sources["evidence_completeness"] = all_sources[
+        [f"has_{col}" for col in evidence_cols]
+    ].sum(axis=1)
+
+    all_sources["has_fit_brief_json"] = all_sources["fit_brief_json"].apply(
+        lambda value: step26_safe_text(value) != ""
+    )
+
+    source_priority = {
+        "local_research_batches": 4,
+        "drive_research_batches": 3,
+        "local_raw_archive": 2,
+        "drive_raw_archive": 1,
+    }
+
+    all_sources["source_priority"] = all_sources["source_name"].map(source_priority).fillna(0)
+
+    if "archive_saved_at" not in all_sources.columns:
+        all_sources["archive_saved_at"] = ""
+
+    all_sources["sort_timestamp"] = (
+        all_sources["archive_saved_at"].astype(str)
+        + " "
+        + all_sources["date_researched"].astype(str)
+    )
+
+    picked_rows = []
+    missing_companies = []
+
+    for company in companies:
+        key = step26_normalize_key(company)
+        matches = all_sources[all_sources["company_key"].eq(key)].copy()
+
+        if matches.empty:
+            missing_companies.append(company)
+            continue
+
+        matches = matches.sort_values(
+            by=[
+                "evidence_completeness",
+                "has_fit_brief_json",
+                "source_priority",
+                "sort_timestamp",
+            ],
+            ascending=[False, False, False, False],
+        )
+
+        picked = matches.iloc[0].copy()
+        picked["requested_company_name"] = company
+        picked_rows.append(picked)
+
+    if missing_companies:
+        raise RuntimeError("STOP: Missing existing evidence for: " + ", ".join(missing_companies))
+
+    evidence_df = pd.DataFrame(picked_rows).reset_index(drop=True)
+
+    return evidence_df
+
+def step26_build_status_findings(row):
+    company = step26_safe_text(row.get("requested_company_name", row.get("company", "")))
+
+    return f"""
+RESCORE-ONLY PASS USING PREVIOUSLY ARCHIVED EVIDENCE.
+Do not infer new external facts. Do not rely on web search. Use only the evidence below.
+
+Company: {company}
+
+Funding / stage evidence:
+{step26_safe_text(row.get("funding_finding", ""))}
+
+Payer / employer / provider / institutional distribution evidence:
+{step26_safe_text(row.get("payer_institutional_finding", ""))}
+
+Outcomes / engagement / product-value evidence:
+{step26_safe_text(row.get("outcomes_finding", ""))}
+
+Commercial scale / revenue-quality evidence:
+{step26_safe_text(row.get("commercial_scale_finding", ""))}
+
+Prior batch/source metadata, for traceability only:
+- prior_batch_name: {step26_safe_text(row.get("batch_name", ""))}
+- date_researched: {step26_safe_text(row.get("date_researched", ""))}
+- source_file: {step26_safe_text(row.get("source_file", ""))}
+""".strip()
+
+def step26_parse_json_object(text):
+    raw = step26_safe_text(text)
+    raw = re.sub(r"^```json", "", raw).strip()
+    raw = re.sub(r"^```", "", raw).strip()
+    raw = re.sub(r"```$", "", raw).strip()
+
+    start = raw.find("{")
+
+    if start == -1:
+        raise ValueError("No JSON object found")
+
+    decoder = json.JSONDecoder()
+    parsed, _ = decoder.raw_decode(raw[start:])
+
+    return parsed
+
+def step26_extract_score(scores, key):
+    value = scores.get(key, None) if isinstance(scores, dict) else None
+
+    if isinstance(value, dict):
+        value = value.get("score", value.get("value", None))
+
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+
+def step26_infer_maturity_and_cap(company, evidence_text, parsed):
+    """
+    Infer company maturity and timing cap.
+
+    Public-company classification is intentionally conservative:
+    - DO classify as public when there is a hard signal: IPO, ticker, exchange,
+      SEC/S-1, or explicitly publicly traded.
+    - DO NOT classify as public from phrases like "public evidence",
+      "public outcomes data", or "public commercial metrics."
+    """
+    role_timing = parsed.get("role_timing_assessment", {}) if isinstance(parsed, dict) else {}
+
+    combined = " ".join([
+        company,
+        evidence_text,
+        step26_text_from_any(role_timing),
+        step26_text_from_any(parsed.get("business_model_classification", "")),
+        step26_text_from_any(parsed.get("final_takeaway", "")),
+        step26_text_from_any(parsed.get("calibration_flag", "")),
+    ])
+
+    combined_lower = combined.lower()
+
+    model_maturity = step26_safe_text(role_timing.get("company_maturity_read", "")).lower()
+    maturity = model_maturity
+
+    if maturity not in ["early", "early-growth", "scale-up", "late-stage", "public", "unclear"]:
+        maturity = ""
+
+    public_false_positive_patterns = [
+        r"\bpublic evidence\b",
+        r"\bpublicly available evidence\b",
+        r"\bpublic outcomes?\b",
+        r"\bpublic outcomes? data\b",
+        r"\bpublic commercial\b",
+        r"\bpublic commercial metrics?\b",
+        r"\bpublic proof\b",
+        r"\bpublic metrics?\b",
+        r"\bpublic data\b",
+        r"\bpublic source",
+        r"\bpublicly available\b",
+        r"\bpublic evidence does not\b",
+        r"\bpublic evidence is\b",
+        r"\bpublic evidence remains\b",
+    ]
+
+    # Hard public-company signals only.
+    # These are intentionally stronger than plain text like "public company."
+    public_company_signal_patterns = {
+        "exchange_ticker": [
+            r"\b(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\s*[:：]\s*[A-Z]{1,6}\b",
+            r"\b[A-Z]{1,6}\s*\(\s*(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\s*\)",
+            r"\b(?:ticker|stock ticker|ticker symbol)\s*(?:is|:|=)\s*[A-Z]{1,6}\b",
+            r"\btrades?\s+(?:on|under)\s+(?:the\s+)?(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\b",
+            r"\blisted\s+(?:on|under)\s+(?:the\s+)?(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\b",
+        ],
+        "ipo": [
+            r"\bipo date\b",
+            r"\binitial public offering\b",
+            r"\bcompleted\s+(?:its|an|the)?\s*ipo\b",
+            r"\bwent public\b",
+            r"\bpost[- ]ipo\b",
+        ],
+        "sec_s1": [
+            r"\bsec filing\b",
+            r"\bfiled\s+(?:an?\s+)?s[- ]1\b",
+            r"\bform\s+s[- ]1\b",
+            r"\bs[- ]1 filing\b",
+            r"\bregistration statement\b",
+        ],
+        "publicly_traded": [
+            r"\bpublicly traded\b",
+            r"\bpublicly listed\b",
+            r"\blisted company\b",
+            r"\bpublicly held company\b",
+        ],
+    }
+
+    public_signal_basis = []
+
+    for basis, patterns in public_company_signal_patterns.items():
+        for pattern in patterns:
+            if re.search(pattern, combined, flags=re.IGNORECASE):
+                public_signal_basis.append(basis)
+                break
+
+    reliable_public_company_signal = len(public_signal_basis) > 0
+
+    public_false_positive_language_present = any(
+        re.search(pattern, combined_lower)
+        for pattern in public_false_positive_patterns
+    )
+
+    public_company_language_present = any(
+        re.search(pattern, combined_lower)
+        for pattern in [
+            r"\bas a public company\b",
+            r"\bis a public company\b",
+            r"\bpublic[- ]company\b",
+        ]
+    )
+
+    public_company_language_without_hard_signal = (
+        public_company_language_present and not reliable_public_company_signal
+    )
+
+    late_terms = [
+        "series d",
+        "series e",
+        "series f",
+        "late-stage",
+        "late stage",
+        "$100m arr",
+        "100m arr",
+        "100 million arr",
+        "$100m revenue",
+        "100m revenue",
+        "100 million revenue",
+        "unicorn",
+    ]
+
+    scaleup_terms = [
+        "series c",
+        "growth-stage",
+        "growth stage",
+        "$75m",
+        "75m arr",
+        "national scale",
+        "scaled",
+        "multi-state",
+        "multi state",
+    ]
+
+    early_growth_terms = [
+        "series a",
+        "series b",
+        "seed",
+        "early-stage",
+        "early stage",
+        "early growth",
+    ]
+
+    if reliable_public_company_signal:
+        inferred = "public"
+    elif any(term in combined_lower for term in late_terms):
+        inferred = "late-stage"
+    elif any(term in combined_lower for term in scaleup_terms):
+        inferred = "scale-up"
+    elif any(term in combined_lower for term in early_growth_terms):
+        inferred = "early-growth"
+    else:
+        # Never trust model-supplied "public" unless hard public-company evidence exists.
+        if maturity == "public":
+            maturity = "unclear"
+        inferred = maturity or "unclear"
+
+    high_agency_terms = [
+        "new business line",
+        "operating model",
+        "operationally immature",
+        "rebuild",
+        "scaling operations",
+        "implementation complexity",
+        "complex implementation",
+        "founder-led",
+        "white space",
+        "zero to one",
+        "0 to 1",
+        "new market",
+        "needs professionalization",
+        "pre-professionalized",
+        "underbuilt",
+        "messy",
+    ]
+
+    high_agency = any(term in combined_lower for term in high_agency_terms)
+
+    if inferred == "public":
+        cap = 65 if high_agency else 50
+    elif inferred == "late-stage":
+        cap = 70 if high_agency else 60
+    elif inferred == "scale-up":
+        cap = 90 if high_agency else 80
+    else:
+        cap = 100
+
+    if inferred in ["early", "early-growth"]:
+        timing_fit = "ideal"
+        agency = "high"
+    elif inferred == "scale-up":
+        timing_fit = "good" if high_agency else "borderline"
+        agency = "high" if high_agency else "medium"
+    elif inferred in ["late-stage", "public"]:
+        timing_fit = "borderline" if high_agency else "too late"
+        agency = "medium" if high_agency else "low"
+    else:
+        timing_fit = "unclear"
+        agency = "role-dependent"
+
+    why = step26_safe_text(role_timing.get("why_now_or_why_not", ""))
+
+    if not why:
+        why = (
+            f"Inferred maturity={inferred}; "
+            f"hard_public_signal={reliable_public_company_signal}; "
+            f"public_signal_basis={','.join(sorted(set(public_signal_basis))) or 'none'}; "
+            f"high-agency exception evidence={high_agency}."
+        )
+
+    return {
+        "company_maturity_read": inferred,
+        "likely_agency_level": agency,
+        "stage_timing_fit": timing_fit,
+        "why_now_or_why_not": why,
+        "operator_timing_score_cap": cap,
+        "public_company_hard_signal_present": reliable_public_company_signal,
+        "public_company_signal_basis": ",".join(sorted(set(public_signal_basis))) if public_signal_basis else "",
+        "public_company_language_without_hard_signal": public_company_language_without_hard_signal,
+        "public_false_positive_language_present": public_false_positive_language_present,
+    }
+
+def step26_apply_timing_cap(raw_score, cap_info):
+    if raw_score is None:
+        return None, False
+
+    cap = cap_info.get("operator_timing_score_cap", 100)
+    capped = min(float(raw_score), float(cap))
+
+    return capped, capped < float(raw_score)
+
+def step26_recommended_decision(priority):
+    priority = step26_safe_text(priority)
+
+    if priority.startswith("P0") or priority.startswith("P1"):
+        return "consider_approve"
+    if priority.startswith("P2"):
+        return "deeper_diligence"
+    if priority.startswith("P3"):
+        return "watchlist"
+    if priority.startswith("P4"):
+        return "likely_reject"
+
+    return "review"
+
+
+# HARD PUBLIC SIGNAL OVERRIDE - START
+# This override intentionally sits after the earlier maturity function and before step26_main().
+# Python will use this latest definition when step26_main() runs.
+
+PUBLIC_COMPANY_OVERRIDES = {
+    "omada health": {
+        "is_public": True,
+        "ticker": "OMDA",
+        "exchange": "Nasdaq",
+        "ipo_date": "2025-06-06",
+        "basis": "manual_override_verified_public_company",
+    },
+}
+
+def step26_infer_maturity_and_cap(company, evidence_text, parsed):
+    """
+    Infer company maturity and timing cap.
+
+    Public-company classification is conservative:
+    - Public only when there is a manual override or hard signal:
+      ticker/exchange, IPO, SEC/S-1, or explicitly publicly traded.
+    - Never classify as public from phrases like:
+      "public evidence", "public outcomes data", or "public commercial metrics."
+    """
+    role_timing = parsed.get("role_timing_assessment", {}) if isinstance(parsed, dict) else {}
+
+    combined = " ".join([
+        company,
+        evidence_text,
+        step26_text_from_any(role_timing),
+        step26_text_from_any(parsed.get("business_model_classification", "")),
+        step26_text_from_any(parsed.get("final_takeaway", "")),
+        step26_text_from_any(parsed.get("calibration_flag", "")),
+    ])
+
+    combined_lower = combined.lower()
+    company_key = step26_normalize_key(company)
+
+    override = PUBLIC_COMPANY_OVERRIDES.get(company_key, {})
+    override_public = bool(override.get("is_public", False))
+
+    model_maturity = step26_safe_text(role_timing.get("company_maturity_read", "")).lower()
+    maturity = model_maturity
+
+    if maturity not in ["early", "early-growth", "scale-up", "late-stage", "public", "unclear"]:
+        maturity = ""
+
+    public_false_positive_patterns = [
+        r"\bpublic evidence\b",
+        r"\bpublicly available evidence\b",
+        r"\bpublic outcomes?\b",
+        r"\bpublic outcomes? data\b",
+        r"\bpublic commercial\b",
+        r"\bpublic commercial metrics?\b",
+        r"\bpublic proof\b",
+        r"\bpublic metrics?\b",
+        r"\bpublic data\b",
+        r"\bpublic source",
+        r"\bpublicly available\b",
+        r"\bpublic evidence does not\b",
+        r"\bpublic evidence is\b",
+        r"\bpublic evidence remains\b",
+    ]
+
+    public_company_signal_patterns = {
+        "exchange_ticker": [
+            r"\b(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\s*[:：]\s*[A-Z]{1,6}\b",
+            r"\b[A-Z]{1,6}\s*\(\s*(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\s*\)",
+            r"\b(?:ticker|stock ticker|ticker symbol)\s*(?:is|:|=)\s*[A-Z]{1,6}\b",
+            r"\btrades?\s+(?:on|under)\s+(?:the\s+)?(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\b",
+            r"\blisted\s+(?:on|under)\s+(?:the\s+)?(?:nasdaq|nyse|amex|otc|otcqx|otcqb)\b",
+        ],
+        "ipo": [
+            r"\bipo date\b",
+            r"\binitial public offering\b",
+            r"\bcompleted\s+(?:its|an|the)?\s*ipo\b",
+            r"\bwent public\b",
+            r"\bpost[- ]ipo\b",
+        ],
+        "sec_s1": [
+            r"\bsec filing\b",
+            r"\bfiled\s+(?:an?\s+)?s[- ]1\b",
+            r"\bform\s+s[- ]1\b",
+            r"\bs[- ]1 filing\b",
+            r"\bregistration statement\b",
+        ],
+        "publicly_traded": [
+            r"\bpublicly traded\b",
+            r"\bpublicly listed\b",
+            r"\blisted company\b",
+            r"\bpublicly held company\b",
+        ],
+    }
+
+    public_signal_basis = []
+
+    if override_public:
+        override_basis = override.get("basis", "manual_override")
+        ticker = override.get("ticker", "")
+        if ticker:
+            public_signal_basis.append(f"{override_basis}:{ticker}")
+        else:
+            public_signal_basis.append(override_basis)
+
+    for basis, patterns in public_company_signal_patterns.items():
+        for pattern in patterns:
+            if re.search(pattern, combined, flags=re.IGNORECASE):
+                public_signal_basis.append(basis)
+                break
+
+    reliable_public_company_signal = len(public_signal_basis) > 0
+
+    public_false_positive_language_present = any(
+        re.search(pattern, combined_lower)
+        for pattern in public_false_positive_patterns
+    )
+
+    public_company_language_present = any(
+        re.search(pattern, combined_lower)
+        for pattern in [
+            r"\bas a public company\b",
+            r"\bis a public company\b",
+            r"\bpublic[- ]company\b",
+            r"\bpublic company\b",
+        ]
+    )
+
+    public_company_language_without_hard_signal = (
+        public_company_language_present and not reliable_public_company_signal
+    )
+
+    late_terms = [
+        "series d",
+        "series e",
+        "series f",
+        "late-stage",
+        "late stage",
+        "$100m arr",
+        "100m arr",
+        "100 million arr",
+        "$100m revenue",
+        "100m revenue",
+        "100 million revenue",
+        "unicorn",
+    ]
+
+    scaleup_terms = [
+        "series c",
+        "growth-stage",
+        "growth stage",
+        "$75m",
+        "75m arr",
+        "national scale",
+        "scaled",
+        "multi-state",
+        "multi state",
+    ]
+
+    early_growth_terms = [
+        "series a",
+        "series b",
+        "seed",
+        "early-stage",
+        "early stage",
+        "early growth",
+    ]
+
+    if reliable_public_company_signal:
+        inferred = "public"
+    elif any(term in combined_lower for term in late_terms):
+        inferred = "late-stage"
+    elif any(term in combined_lower for term in scaleup_terms):
+        inferred = "scale-up"
+    elif any(term in combined_lower for term in early_growth_terms):
+        inferred = "early-growth"
+    else:
+        # Never trust model-supplied "public" unless hard public-company evidence exists.
+        if maturity == "public":
+            maturity = "unclear"
+        inferred = maturity or "unclear"
+
+    high_agency_terms = [
+        "new business line",
+        "operating model",
+        "operationally immature",
+        "rebuild",
+        "scaling operations",
+        "implementation complexity",
+        "complex implementation",
+        "founder-led",
+        "white space",
+        "zero to one",
+        "0 to 1",
+        "new market",
+        "needs professionalization",
+        "pre-professionalized",
+        "underbuilt",
+        "messy",
+    ]
+
+    high_agency = any(term in combined_lower for term in high_agency_terms)
+
+    if inferred == "public":
+        cap = 65 if high_agency else 50
+    elif inferred == "late-stage":
+        cap = 70 if high_agency else 60
+    elif inferred == "scale-up":
+        cap = 90 if high_agency else 80
+    else:
+        cap = 100
+
+    if inferred in ["early", "early-growth"]:
+        timing_fit = "ideal"
+        agency = "high"
+    elif inferred == "scale-up":
+        timing_fit = "good" if high_agency else "borderline"
+        agency = "high" if high_agency else "medium"
+    elif inferred in ["late-stage", "public"]:
+        timing_fit = "borderline" if high_agency else "too late"
+        agency = "medium" if high_agency else "low"
+    else:
+        timing_fit = "unclear"
+        agency = "role-dependent"
+
+    why = step26_safe_text(role_timing.get("why_now_or_why_not", ""))
+
+    if not why:
+        why = (
+            f"Inferred maturity={inferred}; "
+            f"hard_public_signal={reliable_public_company_signal}; "
+            f"public_signal_basis={','.join(sorted(set(public_signal_basis))) or 'none'}; "
+            f"public_false_positive_language_present={public_false_positive_language_present}; "
+            f"high-agency exception evidence={high_agency}."
+        )
+
+    return {
+        "company_maturity_read": inferred,
+        "likely_agency_level": agency,
+        "stage_timing_fit": timing_fit,
+        "why_now_or_why_not": why,
+        "operator_timing_score_cap": cap,
+        "public_company_hard_signal_present": reliable_public_company_signal,
+        "public_company_signal_basis": ",".join(sorted(set(public_signal_basis))) if public_signal_basis else "",
+        "public_company_language_without_hard_signal": public_company_language_without_hard_signal,
+        "public_false_positive_language_present": public_false_positive_language_present,
+    }
+
+# HARD PUBLIC SIGNAL OVERRIDE - END
+
+
+
+# STEP26 PUBLIC STATUS SAFETY CORRECTION - START
+# Safety rule:
+# - Public-company status requires a hard signal or manual override.
+# - "public evidence", "public outcomes", etc. do not count.
+
+STEP26_PUBLIC_COMPANY_OVERRIDES = {
+    "omada health": {
+        "is_public": True,
+        "ticker": "OMDA",
+        "exchange": "Nasdaq",
+        "ipo_date": "2025-06-06",
+        "basis": "manual_override_verified_public_company",
+    },
+}
+
+def step26_recompute_timing_fields_for_maturity(cap_info, inferred, combined_lower):
+    high_agency_terms = [
+        "new business line",
+        "operating model",
+        "operationally immature",
+        "rebuild",
+        "scaling operations",
+        "implementation complexity",
+        "complex implementation",
+        "founder-led",
+        "white space",
+        "zero to one",
+        "0 to 1",
+        "new market",
+        "needs professionalization",
+        "pre-professionalized",
+        "underbuilt",
+        "messy",
+    ]
+
+    high_agency = any(term in combined_lower for term in high_agency_terms)
+
+    if inferred == "public":
+        cap = 65 if high_agency else 50
+    elif inferred == "late-stage":
+        cap = 70 if high_agency else 60
+    elif inferred == "scale-up":
+        cap = 90 if high_agency else 80
+    else:
+        cap = 100
+
+    if inferred in ["early", "early-growth"]:
+        timing_fit = "ideal"
+        agency = "high"
+    elif inferred == "scale-up":
+        timing_fit = "good" if high_agency else "borderline"
+        agency = "high" if high_agency else "medium"
+    elif inferred in ["late-stage", "public"]:
+        timing_fit = "borderline" if high_agency else "too late"
+        agency = "medium" if high_agency else "low"
+    else:
+        timing_fit = "unclear"
+        agency = "role-dependent"
+
+    cap_info["company_maturity_read"] = inferred
+    cap_info["operator_timing_score_cap"] = cap
+    cap_info["stage_timing_fit"] = timing_fit
+    cap_info["likely_agency_level"] = agency
+
+    return cap_info
+
+def step26_correct_public_status(company, evidence_text, parsed, cap_info):
+    company_key = step26_normalize_key(company)
+
+    combined = " ".join([
+        company,
+        evidence_text,
+        step26_text_from_any(parsed),
+        step26_text_from_any(cap_info),
+    ])
+
+    combined_lower = combined.lower()
+
+    override = STEP26_PUBLIC_COMPANY_OVERRIDES.get(company_key, {})
+    override_public = bool(override.get("is_public", False))
+
+    hard_public_signal = bool(cap_info.get("public_company_hard_signal_present", False))
+    signal_basis = step26_safe_text(cap_info.get("public_company_signal_basis", ""))
+
+    if override_public:
+        ticker = override.get("ticker", "")
+        basis = override.get("basis", "manual_override")
+        hard_public_signal = True
+        signal_basis = f"{basis}:{ticker}" if ticker else basis
+
+    false_positive_public_language = any(
+        phrase in combined_lower
+        for phrase in [
+            "public evidence",
+            "publicly available evidence",
+            "public outcomes",
+            "public outcomes data",
+            "public commercial",
+            "public commercial metrics",
+            "public proof",
+            "public metrics",
+            "public data",
+        ]
+    )
+
+    public_company_language = any(
+        phrase in combined_lower
+        for phrase in [
+            "as a public company",
+            "is a public company",
+            "public-company",
+            "public company",
+        ]
+    )
+
+    cap_info["public_company_hard_signal_present"] = hard_public_signal
+    cap_info["public_company_signal_basis"] = signal_basis
+    cap_info["public_company_language_without_hard_signal"] = (
+        public_company_language and not hard_public_signal
+    )
+    cap_info["public_false_positive_language_present"] = false_positive_public_language
+
+    # The actual safety rule.
+    # If there is no hard public signal, do not allow public-company maturity.
+    if cap_info.get("company_maturity_read") == "public" and not hard_public_signal:
+        if any(term in combined_lower for term in [
+            "series d",
+            "series e",
+            "series f",
+            "late-stage",
+            "late stage",
+            "$100m arr",
+            "100m arr",
+            "100 million arr",
+            "$100m revenue",
+            "100m revenue",
+            "100 million revenue",
+            "unicorn",
+        ]):
+            corrected = "late-stage"
+        elif any(term in combined_lower for term in [
+            "series c",
+            "growth-stage",
+            "growth stage",
+            "$75m",
+            "75m arr",
+            "national scale",
+            "scaled",
+            "multi-state",
+            "multi state",
+        ]):
+            corrected = "scale-up"
+        elif any(term in combined_lower for term in [
+            "series a",
+            "series b",
+            "seed",
+            "early-stage",
+            "early stage",
+            "early growth",
+        ]):
+            corrected = "early-growth"
+        else:
+            corrected = "unclear"
+
+        cap_info = step26_recompute_timing_fields_for_maturity(
+            cap_info=cap_info,
+            inferred=corrected,
+            combined_lower=combined_lower,
+        )
+
+    if override_public:
+        cap_info = step26_recompute_timing_fields_for_maturity(
+            cap_info=cap_info,
+            inferred="public",
+            combined_lower=combined_lower,
+        )
+
+    return cap_info
+
+# STEP26 PUBLIC STATUS SAFETY CORRECTION - END
+
+
+def step26_main():
+    global df, summary_df
+
+    print("STEP 26 - RESCORE EXISTING COMPANIES WITHOUT FRESH WEB RESEARCH")
+    print("=" * 80)
+    print("BATCH:", STEP_26_BATCH_NAME)
+    print("DRY RUN:", STEP_26_DRY_RUN)
+    print("Companies:")
+
+    for company in STEP_26_COMPANIES:
+        print("-", company)
+
+    evidence_df = step26_load_existing_evidence(STEP_26_COMPANIES)
+
+    print()
+    print("EXISTING EVIDENCE SOURCE CHECK")
+    print("=" * 80)
+
+    source_check_cols = [
+        "requested_company_name",
+        "company",
+        "evidence_completeness",
+        "source_name",
+        "source_file",
+        "batch_name",
+        "date_researched",
+    ]
+
+    source_check_cols = [col for col in source_check_cols if col in evidence_df.columns]
+    display(evidence_df[source_check_cols])
+
+    if STEP_26_DRY_RUN:
+        print()
+        print("STEP 26 DRY RUN COMPLETE")
+        print("No LLM scoring was run. No files were overwritten.")
+        return
+
+    step26_load_latest_scoring_runtime()
+
+    scored_rows = []
+    summary_rows = []
+
+    for idx, row in evidence_df.iterrows():
+        company = step26_safe_text(row.get("requested_company_name", row.get("company", "")))
+
+        print()
+        print("=" * 80)
+        print(f"RESCORING {idx + 1}/{len(evidence_df)}: {company}")
+        print("=" * 80)
+        print("Source:", row.get("source_file", ""))
+
+        latest_status_findings = step26_build_status_findings(row)
+        fit_brief_json = run_company_fit_brief(company, latest_status_findings)
+
+        raw_row = row.copy()
+        raw_row["company"] = company
+        raw_row["fit_brief_json"] = fit_brief_json
+        raw_row["rescore_batch_name"] = STEP_26_BATCH_NAME
+        raw_row["rescore_saved_at"] = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        try:
+            parsed = step26_parse_json_object(fit_brief_json)
+            scores = parsed.get("scores", {}) if isinstance(parsed, dict) else {}
+            scale = parsed.get("scale_signal_assessment", {}) if isinstance(parsed, dict) else {}
+
+            evidence_text = latest_status_findings + " " + step26_text_from_any(parsed)
+
+            cap_info = step26_infer_maturity_and_cap(
+                company=company,
+                evidence_text=evidence_text,
+                parsed=parsed,
+            )
+
+            cap_info = step26_correct_public_status(
+                company=company,
+                evidence_text=evidence_text,
+                parsed=parsed,
+                cap_info=cap_info,
+            )
+
+            operator_raw = step26_extract_score(scores, "operator_timing_score")
+            operator_capped, penalty_applied = step26_apply_timing_cap(operator_raw, cap_info)
+
+            calibration_parts = []
+
+            existing_flag = step26_safe_text(parsed.get("calibration_flag", ""))
+            if existing_flag:
+                calibration_parts.append(existing_flag)
+
+            if penalty_applied:
+                calibration_parts.append(
+                    "CHECK: operator timing score capped for maturity / lower high-agency fit"
+                )
+
+            if cap_info["company_maturity_read"] in ["late-stage", "public"]:
+                calibration_parts.append(
+                    "CHECK: mature company may be too late for high-agency operator entry"
+                )
+
+            summary_rows.append({
+                "batch_name": STEP_26_BATCH_NAME,
+                "company": company,
+                "thesis_fit_score": step26_extract_score(scores, "thesis_fit_score"),
+                "pmf_scale_score": step26_extract_score(scores, "pmf_scale_score"),
+                "evidence_confidence_score": (
+                    step26_extract_score(scores, "evidence_confidence_score")
+                    or step26_extract_score(scores, "overall_confidence")
+                ),
+                "katelynd_role_fit_score": step26_extract_score(scores, "katelynd_role_fit_score"),
+                "operator_timing_score_raw": operator_raw,
+                "operator_timing_score": operator_capped,
+                "operator_timing_score_cap": cap_info["operator_timing_score_cap"],
+                "public_company_hard_signal_present": cap_info.get("public_company_hard_signal_present", False),
+                "public_company_signal_basis": cap_info.get("public_company_signal_basis", ""),
+                "public_company_language_without_hard_signal": cap_info.get("public_company_language_without_hard_signal", False),
+                "public_false_positive_language_present": cap_info.get("public_false_positive_language_present", False),
+                "company_maturity_read": cap_info["company_maturity_read"],
+                "likely_agency_level": cap_info["likely_agency_level"],
+                "stage_timing_fit": cap_info["stage_timing_fit"],
+                "why_now_or_why_not": cap_info["why_now_or_why_not"],
+                "timing_penalty_applied": penalty_applied,
+                "final_recommendation": parsed.get("final_recommendation", ""),
+                "priority_level": parsed.get("priority_level", ""),
+                "recommended_decision": step26_recommended_decision(parsed.get("priority_level", "")),
+                "business_model_classification": parsed.get("business_model_classification", ""),
+                "commercial_scale_assessment": step26_text_from_any(
+                    parsed.get("commercial_scale_assessment", "")
+                ),
+                "commercial_scale_signal": scale.get("commercial_scale_signal", ""),
+                "institutional_distribution_signal": scale.get(
+                    "institutional_distribution_signal", ""
+                ),
+                "outcomes_signal": scale.get("outcomes_signal", ""),
+                "plausible_near_term_scale_path": scale.get(
+                    "plausible_near_term_scale_path", ""
+                ),
+                "scale_engine_type": scale.get("scale_engine_type", ""),
+                "strong_scale_engine_present": scale.get("strong_scale_engine_present", ""),
+                "calibration_flag": " | ".join([part for part in calibration_parts if part]),
+                "final_takeaway": step26_text_from_any(parsed.get("final_takeaway", "")),
+                "commercial_scale_finding": row.get("commercial_scale_finding", ""),
+                "source_file": row.get("source_file", ""),
+            })
+
+        except Exception as e:
+            summary_rows.append({
+                "batch_name": STEP_26_BATCH_NAME,
+                "company": company,
+                "error": f"Could not parse JSON: {e}",
+                "raw_preview": step26_safe_text(fit_brief_json)[:500],
+                "source_file": row.get("source_file", ""),
+            })
+
+        scored_rows.append(raw_row)
+
+    df = pd.DataFrame(scored_rows)
+    summary_df = pd.DataFrame(summary_rows)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    LOCAL_BATCHES_FOLDER.mkdir(parents=True, exist_ok=True)
+    DRIVE_BATCHES_FOLDER.mkdir(parents=True, exist_ok=True)
+
+    checkpoint_path = LOCAL_BATCHES_FOLDER / f"{STEP_26_BATCH_NAME}_checkpoint.csv"
+    summary_path = LOCAL_BATCHES_FOLDER / f"{STEP_26_BATCH_NAME}_summary.csv"
+    review_path = LOCAL_BATCHES_FOLDER / f"{STEP_26_BATCH_NAME}_human_review_packet.csv"
+
+    df.to_csv(checkpoint_path, index=False)
+    summary_df.to_csv(summary_path, index=False)
+    summary_df.to_csv(review_path, index=False)
+
+    shutil.copy(checkpoint_path, DRIVE_BATCHES_FOLDER / checkpoint_path.name)
+    shutil.copy(summary_path, DRIVE_BATCHES_FOLDER / summary_path.name)
+    shutil.copy(review_path, DRIVE_BATCHES_FOLDER / review_path.name)
+
+    print()
+    print("STEP 26 COMPLETE")
+    print("=" * 80)
+    print("No fresh web research was run.")
+    print("Master was not updated.")
+    print("Local checkpoint:", checkpoint_path)
+    print("Local summary:", summary_path)
+    print("Local review packet:", review_path)
+
+    print()
+    print("RESCORE SUMMARY")
+    print("=" * 80)
+
+    display_cols = [
+        "company",
+        "error",
+        "raw_preview",
+        "priority_level",
+        "recommended_decision",
+        "thesis_fit_score",
+        "pmf_scale_score",
+        "evidence_confidence_score",
+        "katelynd_role_fit_score",
+        "operator_timing_score_raw",
+        "operator_timing_score",
+        "operator_timing_score_cap",
+        "public_company_hard_signal_present",
+        "public_company_signal_basis",
+        "public_company_language_without_hard_signal",
+        "public_false_positive_language_present",
+        "company_maturity_read",
+        "likely_agency_level",
+        "stage_timing_fit",
+        "timing_penalty_applied",
+        "calibration_flag",
+        "final_takeaway",
+    ]
+
+    display_cols = [col for col in display_cols if col in summary_df.columns]
+
+    display(summary_df[display_cols])
+
+step26_main()
