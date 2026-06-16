@@ -23,3 +23,7 @@ research_batches/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+# Local Colab backup / rollback artifacts
+research_batches_rollback/
+*_backup_before_*.py
+src/health_tech_research_agent/taxonomy_backup_before_*.py
