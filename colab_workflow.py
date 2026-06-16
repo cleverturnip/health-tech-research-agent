@@ -10865,6 +10865,7 @@ def step26_main():
 
     df = pd.DataFrame(scored_rows)
     summary_df = pd.DataFrame(summary_rows)
+    step26_assert_no_parse_errors(summary_df)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
