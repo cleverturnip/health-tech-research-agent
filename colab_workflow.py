@@ -10569,6 +10569,136 @@ def step26_assert_no_parse_errors(summary_df):
 # STEP26 PARSE ERROR ASSERTION - END
 
 
+
+# STEP26 COMPANY RESOLUTION - START
+# Durable guardrail: STEP_26_COMPANIES=None means "all companies from master."
+
+def step26_find_master_csv_path():
+    candidate_paths = [
+        Path("/content/drive/MyDrive/Job Search/Health Tech Research/health_tech_market_research_summary_MASTER.csv"),
+        Path("health_tech_market_research_summary_MASTER.csv"),
+    ]
+
+    for path in candidate_paths:
+        if path.exists():
+            return path
+
+    search_roots = [
+        Path("/content/drive/MyDrive/Job Search/Health Tech Research"),
+        Path("."),
+    ]
+
+    for root in search_roots:
+        if not root.exists():
+            continue
+
+        matches = sorted(root.glob("**/health_tech_market_research_summary_MASTER.csv"))
+
+        if matches:
+            return matches[0]
+
+    raise FileNotFoundError(
+        "Could not find health_tech_market_research_summary_MASTER.csv. "
+        "Cannot resolve STEP_26_COMPANIES=None."
+    )
+
+
+def step26_resolve_target_companies(step_26_companies):
+    """
+    Resolve Step 26 target companies.
+
+    Supported modes:
+    - list/tuple/set/pandas Series of company names
+    - comma-separated string
+    - None, empty list, empty string, or 'ALL' = all companies from master
+    """
+    use_master = False
+
+    if step_26_companies is None:
+        use_master = True
+
+    elif isinstance(step_26_companies, str):
+        if step_26_companies.strip().lower() in ["", "all", "*"]:
+            use_master = True
+        else:
+            companies = [
+                item.strip()
+                for item in step_26_companies.split(",")
+                if item.strip()
+            ]
+
+            if companies:
+                return companies
+
+            use_master = True
+
+    else:
+        try:
+            companies = [
+                step26_safe_text(item).strip()
+                for item in list(step_26_companies)
+                if step26_safe_text(item).strip()
+            ]
+        except TypeError:
+            raise TypeError(
+                "STEP_26_COMPANIES must be None, 'ALL', a comma-separated string, "
+                "or an iterable of company names."
+            )
+
+        if companies:
+            return companies
+
+        use_master = True
+
+    if use_master:
+        master_path = step26_find_master_csv_path()
+        master_df = pd.read_csv(master_path)
+
+        possible_company_cols = [
+            "company",
+            "Company",
+            "company_name",
+            "Company Name",
+            "requested_company_name",
+        ]
+
+        company_col = None
+
+        for col in possible_company_cols:
+            if col in master_df.columns:
+                company_col = col
+                break
+
+        if company_col is None:
+            raise ValueError(
+                "Could not find a company-name column in master CSV. "
+                f"Columns found: {list(master_df.columns)}"
+            )
+
+        companies = (
+            master_df[company_col]
+            .dropna()
+            .astype(str)
+            .map(lambda value: value.strip())
+        )
+
+        companies = [company for company in companies if company]
+        companies = list(dict.fromkeys(companies))
+
+        if not companies:
+            raise ValueError(
+                f"Master CSV was found at {master_path}, but no companies were resolved."
+            )
+
+        print(f"Resolved {len(companies)} companies from master: {master_path}")
+        return companies
+
+    raise RuntimeError("Unexpected Step 26 company-resolution state.")
+
+
+# STEP26 COMPANY RESOLUTION - END
+
+
 def step26_main():
     global df, summary_df
 
@@ -10576,12 +10706,14 @@ def step26_main():
     print("=" * 80)
     print("BATCH:", STEP_26_BATCH_NAME)
     print("DRY RUN:", STEP_26_DRY_RUN)
+    resolved_companies = step26_resolve_target_companies(STEP_26_COMPANIES)
+
     print("Companies:")
 
-    for company in STEP_26_COMPANIES:
+    for company in resolved_companies:
         print("-", company)
 
-    evidence_df = step26_load_existing_evidence(STEP_26_COMPANIES)
+    evidence_df = step26_load_existing_evidence(resolved_companies)
 
     print()
     print("EXISTING EVIDENCE SOURCE CHECK")
