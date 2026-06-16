@@ -10699,6 +10699,52 @@ def step26_resolve_target_companies(step_26_companies):
 # STEP26 COMPANY RESOLUTION - END
 
 
+
+# STEP26 FIT BRIEF PARSE RETRY - START
+# Durable guardrail: retry once when model output is malformed/truncated JSON.
+
+def step26_run_fit_brief_with_parse_retry(company, latest_status_findings, max_attempts=2):
+    """
+    Run Step 5 fit brief generation and parse it.
+
+    Behavior:
+    - Attempt normal fit brief generation.
+    - Parse with repair-capable parser.
+    - If parsing fails, retry once.
+    - If retry still fails, return the last raw output and parse errors.
+      Step 26 then records the error and hard-stops before writes.
+    """
+    parse_errors = []
+    last_raw = ""
+
+    for attempt in range(1, max_attempts + 1):
+        fit_brief_json = run_company_fit_brief(company, latest_status_findings)
+        last_raw = step26_safe_text(fit_brief_json)
+
+        try:
+            parsed = step26_parse_json_object(fit_brief_json)
+
+            if attempt > 1:
+                print(f"PASS: {company} parsed successfully after retry {attempt}.")
+
+            return fit_brief_json, parsed, attempt, parse_errors
+
+        except Exception as error:
+            error_message = f"attempt {attempt}: {type(error).__name__}: {error}"
+            parse_errors.append(error_message)
+
+            if attempt < max_attempts:
+                print(f"WARNING: {company} JSON parse failed on {error_message}. Retrying once...")
+                continue
+
+            return last_raw, None, attempt, parse_errors
+
+    return last_raw, None, max_attempts, parse_errors
+
+
+# STEP26 FIT BRIEF PARSE RETRY - END
+
+
 def step26_main():
     global df, summary_df
 
@@ -10753,16 +10799,26 @@ def step26_main():
         print("Source:", row.get("source_file", ""))
 
         latest_status_findings = step26_build_status_findings(row)
-        fit_brief_json = run_company_fit_brief(company, latest_status_findings)
+        fit_brief_json, parsed, parse_attempt_count, parse_retry_errors = step26_run_fit_brief_with_parse_retry(
+            company=company,
+            latest_status_findings=latest_status_findings,
+            max_attempts=2,
+        )
 
         raw_row = row.copy()
         raw_row["company"] = company
         raw_row["fit_brief_json"] = fit_brief_json
+        raw_row["parse_attempt_count"] = parse_attempt_count
+        raw_row["parse_retry_errors"] = " | ".join(parse_retry_errors)
         raw_row["rescore_batch_name"] = STEP_26_BATCH_NAME
         raw_row["rescore_saved_at"] = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         try:
-            parsed = step26_parse_json_object(fit_brief_json)
+            if parsed is None:
+                raise ValueError(
+                    "Could not parse model JSON after retry. "
+                    + " | ".join(parse_retry_errors)
+                )
             scores = parsed.get("scores", {}) if isinstance(parsed, dict) else {}
             scale = parsed.get("scale_signal_assessment", {}) if isinstance(parsed, dict) else {}
 
@@ -10850,6 +10906,8 @@ def step26_main():
                 "final_takeaway": step26_text_from_any(parsed.get("final_takeaway", "")),
                 "commercial_scale_finding": row.get("commercial_scale_finding", ""),
                 "source_file": row.get("source_file", ""),
+                "parse_attempt_count": parse_attempt_count,
+                "parse_retry_errors": " | ".join(parse_retry_errors),
             })
 
         except Exception as e:
