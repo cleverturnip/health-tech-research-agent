@@ -467,200 +467,8 @@ def classify_dataframe(df: pd.DataFrame, taxonomy_dir: str | Path | None = None,
     allowed_data = allowed_codes(data_layers, "data_input_code")
 
     # Subsegment tags are segment-specific. They should not contradict the selected primary segment.
-    subsegment_parent = {}
-    if not subsegments.empty and "tag_code" in subsegments.columns and "parent_market_segment" in subsegments.columns:
-        for _, sub_row in subsegments.iterrows():
-            tag = safe_text(sub_row.get("tag_code"))
-            parent = safe_text(sub_row.get("parent_market_segment"))
-            if tag and parent:
-                subsegment_parent[tag] = parent
-
-    override_by_company = {}
-    if not overrides.empty and "company" in overrides.columns:
-        for _, row in overrides.iterrows():
-            key = normalize_key(row.get("company"))
-            if key:
-                override_by_company[key] = row.to_dict()
-
-    out = df.copy()
-
-    for col in [
-        "primary_market_segment_code",
-        "primary_market_segment",
-        "market_segment",
-        "subsegment_tags",
-        "product_model_tags",
-        "distribution_model_tags",
-        "data_input_tags",
-        "taxonomy_assignment_method",
-        "taxonomy_assignment_basis",
-    ]:
-        if col not in out.columns:
-            out[col] = ""
-
-    unresolved_rows = []
-
-    for idx, row in out.iterrows():
-        company = safe_text(row.get("company"))
-        company_key = normalize_key(company)
-        haystack = make_haystack(row)
-
-        method = ""
-        basis = ""
-
-        primary_code = ""
-        subsegment_tags = []
-        product_tags = []
-        distribution_tags = []
-        data_tags = []
-
-        # 1. Exact company override wins.
-        if company_key in override_by_company:
-            override = override_by_company[company_key]
-            primary_code = normalize_code(
-                override.get("primary_market_segment", ""),
-                allowed_primary,
-                label_to_code,
-            )
-            subsegment_tags = validate_tag_list(override.get("subsegment_tags", ""), allowed_subsegments)
-            product_tags = validate_tag_list(override.get("product_model_tags", ""), allowed_product)
-            distribution_tags = validate_tag_list(override.get("distribution_model_tags", ""), allowed_distribution)
-            data_tags = validate_tag_list(override.get("data_input_tags", ""), allowed_data)
-            method = "company_override"
-            basis = safe_text(override.get("override_reason")) or "Company override table"
-
-        # 2. LLM-provided taxonomy fields, validated against allowed codes.
-        if not primary_code:
-            llm_primary = (
-                row.get("primary_market_segment_code", "")
-                or row.get("primary_market_segment", "")
-                or row.get("market_segment", "")
-            )
-            primary_code = normalize_code(llm_primary, allowed_primary, label_to_code)
-
-            if primary_code:
-                method = "llm_validated"
-                basis = "LLM/company row field matched approved taxonomy"
-
-                subsegment_tags = validate_tag_list(row.get("subsegment_tags", ""), allowed_subsegments)
-                product_tags = validate_tag_list(row.get("product_model_tags", ""), allowed_product)
-                distribution_tags = validate_tag_list(row.get("distribution_model_tags", ""), allowed_distribution)
-                data_tags = validate_tag_list(row.get("data_input_tags", ""), allowed_data)
-
-        # 3. Deterministic fallback from text.
-        if not primary_code:
-            primary_code, matched_pattern = first_rule_match(haystack, PRIMARY_KEYWORD_RULES)
-            if primary_code:
-                method = "keyword_fallback"
-                basis = f"Matched pattern: {matched_pattern}"
-
-        if not primary_code:
-            primary_code = "OTHER_REVIEW"
-            method = "unmapped_review"
-            basis = "No override, validated LLM field, or deterministic keyword match"
-
-        # Infer nuance tags when missing.
-        if not subsegment_tags:
-            subsegment_tags = [
-                tag for tag in match_rules(haystack, SUBSEGMENT_RULES)
-                if tag in allowed_subsegments
-            ]
-
-        if not product_tags:
-            product_tags = [
-                tag for tag in match_rules(haystack, PRODUCT_RULES)
-                if tag in allowed_product
-            ]
-
-        if not distribution_tags:
-            distribution_tags = [
-                tag for tag in match_rules(haystack, DISTRIBUTION_RULES)
-                if tag in allowed_distribution
-            ]
-
-        if not data_tags:
-            data_tags = [
-                tag for tag in match_rules(haystack, DATA_INPUT_RULES)
-                if tag in allowed_data
-            ]
-
-        # Drop subsegment tags whose configured parent does not match the primary segment.
-        # This prevents outputs like METABOLIC_NUTRITION_HEALTH + longevity_prevention
-        # unless the taxonomy explicitly parents that tag to the metabolic segment.
-        subsegment_tags = [
-            tag for tag in subsegment_tags
-            if not subsegment_parent.get(tag) or subsegment_parent.get(tag) == primary_code
-        ]
-
-        primary_label = code_to_label.get(primary_code, primary_code)
-
-        out.at[idx, "primary_market_segment_code"] = primary_code
-        out.at[idx, "primary_market_segment"] = primary_label
-        out.at[idx, "market_segment"] = primary_label
-        out.at[idx, "subsegment_tags"] = join_tags(subsegment_tags)
-        out.at[idx, "product_model_tags"] = join_tags(product_tags)
-        out.at[idx, "distribution_model_tags"] = join_tags(distribution_tags)
-        out.at[idx, "data_input_tags"] = join_tags(data_tags)
-        out.at[idx, "taxonomy_assignment_method"] = method
-        out.at[idx, "taxonomy_assignment_basis"] = basis
-
-        if primary_code == "OTHER_REVIEW":
-            unresolved_rows.append(idx)
-
-    if hard_stop and unresolved_rows:
-        unresolved = out.loc[
-            unresolved_rows,
-            [
-                "company",
-                "primary_market_segment_code",
-                "primary_market_segment",
-                "taxonomy_assignment_method",
-                "taxonomy_assignment_basis",
-                "business_model_classification",
-                "final_takeaway",
-            ],
-        ].copy()
-
-        print("TAXONOMY CLASSIFICATION HARD STOP")
-        print("The companies below could not be assigned to a controlled primary_market_segment.")
-        print("Add them to taxonomy/company_taxonomy_overrides.csv or update the taxonomy rules.")
-        print(unresolved.to_string(index=False))
-
-        raise RuntimeError(
-            f"Taxonomy classification failed for {len(unresolved)} companies."
-        )
-
-    return out
-
-
-
-
-# =============================================================================
-# LLM-FIRST TAXONOMY CLASSIFIER OVERRIDE
-# Added to ensure Step 14 validates LLM taxonomy assignments before falling back
-# to company overrides or keyword rules.
-# =============================================================================
-
-def classify_dataframe(df: pd.DataFrame, taxonomy_dir: str | Path | None = None, hard_stop: bool = True) -> pd.DataFrame:
-    tables = load_taxonomy_tables(taxonomy_dir)
-    code_to_label, label_to_code = code_label_maps(tables)
-
-    market_segments = tables["market_segments"]
-    subsegments = tables["subsegment_tags"]
-    product_models = tables["product_models"]
-    distribution_models = tables["distribution_models"]
-    data_layers = tables["data_input_layers"]
-    overrides = tables["company_overrides"]
-
-    allowed_primary = allowed_codes(market_segments, "segment_code")
-    allowed_subsegments = allowed_codes(subsegments, "tag_code")
-    allowed_product = allowed_codes(product_models, "product_model_code")
-    allowed_distribution = allowed_codes(distribution_models, "distribution_model_code")
-    allowed_data = allowed_codes(data_layers, "data_input_code")
-
-    # Subsegment tags are segment-specific. They should not contradict the selected primary segment.
-    # This is especially important for LLM-first classification, where the primary segment may be
-    # valid but one nuance tag may belong to a different parent segment.
+    # This matters whenever the primary segment is valid but one nuance tag belongs to a
+    # different parent segment.
     subsegment_parent = {}
     if not subsegments.empty and "tag_code" in subsegments.columns and "parent_market_segment" in subsegments.columns:
         for _, sub_row in subsegments.iterrows():
@@ -719,26 +527,10 @@ def classify_dataframe(df: pd.DataFrame, taxonomy_dir: str | Path | None = None,
         needs_review = safe_text(row.get("taxonomy_needs_review", ""))
         review_reason = safe_text(row.get("taxonomy_review_reason", ""))
 
-        # 1. LLM-provided taxonomy fields are now source of truth when valid.
-        llm_primary = (
-            row.get("primary_market_segment_code", "")
-            or row.get("primary_market_segment", "")
-            or row.get("market_segment", "")
-        )
-
-        primary_code = normalize_code(llm_primary, allowed_primary, label_to_code)
-
-        if primary_code:
-            method = safe_text(row.get("taxonomy_assignment_method", "")) or "llm_validated"
-            basis = rationale or safe_text(row.get("taxonomy_assignment_basis", "")) or "LLM taxonomy field matched approved taxonomy"
-
-            subsegment_tags = validate_tag_list(row.get("subsegment_tags", ""), allowed_subsegments)
-            product_tags = validate_tag_list(row.get("product_model_tags", ""), allowed_product)
-            distribution_tags = validate_tag_list(row.get("distribution_model_tags", ""), allowed_distribution)
-            data_tags = validate_tag_list(row.get("data_input_tags", ""), allowed_data)
-
-        # 2. Company overrides only fill gaps or true exceptions.
-        if not primary_code and company_key in override_by_company:
+        # 1. Company override wins outright. A human-reviewed taxonomy override
+        #    ALWAYS takes precedence over a model-generated value (CLAUDE.md rule 6),
+        #    even when the model also proposed a segment for this company.
+        if company_key in override_by_company:
             override = override_by_company[company_key]
 
             primary_code = normalize_code(
@@ -747,15 +539,39 @@ def classify_dataframe(df: pd.DataFrame, taxonomy_dir: str | Path | None = None,
                 label_to_code,
             )
 
-            subsegment_tags = validate_tag_list(override.get("subsegment_tags", ""), allowed_subsegments)
-            product_tags = validate_tag_list(override.get("product_model_tags", ""), allowed_product)
-            distribution_tags = validate_tag_list(override.get("distribution_model_tags", ""), allowed_distribution)
-            data_tags = validate_tag_list(override.get("data_input_tags", ""), allowed_data)
+            if primary_code:
+                subsegment_tags = validate_tag_list(override.get("subsegment_tags", ""), allowed_subsegments)
+                product_tags = validate_tag_list(override.get("product_model_tags", ""), allowed_product)
+                distribution_tags = validate_tag_list(override.get("distribution_model_tags", ""), allowed_distribution)
+                data_tags = validate_tag_list(override.get("data_input_tags", ""), allowed_data)
 
-            method = "company_override"
-            basis = safe_text(override.get("override_reason")) or "Company override table"
+                method = "company_override"
+                basis = safe_text(override.get("override_reason")) or "Company override table"
 
-        # 3. Keyword fallback is last resort only.
+                # Show the human basis, not the model's justification for a
+                # segment we just discarded.
+                rationale = basis
+
+        # 2. Model/LLM-provided taxonomy field, used only when no override applied.
+        if not primary_code:
+            llm_primary = (
+                row.get("primary_market_segment_code", "")
+                or row.get("primary_market_segment", "")
+                or row.get("market_segment", "")
+            )
+
+            primary_code = normalize_code(llm_primary, allowed_primary, label_to_code)
+
+            if primary_code:
+                method = safe_text(row.get("taxonomy_assignment_method", "")) or "llm_validated"
+                basis = rationale or safe_text(row.get("taxonomy_assignment_basis", "")) or "LLM taxonomy field matched approved taxonomy"
+
+                subsegment_tags = validate_tag_list(row.get("subsegment_tags", ""), allowed_subsegments)
+                product_tags = validate_tag_list(row.get("product_model_tags", ""), allowed_product)
+                distribution_tags = validate_tag_list(row.get("distribution_model_tags", ""), allowed_distribution)
+                data_tags = validate_tag_list(row.get("data_input_tags", ""), allowed_data)
+
+        # 3. Keyword fallback is the last resort.
         if not primary_code:
             primary_code, matched_pattern = first_rule_match(haystack, PRIMARY_KEYWORD_RULES)
 
@@ -766,7 +582,7 @@ def classify_dataframe(df: pd.DataFrame, taxonomy_dir: str | Path | None = None,
         if not primary_code:
             primary_code = "OTHER_REVIEW"
             method = "unmapped_review"
-            basis = "No validated LLM field, company override, or deterministic fallback match"
+            basis = "No company override, validated LLM field, or deterministic fallback match"
 
         # Infer missing nuance tags only when LLM/override omitted them.
         if not subsegment_tags:
