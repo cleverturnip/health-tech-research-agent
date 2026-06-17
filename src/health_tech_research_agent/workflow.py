@@ -686,3 +686,193 @@ def update_master_transactionally(
             message=str(exc),
             resume_from=manifest.resume_from,
         )
+
+
+def run_dashboard_refresh(
+    *,
+    batch_id: str,
+    settings: Settings,
+    manifest_path: str | Path | None = None,
+    taxonomy_dir: str | Path | None = None,
+    frame_hook=None,
+) -> WorkflowResult:
+    """Rebuild the dashboard workbook from the verified master and advance to
+    COMPLETE only after a written-workbook read-back passes validation.
+
+    Runs from DASHBOARD_REFRESH_READY, or from ERROR_REQUIRES_REVIEW when the
+    resume point is REFRESH_DASHBOARD. On any failure the manifest returns to
+    ERROR_REQUIRES_REVIEW and the master and prior workbook are left untouched
+    (the new workbook is promoted into place only after validation passes).
+
+    `frame_hook` is an optional transform applied to the dashboard frame before
+    writing; it exists for fault-injection tests and is unused in production.
+    """
+    import os
+
+    from .dashboard import (
+        build_dashboard_frame,
+        build_workbook_sheets,
+        reconcile_override_segments,
+        summarize_calibration_changes,
+        validate_dashboard_workbook,
+    )
+    from .models import utc_now_iso
+    from .storage import atomic_write_json, atomic_write_workbook, load_workbook_sheets
+
+    resolved_manifest_path = Path(
+        manifest_path
+        or settings.research_batches_dir / f"{batch_id}_manifest.json"
+    )
+
+    try:
+        manifest = load_batch_manifest(resolved_manifest_path)
+    except Exception as exc:
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=BatchState.ERROR_REQUIRES_REVIEW,
+            message=f"Could not load batch manifest: {exc}",
+            resume_from="REFRESH_DASHBOARD",
+        )
+
+    resume_ok = manifest.state == BatchState.DASHBOARD_REFRESH_READY or (
+        manifest.state == BatchState.ERROR_REQUIRES_REVIEW
+        and manifest.resume_from == "REFRESH_DASHBOARD"
+    )
+    if not resume_ok:
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=manifest.state,
+            message=(
+                "Dashboard refresh cannot run from state "
+                f"{manifest.state.value} (resume_from={manifest.resume_from!r}). "
+                "Expected DASHBOARD_REFRESH_READY or ERROR_REQUIRES_REVIEW "
+                "resuming at REFRESH_DASHBOARD."
+            ),
+            resume_from="REFRESH_DASHBOARD",
+        )
+
+    completion_report_path = (
+        settings.research_batches_dir / f"{batch_id}_dashboard_completion_report.json"
+    )
+    candidate_path = settings.research_batches_dir / f"{batch_id}_dashboard_candidate.xlsx"
+    final_dashboard_path = settings.drive_root / "health_tech_market_dashboard.xlsx"
+
+    manifest.state = BatchState.DASHBOARD_REFRESH_RUNNING
+    manifest.touch()
+    save_batch_manifest(manifest)
+
+    try:
+        master_df = load_csv(settings.master_path, required_columns=["company"])
+
+        dashboard_df = build_dashboard_frame(master_df, taxonomy_dir=taxonomy_dir)
+        if frame_hook is not None:
+            dashboard_df = frame_hook(dashboard_df)
+
+        sheets = build_workbook_sheets(dashboard_df)
+        atomic_write_workbook(candidate_path, sheets)
+
+        # Read-back: reopen every written sheet and validate against the master.
+        readback = load_workbook_sheets(candidate_path)
+        issues = validate_dashboard_workbook(
+            readback, master_df=master_df, taxonomy_dir=taxonomy_dir
+        )
+
+        reconciliation = reconcile_override_segments(dashboard_df, taxonomy_dir=taxonomy_dir)
+        calibration_changes = summarize_calibration_changes(master_df, dashboard_df)
+        priority_counts = (
+            dashboard_df["final_priority_code"].fillna("").replace("", "UNCODED").value_counts().to_dict()
+            if "final_priority_code" in dashboard_df.columns
+            else {}
+        )
+
+        report = {
+            "batch_id": batch_id,
+            "generated_at": utc_now_iso(),
+            "company_count": int(len(dashboard_df)),
+            "priority_counts": {str(k): int(v) for k, v in priority_counts.items()},
+            "calibration_changes": calibration_changes,
+            "override_reconciliation": {
+                "checked": reconciliation["checked"],
+                "matched": reconciliation["matched"],
+                "mismatch_count": len(reconciliation["mismatches"]),
+                "mismatches": reconciliation["mismatches"],
+            },
+            "validation": {
+                "passed": not issues,
+                "issue_count": len(issues),
+                "issues": issues,
+            },
+            "sheets_written": list(sheets.keys()),
+        }
+
+        if issues:
+            report["status"] = BatchState.ERROR_REQUIRES_REVIEW.value
+            report["workbook_path"] = str(candidate_path)
+            atomic_write_json(completion_report_path, report)
+
+            manifest.artifacts.completion_report_path = str(completion_report_path)
+            manifest.state = BatchState.ERROR_REQUIRES_REVIEW
+            manifest.resume_from = "REFRESH_DASHBOARD"
+            manifest.error = {
+                "message": "Dashboard workbook failed read-back validation.",
+                "issues": issues,
+            }
+            save_batch_manifest(manifest)
+
+            return WorkflowResult.error(
+                batch_id=batch_id,
+                state=manifest.state,
+                message="Dashboard workbook failed read-back validation.",
+                resume_from=manifest.resume_from,
+                details={
+                    "issues": issues,
+                    "completion_report": str(completion_report_path),
+                },
+            )
+
+        # Validation passed: promote the candidate into place atomically.
+        final_dashboard_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(candidate_path, final_dashboard_path)
+
+        report["status"] = BatchState.COMPLETE.value
+        report["workbook_path"] = str(final_dashboard_path)
+        atomic_write_json(completion_report_path, report)
+
+        manifest.artifacts.dashboard_path = str(final_dashboard_path)
+        manifest.artifacts.completion_report_path = str(completion_report_path)
+        manifest.state = BatchState.COMPLETE
+        manifest.last_successful_step = "REFRESH_DASHBOARD"
+        manifest.resume_from = ""
+        manifest.error = None
+        save_batch_manifest(manifest)
+
+        return WorkflowResult(
+            status=WorkflowStatus.SUCCESS,
+            batch_id=batch_id,
+            state=manifest.state,
+            message="Dashboard rebuilt and verified by read-back; batch COMPLETE.",
+            persistent_data_changed=True,
+            resume_from="",
+            artifact_paths={
+                "dashboard": str(final_dashboard_path),
+                "completion_report": str(completion_report_path),
+                "manifest": manifest.artifacts.manifest_path,
+            },
+            details={
+                "company_count": report["company_count"],
+                "calibration_changes": calibration_changes,
+                "override_reconciliation": report["override_reconciliation"],
+            },
+        )
+
+    except Exception as exc:
+        manifest.state = BatchState.ERROR_REQUIRES_REVIEW
+        manifest.resume_from = "REFRESH_DASHBOARD"
+        manifest.error = {"message": str(exc)}
+        save_batch_manifest(manifest)
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=manifest.state,
+            message=str(exc),
+            resume_from=manifest.resume_from,
+        )
