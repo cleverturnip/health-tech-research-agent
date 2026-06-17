@@ -26,9 +26,10 @@ Goal: get `boston_blind_spot_batch_1` from `ERROR_REQUIRES_REVIEW` / `REFRESH_DA
 ### Code (Claude Code, branch `taxonomy-precedence-merge`)
 - [x] Taxonomy precedence merge — collapse duplicate `classify_dataframe`, restore override-first order (commit `11b129b`)
 - [x] Calibration-flag recompute — migrate `build_calibration_flag` to `priority.py`, recompute from final priority on rebuild (commit `e3e57a1`)
-- [~] Package-level dashboard rebuild in `workflow.py` — load verified master → reclassify → recompute flags → build tabs → atomic write → read-back + structural/field validation → completion report → advance to COMPLETE only on success
-- [ ] Review all three commits together; confirm failure-injection tests prove the gate still refuses to advance on a bad workbook
-- [ ] Open PR for the dashboard milestone (all three commits as one reviewed unit)
+- [x] Package-level dashboard rebuild in `workflow.py` — load verified master → reclassify → recompute flags → build tabs → atomic write → read-back + structural/field validation → completion report → advance to COMPLETE only on success (commit `cb65d94`)
+- [ ] (deferred) Port remaining notebook dashboard tabs into `build_workbook_sheets` — Priority Focus, Candidate P0/P1, Companies by Segment, Segment Coverage Audit, Data Depth Audit, Priority Comparison, Commercial Scale Review, Priority Logic Audit, Read Me. Core 4-sheet workbook ships now; these are additive and can be added later if needed.
+- [x] Review all three commits together; confirm failure-injection tests prove the gate still refuses to advance on a bad workbook
+- [x] Open PR for the dashboard milestone (all three commits as one reviewed unit)
 - [ ] Merge to `main`
 
 ### Live verification (Colab — neither chat nor local Claude Code can do this)
