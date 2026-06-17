@@ -19,6 +19,7 @@ class BatchState(str, Enum):
     AWAITING_RECOMMENDATION_APPROVAL = "AWAITING_RECOMMENDATION_APPROVAL"
     MASTER_UPDATE_READY = "MASTER_UPDATE_READY"
     MASTER_UPDATE_RUNNING = "MASTER_UPDATE_RUNNING"
+    DASHBOARD_REFRESH_READY = "DASHBOARD_REFRESH_READY"
     DASHBOARD_REFRESH_RUNNING = "DASHBOARD_REFRESH_RUNNING"
     COMPLETE = "COMPLETE"
     PARTIAL_SUCCESS = "PARTIAL_SUCCESS"
@@ -58,6 +59,8 @@ class ArtifactPaths:
     approved_decisions_path: str = ""
     manifest_path: str = ""
     master_backup_path: str = ""
+    master_readback_path: str = ""
+    master_change_log_path: str = ""
     change_log_path: str = ""
     dashboard_path: str = ""
 

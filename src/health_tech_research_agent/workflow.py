@@ -532,3 +532,157 @@ def read_review_decisions_to_master_gate(
             message=str(exc),
             resume_from=manifest.resume_from,
         )
+
+
+def update_master_transactionally(
+    *,
+    batch_id: str,
+    settings: Settings,
+    manifest_path: str | Path | None = None,
+    priority_applier=None,
+) -> WorkflowResult:
+    from .master_update import MasterUpdateError, execute_master_update_transaction
+
+    resolved_manifest_path = Path(
+        manifest_path
+        or settings.research_batches_dir / f"{batch_id}_manifest.json"
+    )
+
+    try:
+        manifest = load_batch_manifest(resolved_manifest_path)
+    except Exception as exc:
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=BatchState.ERROR_REQUIRES_REVIEW,
+            message=f"Could not load batch manifest: {exc}",
+            resume_from="UPDATE_MASTER",
+        )
+
+    if manifest.state not in {
+        BatchState.MASTER_UPDATE_READY,
+        BatchState.DASHBOARD_REFRESH_READY,
+        BatchState.ERROR_REQUIRES_REVIEW,
+    }:
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=manifest.state,
+            message=(
+                "Master update cannot run from state "
+                f"{manifest.state.value}. Expected MASTER_UPDATE_READY."
+            ),
+            resume_from="UPDATE_MASTER",
+        )
+
+    summary_path = Path(manifest.artifacts.summary_path)
+    approved_path = Path(manifest.artifacts.approved_decisions_path)
+
+    try:
+        approved_df = load_csv(approved_path)
+        approved_keys = {
+            str(value).strip().casefold()
+            for value in approved_df["company"].tolist()
+        }
+        manifest_approved_keys = {
+            str(company).strip().casefold()
+            for company, state in manifest.company_states.items()
+            if state == CompanyState.APPROVED.value
+        }
+        if approved_keys != manifest_approved_keys:
+            raise MasterUpdateError(
+                "Approved decisions artifact does not match approved company states in the manifest.",
+                details={
+                    "artifact_approved_keys": sorted(approved_keys),
+                    "manifest_approved_keys": sorted(manifest_approved_keys),
+                },
+            )
+
+        result = execute_master_update_transaction(
+            master_path=settings.master_path,
+            summary_path=summary_path,
+            approved_path=approved_path,
+            batch_id=batch_id,
+            artifacts_dir=settings.research_batches_dir,
+            priority_applier=priority_applier,
+        )
+
+        manifest.artifacts.master_backup_path = result.backup_path
+        manifest.artifacts.master_readback_path = result.readback_path
+        manifest.artifacts.master_change_log_path = result.change_log_path
+        manifest.artifacts.change_log_path = result.change_log_path
+
+        for company in approved_df["company"].astype(str).tolist():
+            manifest.set_company_state(company, CompanyState.COMMITTED)
+
+        manifest.state = BatchState.DASHBOARD_REFRESH_READY
+        manifest.last_successful_step = "UPDATE_MASTER"
+        manifest.resume_from = "REFRESH_DASHBOARD"
+        manifest.error = None
+        save_batch_manifest(manifest)
+
+        status = WorkflowStatus.SUCCESS if result.write_performed else WorkflowStatus.NOOP
+        message = (
+            "Master updated transactionally and verified by read-back."
+            if result.write_performed
+            else "Master already matched the approved transaction; no rewrite was needed."
+        )
+        return WorkflowResult(
+            status=status,
+            batch_id=batch_id,
+            state=manifest.state,
+            message=message,
+            persistent_data_changed=True,
+            resume_from=manifest.resume_from,
+            artifact_paths={
+                "master": str(settings.master_path),
+                "master_backup": result.backup_path,
+                "master_readback": result.readback_path,
+                "master_change_log": result.change_log_path,
+                "manifest": manifest.artifacts.manifest_path,
+            },
+            details={
+                "write_performed": result.write_performed,
+                "inserted_count": result.inserted_count,
+                "updated_count": result.updated_count,
+                "unchanged_count": result.unchanged_count,
+                "changed_field_count": len(result.change_log_df),
+            },
+        )
+
+    except MasterUpdateError as exc:
+        rollback_performed = bool(exc.details.get("rollback_performed"))
+        manifest.state = (
+            BatchState.ERROR_REQUIRES_REVIEW
+            if rollback_performed or not exc.details.get("backup_path")
+            else BatchState.PARTIAL_SUCCESS
+        )
+        manifest.resume_from = "UPDATE_MASTER"
+        manifest.error = {
+            "message": str(exc),
+            **exc.details,
+        }
+        save_batch_manifest(manifest)
+        return WorkflowResult(
+            status=(
+                WorkflowStatus.ERROR
+                if manifest.state == BatchState.ERROR_REQUIRES_REVIEW
+                else WorkflowStatus.PARTIAL_SUCCESS
+            ),
+            batch_id=batch_id,
+            state=manifest.state,
+            message=str(exc),
+            persistent_data_changed=bool(exc.details.get("backup_path")),
+            resume_from=manifest.resume_from,
+            details=exc.details,
+        )
+
+    except Exception as exc:
+        manifest.state = BatchState.ERROR_REQUIRES_REVIEW
+        manifest.resume_from = "UPDATE_MASTER"
+        manifest.error = {"message": str(exc)}
+        save_batch_manifest(manifest)
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=manifest.state,
+            message=str(exc),
+            resume_from=manifest.resume_from,
+        )
