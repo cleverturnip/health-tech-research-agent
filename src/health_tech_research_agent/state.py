@@ -17,6 +17,9 @@ def build_batch_paths(batch_id: str, batches_dir: str | Path) -> dict[str, Path]
         "review_packet_path": root / f"{batch_id}_human_review_packet.csv",
         "review_sheet_backup_path": root / f"{batch_id}_review_packet_sheet_backup.csv",
         "review_sheet_readback_path": root / f"{batch_id}_review_packet_sheet_readback.csv",
+        "review_decision_readback_path": root / f"{batch_id}_review_decisions_sheet_readback.csv",
+        "validated_decisions_path": root / f"{batch_id}_validated_review_decisions.csv",
+        "approved_decisions_path": root / f"{batch_id}_approved_master_updates.csv",
         "manifest_path": root / f"{batch_id}_manifest.json",
     }
 
@@ -66,6 +69,9 @@ def create_batch_manifest(
             review_packet_path=str(paths["review_packet_path"]),
             review_sheet_backup_path=str(paths["review_sheet_backup_path"]),
             review_sheet_readback_path=str(paths["review_sheet_readback_path"]),
+            review_decision_readback_path=str(paths["review_decision_readback_path"]),
+            validated_decisions_path=str(paths["validated_decisions_path"]),
+            approved_decisions_path=str(paths["approved_decisions_path"]),
             manifest_path=str(paths["manifest_path"]),
         ),
     )

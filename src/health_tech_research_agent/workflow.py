@@ -385,3 +385,150 @@ def publish_review_packet_to_sheet(
                 "sheet_backup": manifest.artifacts.review_sheet_backup_path,
             },
         )
+
+
+def read_review_decisions_to_master_gate(
+    *,
+    batch_id: str,
+    settings: Settings,
+    spreadsheet: object,
+    manifest_path: str | Path | None = None,
+) -> WorkflowResult:
+    from datetime import datetime, timezone
+
+    from .decisions import (
+        DecisionValidationError,
+        validate_and_build_review_decisions,
+    )
+    from .google_sheets import dataframe_from_worksheet
+
+    resolved_manifest_path = Path(
+        manifest_path
+        or settings.research_batches_dir / f"{batch_id}_manifest.json"
+    )
+
+    try:
+        manifest = load_batch_manifest(resolved_manifest_path)
+    except Exception as exc:
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=BatchState.ERROR_REQUIRES_REVIEW,
+            message=f"Could not load batch manifest: {exc}",
+            resume_from="READ_REVIEW_DECISIONS",
+        )
+
+    if manifest.state not in {
+        BatchState.AWAITING_RECOMMENDATION_APPROVAL,
+        BatchState.MASTER_UPDATE_READY,
+        BatchState.ERROR_REQUIRES_REVIEW,
+    }:
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=manifest.state,
+            message=(
+                "Review decisions cannot be read from state "
+                f"{manifest.state.value}. Expected "
+                "AWAITING_RECOMMENDATION_APPROVAL."
+            ),
+            resume_from="READ_REVIEW_DECISIONS",
+        )
+
+    try:
+        review_ws = spreadsheet.worksheet(settings.review_packet_tab)
+        review_df = dataframe_from_worksheet(review_ws)
+
+        validated = validate_and_build_review_decisions(
+            review_df,
+            batch_id=batch_id,
+            expected_companies=manifest.companies,
+        )
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        readback_path = settings.research_batches_dir / (
+            f"{batch_id}_review_decisions_sheet_readback_{timestamp}.csv"
+        )
+        validated_path = settings.research_batches_dir / (
+            f"{batch_id}_validated_review_decisions.csv"
+        )
+        approved_path = settings.research_batches_dir / (
+            f"{batch_id}_approved_master_updates.csv"
+        )
+
+        atomic_write_csv(readback_path, review_df)
+        atomic_write_csv(validated_path, validated.decisions_df)
+        atomic_write_csv(approved_path, validated.approved_df)
+
+        manifest.artifacts.review_decision_readback_path = str(readback_path)
+        manifest.artifacts.validated_decisions_path = str(validated_path)
+        manifest.artifacts.approved_decisions_path = str(approved_path)
+
+        for row in validated.decisions_df.to_dict(orient="records"):
+            manifest.company_states[row["company"]] = row["company_state"]
+
+        manifest.state = BatchState.MASTER_UPDATE_READY
+        manifest.last_successful_step = "READ_REVIEW_DECISIONS"
+        manifest.resume_from = "UPDATE_MASTER"
+        manifest.error = None
+        save_batch_manifest(manifest)
+
+        return WorkflowResult(
+            status=WorkflowStatus.SUCCESS,
+            batch_id=batch_id,
+            state=manifest.state,
+            message=(
+                "Human review decisions validated and durable master-update "
+                "artifacts created."
+            ),
+            persistent_data_changed=True,
+            resume_from=manifest.resume_from,
+            artifact_paths={
+                "decision_readback": str(readback_path),
+                "validated_decisions": str(validated_path),
+                "approved_decisions": str(approved_path),
+                "manifest": manifest.artifacts.manifest_path,
+            },
+            details={
+                "worksheet_title": review_ws.title,
+                "decision_count": len(validated.decisions_df),
+                "approved_count": len(validated.approved_df),
+                "held_count": len(validated.held_df),
+                "rejected_count": len(validated.rejected_df),
+                "approved_companies": validated.approved_df[
+                    "company"
+                ].tolist(),
+                "held_companies": validated.held_df["company"].tolist(),
+                "rejected_companies": validated.rejected_df[
+                    "company"
+                ].tolist(),
+            },
+        )
+
+    except DecisionValidationError as exc:
+        manifest.state = BatchState.ERROR_REQUIRES_REVIEW
+        manifest.resume_from = "READ_REVIEW_DECISIONS"
+        manifest.error = {
+            "message": str(exc),
+            "issues": exc.issues,
+        }
+        save_batch_manifest(manifest)
+
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=manifest.state,
+            message=str(exc),
+            resume_from=manifest.resume_from,
+            details={"issues": exc.issues},
+        )
+
+    except Exception as exc:
+        manifest.state = BatchState.ERROR_REQUIRES_REVIEW
+        manifest.resume_from = "READ_REVIEW_DECISIONS"
+        manifest.error = {"message": str(exc)}
+        save_batch_manifest(manifest)
+
+        return WorkflowResult.error(
+            batch_id=batch_id,
+            state=manifest.state,
+            message=str(exc),
+            resume_from=manifest.resume_from,
+        )
