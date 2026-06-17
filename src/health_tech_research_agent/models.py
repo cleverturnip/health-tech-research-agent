@@ -63,6 +63,7 @@ class ArtifactPaths:
     master_change_log_path: str = ""
     change_log_path: str = ""
     dashboard_path: str = ""
+    completion_report_path: str = ""
 
     def as_paths(self) -> dict[str, Path]:
         return {

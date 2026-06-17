@@ -228,3 +228,230 @@ def apply_priority_fields(input_df: pd.DataFrame) -> pd.DataFrame:
 
     return output_df
 
+
+# ---------------------------------------------------------------------------
+# Calibration flags
+# ---------------------------------------------------------------------------
+# Calibration flags are advisory "CHECK:" / "REVIEW:" notes that surface
+# priority/evidence calibration concerns (CLAUDE.md rule 8 - incorrect outputs
+# are calibration data that should improve the decision logic).
+#
+# On dashboard rebuild they are recomputed from the FINAL (reviewed) priority,
+# so a flag computed against an earlier auto/adjudicated priority does not
+# persist after a human review changes the priority. Keying is done on the
+# normalized P-code (P0-P4), not exact label strings -- this fixes flags that
+# were silently dead because they matched a label string the normalized
+# pipeline no longer produces.
+
+
+def as_number(value: Any):
+    """Best-effort float parse; returns None when the value is not numeric."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def is_d2c_specific_business_model(business_model_text: Any) -> bool:
+    """
+    Detect true D2C / cash-pay companies without over-flagging hybrid
+    payer/employer/provider-enabled consumer platforms.
+    """
+    business_model = safe_text(business_model_text).lower()
+
+    institutional_terms = [
+        "b2b2c",
+        "payer",
+        "employer",
+        "provider",
+        "benefits",
+        "insurance",
+        "health plan",
+        "government",
+        "pharma",
+        "medicaid",
+        "medicare",
+    ]
+
+    has_institutional_path = any(term in business_model for term in institutional_terms)
+
+    appears_d2c = (
+        "d2c" in business_model
+        or "cash-pay" in business_model
+        or "cash pay" in business_model
+        or "primarily d2c" in business_model
+        or "primarily cash" in business_model
+    )
+
+    # Do not treat generic "consumer health platform" as D2C if the
+    # classification is clearly hybrid/B2B2C/payer/employer/provider-enabled.
+    return appears_d2c and not (has_institutional_path and "hybrid" in business_model)
+
+
+def commercial_signal_is_weak(commercial_scale_finding: Any, commercial_scale_assessment: Any) -> bool:
+    """Return True when commercial-scale evidence is missing or explicitly weak."""
+    text = (
+        safe_text(commercial_scale_finding)
+        + " "
+        + safe_text(commercial_scale_assessment)
+    ).lower()
+
+    weak_phrases = [
+        "no strong public commercial scale evidence found",
+        "weak evidence",
+        "commercial scale evidence is weak",
+        "weak-to-moderate",
+        "not enough hard evidence",
+        "not strongly substantiated",
+        "not revenue quality",
+        "no credible public revenue",
+        "no public revenue",
+        "no verified current arr",
+        "no public arr",
+        "no subscriber count",
+        "no retention",
+        "no renewal",
+        "no cac",
+        "no margin",
+    ]
+
+    if safe_text(commercial_scale_finding) == "":
+        return True
+
+    return any(phrase in text for phrase in weak_phrases)
+
+
+def build_calibration_flag(row, *, priority_field: str = "final_priority_level") -> str:
+    """
+    Compute the priority/score-driven calibration flag for a single row.
+
+    Keyed off the normalized P-code from ``priority_field`` (default
+    ``final_priority_level``) rather than exact label strings, so the flag
+    tracks the reviewed priority. Returns a " | "-joined flag string, or ""
+    when no condition holds.
+    """
+    flags = []
+
+    code = priority_code(row.get(priority_field, ""))
+    business_model = safe_text(row.get("business_model_classification"))
+    commercial_scale_finding = safe_text(row.get("commercial_scale_finding"))
+    commercial_scale_assessment = safe_text(row.get("commercial_scale_assessment"))
+
+    thesis = as_number(row.get("thesis_fit_score"))
+    pmf = as_number(row.get("pmf_scale_score"))
+    evidence = as_number(row.get("evidence_confidence_score"))
+    role_fit = as_number(row.get("katelynd_role_fit_score"))
+    operator_timing = as_number(row.get("operator_timing_score"))
+
+    # P2 evidence / PMF checks.
+    if code == "P2":
+        if evidence is not None and evidence < 50:
+            flags.append("CHECK: P2 with low evidence")
+
+        if pmf is not None and pmf < 60:
+            flags.append("CHECK: P2 with weak PMF/scale")
+
+        if (
+            role_fit is not None
+            and operator_timing is not None
+            and role_fit < 70
+            and operator_timing < 70
+        ):
+            flags.append("CHECK: P2 with weak role/timing fit")
+
+        if (
+            evidence is not None
+            and pmf is not None
+            and (evidence < 65 or pmf < 70)
+        ):
+            flags.append("REVIEW: P2 with moderate evidence/PMF")
+
+    # Possible under-promotion: strong scores but not already a P0/P1 priority.
+    if code not in ("P0", "P1"):
+        if (
+            thesis is not None
+            and pmf is not None
+            and evidence is not None
+            and role_fit is not None
+            and operator_timing is not None
+            and thesis >= 90
+            and pmf >= 80
+            and evidence >= 70
+            and role_fit >= 80
+            and operator_timing >= 75
+        ):
+            flags.append("CHECK: possible P1 under-promotion")
+
+    # D2C / commercial-scale checks.
+    d2c_specific_review_needed = is_d2c_specific_business_model(business_model)
+    weak_commercial_signal = commercial_signal_is_weak(
+        commercial_scale_finding,
+        commercial_scale_assessment,
+    )
+
+    if d2c_specific_review_needed and code in ("P1", "P2") and weak_commercial_signal:
+        flags.append("REVIEW: D2C priority with weak commercial-scale evidence")
+
+    if (
+        d2c_specific_review_needed
+        and pmf is not None
+        and evidence is not None
+        and pmf >= 75
+        and evidence < 60
+    ):
+        flags.append("REVIEW: D2C scale claim with moderate/weak evidence confidence")
+
+    return " | ".join(flags)
+
+
+def _append_operator_timing_flag(base: Any, extra: Any) -> str:
+    """Append the operator-timing sub-flag to a base flag, de-duplicated."""
+    base = safe_text(base)
+    extra = safe_text(extra)
+
+    if not extra:
+        return base
+    if not base:
+        return extra
+    if extra in base:
+        return base
+    return base + " | " + extra
+
+
+def recompute_calibration_flags(
+    df: pd.DataFrame,
+    *,
+    priority_field: str = "final_priority_level",
+    operator_timing_field: str = "operator_timing_calibration_flag",
+) -> pd.DataFrame:
+    """
+    Return a COPY of ``df`` whose ``calibration_flag`` column is recomputed from
+    the current row state and ``priority_field``.
+
+    This is a read-only, in-memory recompute for dashboard display: it does not
+    mutate ``df`` and never writes any file, so the master's stored historical
+    flag is left untouched. Stale flags whose triggering condition no longer
+    holds are dropped; the operator-timing sub-flag (which is not
+    priority-driven) is preserved.
+    """
+    out = df.copy()
+
+    if len(out) == 0:
+        if "calibration_flag" not in out.columns:
+            out["calibration_flag"] = pd.Series(dtype="object")
+        return out
+
+    recomputed = out.apply(
+        lambda row: build_calibration_flag(row, priority_field=priority_field),
+        axis=1,
+    ).tolist()
+
+    if operator_timing_field in out.columns:
+        recomputed = [
+            _append_operator_timing_flag(base, extra)
+            for base, extra in zip(recomputed, out[operator_timing_field].tolist())
+        ]
+
+    out["calibration_flag"] = recomputed
+    return out
+

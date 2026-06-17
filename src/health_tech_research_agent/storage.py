@@ -114,3 +114,41 @@ def load_json(path: str | Path) -> dict[str, Any]:
         return json.loads(json_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise StorageError(f"Invalid JSON in {json_path}: {exc}") from exc
+
+
+def atomic_write_workbook(path: str | Path, sheets: dict[str, pd.DataFrame]) -> Path:
+    """Atomically write an .xlsx workbook from {sheet_name: DataFrame}.
+
+    Writes to a temp file in the destination directory and os.replace()s it into
+    place, so a partial/interrupted write never overwrites the prior workbook.
+    """
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(destination.parent),
+        prefix=f".{destination.name}.",
+        suffix=".tmp.xlsx",
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+
+    try:
+        with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
+            for sheet_name, frame in sheets.items():
+                frame.to_excel(writer, sheet_name=sheet_name, index=False)
+        os.replace(tmp_path, destination)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+    return destination
+
+
+def load_workbook_sheets(path: str | Path) -> dict[str, pd.DataFrame]:
+    """Reopen every sheet of a written workbook for read-back validation."""
+    workbook_path = Path(path)
+    if not workbook_path.exists():
+        raise FileNotFoundError(f"Workbook not found: {workbook_path}")
+
+    return pd.read_excel(workbook_path, sheet_name=None, engine="openpyxl")
