@@ -27,3 +27,4 @@ __pycache__/
 research_batches_rollback/
 *_backup_before_*.py
 src/health_tech_research_agent/taxonomy_backup_before_*.py
+*.egg-info/
