@@ -50,6 +50,8 @@ class ArtifactPaths:
     raw_path: str = ""
     summary_path: str = ""
     review_packet_path: str = ""
+    review_sheet_backup_path: str = ""
+    review_sheet_readback_path: str = ""
     manifest_path: str = ""
     master_backup_path: str = ""
     change_log_path: str = ""

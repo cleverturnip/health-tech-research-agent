@@ -12,6 +12,8 @@ class Settings:
     research_batches_dir: Path
     master_path: Path
     raw_archive_path: Path
+    batch_control_sheet_url: str
+    review_packet_tab: str = "Review Packet"
     workflow_version: str = "0.1.0"
 
     def ensure_directories(self) -> None:
@@ -37,10 +39,16 @@ def load_settings(
         or "/content/drive/MyDrive/Job Search/Health Tech Research"
     )
 
+    batch_control_sheet_url = (
+        os.environ.get("HTRA_BATCH_CONTROL_SHEET_URL")
+        or "https://docs.google.com/spreadsheets/d/1psVpW5SddVlgbnwkToXjbMvL0NWuyM3feyY5fwKCjjY/edit"
+    )
+
     return Settings(
         repo_dir=resolved_repo,
         drive_root=resolved_drive,
         research_batches_dir=resolved_drive / "research_batches",
         master_path=resolved_drive / "health_tech_market_research_summary_MASTER.csv",
         raw_archive_path=resolved_drive / "health_tech_raw_research_ARCHIVE.csv",
+        batch_control_sheet_url=batch_control_sheet_url,
     )
