@@ -29,7 +29,7 @@ Goal: get `boston_blind_spot_batch_1` from `ERROR_REQUIRES_REVIEW` / `REFRESH_DA
 - [x] Package-level dashboard rebuild in `workflow.py` — load verified master → reclassify → recompute flags → build tabs → atomic write → read-back + structural/field validation → completion report → advance to COMPLETE only on success (commit `cb65d94`)
 - [ ] (deferred) Port remaining notebook dashboard tabs into `build_workbook_sheets` — Priority Focus, Candidate P0/P1, Companies by Segment, Segment Coverage Audit, Data Depth Audit, Priority Comparison, Commercial Scale Review, Priority Logic Audit, Read Me. Core 4-sheet workbook ships now; these are additive and can be added later if needed.
 - [x] Review all three commits together; confirm failure-injection tests prove the gate still refuses to advance on a bad workbook
-- [x] Open PR for the dashboard milestone (all three commits as one reviewed unit)
+- [~] Open PR for the dashboard milestone (all three commits as one reviewed unit) — branch pushed; PR prepared, open via the compare link (gh CLI/token unavailable in this environment)
 - [ ] Merge to `main`
 
 ### Live verification (Colab — neither chat nor local Claude Code can do this)
