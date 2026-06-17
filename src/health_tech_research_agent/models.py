@@ -1,10 +1,27 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import logging
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def _keep_known_fields(payload: dict[str, Any], dataclass_type) -> tuple[dict[str, Any], list[str]]:
+    """Split a payload into (known-field values, unknown keys) for a dataclass.
+
+    Lets manifest loading tolerate keys written by an adjacent code version:
+    known fields are kept and unrecognized keys are reported so the caller can
+    warn rather than crash (architecture rule 4: stay resumable across schema
+    drift).
+    """
+    known = {f.name for f in fields(dataclass_type)}
+    kept = {key: value for key, value in payload.items() if key in known}
+    unknown = [key for key in payload if key not in known]
+    return kept, unknown
 
 
 def utc_now_iso() -> str:
@@ -105,10 +122,24 @@ class BatchManifest:
     def from_dict(cls, payload: dict[str, Any]) -> "BatchManifest":
         data = dict(payload)
         data["state"] = BatchState(data.get("state", BatchState.CREATED.value))
+
         artifacts = data.get("artifacts", {})
         if not isinstance(artifacts, ArtifactPaths):
-            data["artifacts"] = ArtifactPaths(**artifacts)
-        return cls(**data)
+            kept_artifacts, unknown_artifacts = _keep_known_fields(artifacts, ArtifactPaths)
+            if unknown_artifacts:
+                logger.warning(
+                    "Ignoring unknown manifest artifact field(s): %s",
+                    ", ".join(sorted(unknown_artifacts)),
+                )
+            data["artifacts"] = ArtifactPaths(**kept_artifacts)
+
+        kept_data, unknown_data = _keep_known_fields(data, cls)
+        if unknown_data:
+            logger.warning(
+                "Ignoring unknown manifest field(s): %s",
+                ", ".join(sorted(unknown_data)),
+            )
+        return cls(**kept_data)
 
 
 @dataclass

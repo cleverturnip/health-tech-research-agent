@@ -30,7 +30,8 @@ Goal: get `boston_blind_spot_batch_1` from `ERROR_REQUIRES_REVIEW` / `REFRESH_DA
 - [ ] (deferred) Port remaining notebook dashboard tabs into `build_workbook_sheets` — Priority Focus, Candidate P0/P1, Companies by Segment, Segment Coverage Audit, Data Depth Audit, Priority Comparison, Commercial Scale Review, Priority Logic Audit, Read Me. Core 4-sheet workbook ships now; these are additive and can be added later if needed.
 - [x] Review all three commits together; confirm failure-injection tests prove the gate still refuses to advance on a bad workbook
 - [x] Open PR for the dashboard milestone (all three commits as one reviewed unit) — [#22](https://github.com/cleverturnip/health-tech-research-agent/pull/22)
-- [ ] Merge to `main`
+- [x] Merge to `main` (PR #22, merge commit `d35c421`)
+- [~] Make manifest loading tolerant of unknown/legacy artifact keys (found in live verification: the live manifest carried `dashboard_validation_path`) — keeps batches resumable across schema drift
 
 ### Live verification (Colab — neither chat nor local Claude Code can do this)
 - [ ] Run the repaired rebuild against the live batch from `ERROR_REQUIRES_REVIEW` / `REFRESH_DASHBOARD`
