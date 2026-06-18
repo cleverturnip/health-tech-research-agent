@@ -29,6 +29,11 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
 
 try:  # openai is an optional extra (see pyproject); keep the package importable offline.
     from openai import APIError, RateLimitError
@@ -39,6 +44,8 @@ except ImportError:  # pragma: no cover - exercised only where openai is absent
     class APIError(Exception):
         """Fallback used when the openai SDK is not installed."""
 
+from .review import REQUIRED_RESEARCH_COLUMNS, parse_first_json_object
+from .storage import atomic_write_csv, copy_with_backup, load_csv
 
 logger = logging.getLogger(__name__)
 
@@ -614,3 +621,187 @@ def run_company_fit_brief(
         use_web_search=False,
         max_output_tokens=6500,
     )
+
+
+# =============================================================================
+# STEP 7 - Batch runner loop (per-company checkpointing + error recovery)
+# =============================================================================
+
+
+@dataclass
+class ResearchBatchResult:
+    """Outcome of a research batch run.
+
+    ``completed`` / ``reused`` / ``failed`` partition the *requested* companies:
+
+    * ``completed`` — researched successfully in THIS run (now in the checkpoint).
+    * ``reused`` — skipped because already complete in the checkpoint (resume).
+    * ``failed`` — raised this run (API/network/bad JSON); NOT checkpointed, so
+      they are retried on the next resume.
+
+    The durable artifact is the checkpoint CSV at ``checkpoint_path``.
+    """
+
+    completed: list = field(default_factory=list)
+    reused: list = field(default_factory=list)
+    failed: dict = field(default_factory=dict)
+    checkpoint_path: str = ""
+
+
+def _company_and_query(company_item):
+    """Faithful to STEP 7: an item is either ``{"company", "research_query"}`` or a bare string."""
+    if isinstance(company_item, dict):
+        return company_item["company"], company_item["research_query"]
+    return company_item, company_item
+
+
+def _is_nonblank(value) -> bool:
+    return pd.notna(value) and str(value).strip() != ""
+
+
+def _row_is_complete(row) -> bool:
+    """A checkpoint row is complete iff all seven research columns are non-blank."""
+    return all(_is_nonblank(row.get(col, "")) for col in REQUIRED_RESEARCH_COLUMNS)
+
+
+def _build_latest_status_findings(funding, payer, outcomes, commercial) -> str:
+    """Assemble the four findings into the synthesis input (verbatim STEP 7 layout)."""
+    return f"""
+Funding:
+{funding}
+
+Payer / institutional signal:
+{payer}
+
+Outcomes:
+{outcomes}
+
+Commercial scale / revenue quality:
+{commercial}
+"""
+
+
+def run_research_batch(
+    companies,
+    *,
+    client,
+    checkpoint_path,
+    model: str = DEFAULT_MODEL,
+    mirror_checkpoint_path=None,
+    taxonomy_dir=None,
+    wait_between_searches: float = DEFAULT_WAIT_BETWEEN_SEARCHES,
+    sleep_fn=time.sleep,
+    validate_json: bool = True,
+) -> ResearchBatchResult:
+    """Run research + fit brief for each company, with per-company recovery.
+
+    Faithful port of notebook STEP 7:
+
+    * Resume: a checkpoint row with all ``REQUIRED_RESEARCH_COLUMNS`` non-blank is
+      "complete"; those companies are skipped (``reused``) and not re-researched.
+    * After each successful company the checkpoint is written atomically and
+      (optionally) mirrored, so a runtime loss never loses completed work.
+    * The four web searches run with the faithful wait between them (injected
+      ``sleep_fn``), then the fit brief is synthesized.
+
+    New here (the missing per-company recovery): each company's work is wrapped so
+    one failure — an API error, a network error, or (when ``validate_json``) a fit
+    brief that does not parse — is caught, logged, recorded in ``failed``, and the
+    loop continues to the next company. A failed company is NOT checkpointed, so it
+    is retried on the next resume. ``KeyboardInterrupt`` / ``SystemExit`` are not
+    ``Exception`` subclasses and propagate (re-raised explicitly for clarity).
+    """
+    checkpoint_path = Path(checkpoint_path)
+
+    results: list = []
+    completed_companies: set = set()
+
+    # --- faithful resume: load already-complete rows from the checkpoint ---
+    if checkpoint_path.exists():
+        existing = load_csv(checkpoint_path)
+        for col in REQUIRED_RESEARCH_COLUMNS:
+            if col not in existing.columns:
+                existing[col] = ""
+        if not existing.empty:
+            complete_rows = existing[existing.apply(_row_is_complete, axis=1)]
+            complete_rows = complete_rows[REQUIRED_RESEARCH_COLUMNS].copy()
+            results = complete_rows.to_dict("records")
+            completed_companies = set(complete_rows["company"].astype(str).tolist())
+
+    result = ResearchBatchResult(checkpoint_path=str(checkpoint_path))
+
+    for company_item in companies:
+        company, research_query = _company_and_query(company_item)
+
+        if str(company) in completed_companies:
+            logger.info("Skipping %s; already complete in checkpoint.", company)
+            result.reused.append(company)
+            continue
+
+        try:
+            funding = search_funding(research_query, client=client, model=model)
+            sleep_fn(wait_between_searches)
+
+            payer = search_payer_signal(research_query, client=client, model=model)
+            sleep_fn(wait_between_searches)
+
+            outcomes = search_outcomes(research_query, client=client, model=model)
+            sleep_fn(wait_between_searches)
+
+            commercial = search_commercial_scale(research_query, client=client, model=model)
+
+            latest_status_findings = _build_latest_status_findings(
+                funding, payer, outcomes, commercial
+            )
+
+            fit_brief = run_company_fit_brief(
+                company,
+                latest_status_findings,
+                client=client,
+                model=model,
+                taxonomy_dir=taxonomy_dir,
+            )
+
+            if validate_json:
+                # Reuse the package's existing parser; it RAISES on unparseable
+                # output, which the per-company handler records as a failure.
+                parse_first_json_object(fit_brief)
+
+            new_record = {
+                "company": company,
+                "date_researched": datetime.now().strftime("%Y-%m-%d"),
+                "funding_finding": funding,
+                "payer_institutional_finding": payer,
+                "outcomes_finding": outcomes,
+                "commercial_scale_finding": commercial,
+                "fit_brief_json": fit_brief,
+            }
+
+            results.append(new_record)
+            completed_companies.add(str(company))
+            result.completed.append(company)
+
+            # Persist after each company (local + optional mirror), faithfully.
+            df = (
+                pd.DataFrame(results)
+                .drop_duplicates(subset=["company"], keep="last")
+                .reset_index(drop=True)
+            )
+            atomic_write_csv(checkpoint_path, df)
+            if mirror_checkpoint_path is not None:
+                copy_with_backup(checkpoint_path, mirror_checkpoint_path)
+
+            logger.info("Checkpoint saved after %s.", company)
+            sleep_fn(wait_between_searches)  # trailing wait between companies
+
+        except (KeyboardInterrupt, SystemExit):
+            # Not Exception subclasses; let an operator interrupt abort cleanly.
+            raise
+        except Exception as exc:  # noqa: BLE001 - per-company recovery is the point
+            logger.warning(
+                "Research failed for %s: %s: %s", company, type(exc).__name__, exc
+            )
+            result.failed[company] = f"{type(exc).__name__}: {exc}"
+            continue
+
+    return result

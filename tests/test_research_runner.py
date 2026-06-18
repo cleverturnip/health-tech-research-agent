@@ -10,9 +10,14 @@ the module's exception names so they pass whether or not the openai SDK is
 installed (call_openai resolves those names from module globals at runtime).
 """
 
+import pandas as pd
 import pytest
 
 from health_tech_research_agent import research_runner as rr
+from health_tech_research_agent.research_runner import (
+    REQUIRED_RESEARCH_COLUMNS,
+    run_research_batch,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -316,3 +321,253 @@ def test_load_taxonomy_block_falls_back_when_builder_raises(monkeypatch):
     block = rr.load_taxonomy_prompt_block_for_fit_brief("/nonexistent")
     assert block.startswith("CONTROLLED HEALTH-TECH TAXONOMY UNAVAILABLE")
     assert "no taxonomy here" in block
+
+
+# ===========================================================================
+# run_research_batch (Commit 2) — loop, per-company recovery, checkpointing
+# ===========================================================================
+
+
+class BatchClient:
+    """Fake OpenAI client for batch tests.
+
+    Distinguishes the four web searches (kwargs carry ``tools``) from the fit
+    brief (no ``tools``). It detects which company a call is for by finding a
+    company name inside the prompt, then:
+      * search calls -> return a short finding string;
+      * fit-brief calls -> return minimal valid JSON, UNLESS the company is in
+        ``fail_on`` (raise ``fail_exc``) or ``bad_json_for`` (return non-JSON).
+    Use company names that are not substrings of one another (e.g. Acme / Beta).
+    """
+
+    def __init__(self, *, companies, fail_on=(), bad_json_for=(), fail_exc=None):
+        self.companies = list(companies)
+        self.fail_on = set(fail_on)
+        self.bad_json_for = set(bad_json_for)
+        self.fail_exc = fail_exc or RuntimeError("API down")
+        self.calls = []
+
+    @property
+    def responses(self):
+        return self
+
+    def _company_in(self, prompt):
+        for name in self.companies:
+            if name in prompt:
+                return name
+        return None
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        prompt = kwargs["input"]
+        company = self._company_in(prompt)
+        if "tools" in kwargs:  # one of the four research searches
+            return FakeResponse(f"finding for {company}")
+        # otherwise the fit-brief synthesis call
+        if company in self.fail_on:
+            raise self.fail_exc
+        if company in self.bad_json_for:
+            return FakeResponse("not json at all {oops")
+        return FakeResponse('{"company": "%s", "priority_level": "P2"}' % company)
+
+    def fitbrief_inputs(self):
+        return [c["input"] for c in self.calls if "tools" not in c]
+
+
+def _seed_complete_checkpoint(path, company):
+    """Write a checkpoint with one fully-complete (all 7 columns non-blank) row."""
+    row = {
+        col: (company if col == "company" else f"{col}-value")
+        for col in REQUIRED_RESEARCH_COLUMNS
+    }
+    pd.DataFrame([row]).to_csv(path, index=False)
+
+
+def _noop_sleep(_seconds):
+    return None
+
+
+# --- primary recovery proof: A succeeds, B fails -> loop continues -----------
+
+
+def test_batch_recovers_from_failure_completed_a_failed_b(tmp_path):
+    ckpt = tmp_path / "batch_checkpoint.csv"
+    client = BatchClient(companies=["Acme", "Beta"], fail_on=["Beta"])
+
+    result = run_research_batch(
+        ["Acme", "Beta"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+
+    assert result.completed == ["Acme"]
+    assert "Beta" in result.failed
+    assert "RuntimeError" in result.failed["Beta"]
+    assert result.reused == []
+
+    # checkpoint persisted A only; B (failed) is absent -> retried on resume
+    df = pd.read_csv(ckpt)
+    assert df["company"].tolist() == ["Acme"]
+    for col in REQUIRED_RESEARCH_COLUMNS:
+        assert col in df.columns
+        assert str(df.iloc[0][col]).strip() != ""
+
+
+def test_batch_continues_when_first_company_fails(tmp_path):
+    """Failure of the FIRST company must not stop a later company being researched."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Beta", "Acme"], fail_on=["Beta"])
+
+    result = run_research_batch(
+        ["Beta", "Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+
+    assert result.completed == ["Acme"]
+    assert list(result.failed) == ["Beta"]
+    assert pd.read_csv(ckpt)["company"].tolist() == ["Acme"]
+
+
+# --- bad JSON is a per-company failure under validate_json (default) ---------
+
+
+def test_batch_bad_json_is_a_per_company_failure(tmp_path):
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme", "Beta"], bad_json_for=["Beta"])
+
+    result = run_research_batch(
+        ["Acme", "Beta"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+
+    assert result.completed == ["Acme"]
+    assert "Beta" in result.failed
+    assert pd.read_csv(ckpt)["company"].tolist() == ["Acme"]
+
+
+def test_batch_validate_json_false_stores_unparseable_output(tmp_path):
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme", "Beta"], bad_json_for=["Beta"])
+
+    result = run_research_batch(
+        ["Acme", "Beta"],
+        client=client,
+        checkpoint_path=ckpt,
+        sleep_fn=_noop_sleep,
+        validate_json=False,
+    )
+
+    assert set(result.completed) == {"Acme", "Beta"}
+    assert result.failed == {}
+    assert set(pd.read_csv(ckpt)["company"]) == {"Acme", "Beta"}
+
+
+# --- faithful resume ---------------------------------------------------------
+
+
+def test_batch_resume_skips_completed_company(tmp_path):
+    ckpt = tmp_path / "c.csv"
+    _seed_complete_checkpoint(ckpt, "Acme")
+    client = BatchClient(companies=["Acme", "Beta"])
+
+    result = run_research_batch(
+        ["Acme", "Beta"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+
+    assert result.reused == ["Acme"]
+    assert result.completed == ["Beta"]
+    # Acme was NOT researched at all: no API call mentions it
+    assert [c for c in client.calls if "Acme" in c["input"]] == []
+    # only one fit-brief call happened, and it was for Beta
+    assert len(client.fitbrief_inputs()) == 1
+    assert "Beta" in client.fitbrief_inputs()[0]
+    # checkpoint now carries both the seeded A and the new B
+    assert set(pd.read_csv(ckpt)["company"]) == {"Acme", "Beta"}
+
+
+# --- happy path: checkpoint + mirror, faithful 7-column schema ---------------
+
+
+def test_batch_happy_path_writes_checkpoint_and_mirror(tmp_path):
+    ckpt = tmp_path / "local.csv"
+    mirror = tmp_path / "drive" / "mirror.csv"
+    client = BatchClient(companies=["Acme", "Beta"])
+
+    result = run_research_batch(
+        ["Acme", "Beta"],
+        client=client,
+        checkpoint_path=ckpt,
+        mirror_checkpoint_path=mirror,
+        sleep_fn=_noop_sleep,
+    )
+
+    assert result.completed == ["Acme", "Beta"]
+    assert result.reused == [] and result.failed == {}
+    assert result.checkpoint_path == str(ckpt)
+
+    for path in (ckpt, mirror):
+        df = pd.read_csv(path)
+        assert df["company"].tolist() == ["Acme", "Beta"]
+        assert list(df.columns) == REQUIRED_RESEARCH_COLUMNS  # faithful schema + order
+        assert df["fit_brief_json"].str.contains("priority_level").all()
+
+
+# --- faithful sleep cadence --------------------------------------------------
+
+
+def test_batch_preserves_faithful_sleeps(tmp_path):
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme", "Beta"])
+    sleeps = []
+
+    run_research_batch(
+        ["Acme", "Beta"],
+        client=client,
+        checkpoint_path=ckpt,
+        wait_between_searches=7,
+        sleep_fn=sleeps.append,
+    )
+
+    # per successful company: 3 waits between the 4 searches + 1 trailing wait
+    assert sleeps == [7] * 8
+
+
+# --- KeyboardInterrupt / SystemExit propagate (not caught as Exception) ------
+
+
+def test_batch_keyboard_interrupt_propagates(tmp_path):
+    ckpt = tmp_path / "c.csv"
+
+    class InterruptingClient(BatchClient):
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            raise KeyboardInterrupt()
+
+    client = InterruptingClient(companies=["Acme"])
+
+    with pytest.raises(KeyboardInterrupt):
+        run_research_batch(
+            ["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+        )
+
+
+# --- dict company items route research_query to the searches -----------------
+
+
+def test_batch_accepts_dict_company_items(tmp_path):
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    items = [{"company": "Acme", "research_query": "Acme (acme.example) health"}]
+
+    result = run_research_batch(
+        items, client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+
+    assert result.completed == ["Acme"]
+    search_inputs = [c["input"] for c in client.calls if "tools" in c]
+    assert search_inputs and all("acme.example" in s for s in search_inputs)
+
+
+def test_batch_returns_research_batch_result_type(tmp_path):
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    result = run_research_batch(
+        ["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+    assert isinstance(result, rr.ResearchBatchResult)
