@@ -267,15 +267,15 @@ def capability_fit_score(row) -> float:
 # ---------------------------------------------------------------------------
 # §5 — Target archetype (VERBATIM port from cell159; eligibility list reconciled, item 5a)
 # ---------------------------------------------------------------------------
-# Reconciled from cell159's old eligibility list
-# {strong_dual_engine, strong_single_engine, credible_single_engine, credible_path,
-#  outcomes_plus_path} -> the names the reconciled producer (§2) actually emits.
+# Reconciled from cell159's old eligibility list (item 5a). emerging_path is
+# DELIBERATELY EXCLUDED: "Ideal" must track the P0 pool, and emerging_path is
+# gate-capped at P1 (it is not in HAS_STRONG_SCALE_PATH), so labeling it "Ideal"
+# would contradict the priority. This also matches the snapshot's archetype behavior.
 _ARCHETYPE_ELIGIBLE_SCALE_PATHS = frozenset({
     STRONG_DUAL_ENGINE,
     STRONG_INSTITUTIONAL_ENGINE,
     STRONG_COMMERCIAL_ENGINE,
     CREDIBLE_PATH,
-    EMERGING_PATH,
 })
 
 

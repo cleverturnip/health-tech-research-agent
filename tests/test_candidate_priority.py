@@ -225,6 +225,14 @@ def test_archetype_institutional_strong_qualifies_ideal():
     assert result == "Ideal early-growth / high-agency target"
 
 
+def test_archetype_emerging_path_is_not_ideal():
+    # §5a: emerging_path is excluded from the Ideal pool (gate caps it at P1), so an
+    # otherwise-Ideal early-growth company on emerging_path is Role-scope-dependent.
+    result = target_archetype(_ideal_row(), capability_fit=80, agency_entry=85,
+                              scale_path=EMERGING_PATH)
+    assert result == "Role-scope-dependent target"
+
+
 def test_archetype_mature_benchmark():
     row = {"pmf_scale_score": 85, "evidence_confidence_score": 65,
            "company_maturity_read": "late-stage", "stage_timing_fit": "borderline"}
