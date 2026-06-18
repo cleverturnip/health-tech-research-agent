@@ -31,7 +31,7 @@ Goal: get `boston_blind_spot_batch_1` from `ERROR_REQUIRES_REVIEW` / `REFRESH_DA
 - [x] Review all three commits together; confirm failure-injection tests prove the gate still refuses to advance on a bad workbook
 - [x] Open PR for the dashboard milestone (all three commits as one reviewed unit) — [#22](https://github.com/cleverturnip/health-tech-research-agent/pull/22)
 - [x] Merge to `main` (PR #22, merge commit `d35c421`)
-- [~] Make manifest loading tolerant of unknown/legacy artifact keys (found in live verification: the live manifest carried `dashboard_validation_path`) — keeps batches resumable across schema drift
+- [x] Make manifest loading tolerant of unknown/legacy artifact keys (found in live verification: the live manifest carried `dashboard_validation_path`) — keeps batches resumable across schema drift (PR #23, merged + live-verified)
 
 ### Live verification (Colab — neither chat nor local Claude Code can do this)
 - [ ] Run the repaired rebuild against the live batch from `ERROR_REQUIRES_REVIEW` / `REFRESH_DASHBOARD`
@@ -67,6 +67,18 @@ Each piece: same discipline as Phase 1 — implement, red→green tests, stop fo
 - [ ] Recommendation rationale tied to evidence quality and role/operator timing
 - [ ] Explicit uncertainty & missing-evidence requirements
 - [ ] Structured recommendation artifact produced before the second human review
+
+### Candidate Priority Engine (deterministic; shipped — framework "V4.2-interim")
+- [x] Commit 1 — signal conversion + reconciled scale-path; single source-of-truth vocabulary + closure test (commit `2023dca`)
+- [x] Commit 2 — agency-entry + archetype producers (verbatim cell159) + shared `reset_signal` text-scan, no hardcoded company names (commit `f06ccca`; §5a fixup `514aac8`)
+- [x] Commit 4 — V4.1 gate + V4.2 public/near-IPO cap + `compute_candidate_priority` orchestrator; emits P0–P3 only (commit `760e958`)
+- [x] Merge to `main` (PR #24)
+- [ ] (deferred) Real LLM-scored capability-fit (3-attribute A1/A2/A3) + fit-brief prompt change — replaces the interim `role_fit` bridge; candidate priorities are "V4.2-interim" until this lands
+- [ ] (deferred — gated on real capability-fit) Commit 5 — make candidate priority authoritative for `final_priority_level` unless a genuine human override; fix the false "Human Reviewed" labeling and the sticky `reviewed_priority_level` auto-seed
+- [ ] (deferred — after Commit 5) Commit 6 — master remediation of already-contaminated derived columns + polluted `reviewed_priority_level`
+
+#### Candidate-engine live verification (Colab — owner: you)
+- [ ] Definitive end-to-end golden-master: raw signals → producers → gate, against the live master (the export lacked raw text signals; gate validated 48/48 against recorded producer outputs so far)
 
 ---
 
