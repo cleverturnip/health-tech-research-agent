@@ -49,9 +49,17 @@ Goal: get `boston_blind_spot_batch_1` from `ERROR_REQUIRES_REVIEW` / `REFRESH_DA
 
 The biggest gap between "polished back half" and "agent a user can actually ask to find companies." Order matters: extract the research runner first, since everything else here depends on it.
 
-> **Why this is the current milestone.** Extracting the research runner into the package is the unblocking task. Real capability-fit (Phase 3) needs the fit-brief prompt to gain the capability-fit field *in the package* (not the notebook), which requires the research runner to live in the package first. The dependency cascades: research runner → real capability-fit → Commit 5 (candidate → `final_priority_level` authority) → Commit 6 (master remediation).
+> **Why this is the current milestone.** Slice 1 (research-runner extraction) is **done** (PR #29) — it moved the fit-brief prompt into the package, which is what lets the next slices add research fields there. The dependency now cascades: **Slices 2–4** (structured evidence → reset → real capability-fit) → **full data regeneration** (run-once) → **Commit 5** (candidate → `final_priority_level` authority) → **Commit 6** (master remediation) → **calibration**.
 
-- [ ] **Extract the research runner into the package** — package-level function with retries and per-company recovery, out of notebook logic (Step 4 / Step 7). *Highest leverage; do first.*
+- [x] **Slice 1 — Extract the research runner into the package** — package `run_research_batch` with per-company error recovery + faithful resume; byte-identical prompts; notebook rewired to package shims; offline suite (143 tests) + live Colab validation (fresh research, resume, Step 26 contract) all green. (PR #29)
+- [ ] **Slice 2 — Structured-evidence fields (maturity + commercial)** — LLM gathers facts (funding stage, revenue / paying customers, red-flag answers); deterministic rules derive the maturity label and the 0–3 commercial signal with funding structurally excluded. Fixes the Function "late-stage" and Solace "funding-as-commercial" audit findings. Spec: `specs/slice2_structured_evidence_spec.md`
+- [ ] **Slice 3 — Reset as a researched field** — LLM researches the reset event + the "high-agency opening" question; a deterministic rule fires reset for a genuine opening (ZOE-type) but not a defensive pivot (Noom-type). Replaces the manual-only field the engine now reads. Spec: `specs/slice3_reset_researched_spec.md`
+- [ ] **Slice 4 — Real capability-fit (3-attribute A1/A2/A3)** — replaces the interim `role_fit` bridge, flips the framework off "V4.2-interim", and unblocks Commit 5. (Same item is cross-referenced under Phase 3 → Candidate Priority Engine.) Spec: `specs/slice4_capability_fit_spec.md`
+
+> After Slices 2–4 land, the downstream held chain runs **in order** — full data regeneration (run-once) → Commit 5 → Commit 6 → calibration — tracked under Phase 3 → Candidate Priority Engine. Operational do-before-refresh reminders live in `specs/phase2_refresh_runbook.md`.
+
+The remaining Phase 2 items below are the separate **candidate-discovery** track (finding & proposing new companies), not the research-quality slices above:
+
 - [ ] Raw archive & data-depth remediation rules — move into package functions
 - [ ] Candidate discovery function — source-backed rationale, out of manual/notebook research
 - [ ] Deduplication against master and current batches
@@ -79,10 +87,13 @@ Each piece: same discipline as Phase 1 — implement, red→green tests, stop fo
 - [x] Merge to `main` (PR #24)
 - [x] Commit A — reset reads the researched `reset_or_restructure_signal` field; text-scan retired (fixes the audit's 6 false-positive / 1 false-negative finding: videahealth-type incidental "integration", ZOE-type manual override) (PR #27)
 - [x] Commit B — P0 scale-path accepts strong commercial OR institutional OR dual; standalone `institutional ≥ 3` dropped so strong-D2C (e.g. Oura) can reach P0. Strict `commercial == 3` definition and all other P0 conditions unchanged (PR #27)
-- [ ] (deferred) Real LLM-scored capability-fit (3-attribute A1/A2/A3) + fit-brief prompt change — replaces the interim `role_fit` bridge; candidate priorities are "V4.2-interim" until this lands
-- [ ] (deferred — gated on real capability-fit) Commit 5 — make candidate priority authoritative for `final_priority_level` unless a genuine human override; fix the false "Human Reviewed" labeling and the sticky `reviewed_priority_level` auto-seed
-- [ ] (deferred — after Commit 5) Commit 6 — master remediation of already-contaminated derived columns + polluted `reviewed_priority_level`
-- [ ] (held — separate track) Data regeneration to fix research integrity issues the audit surfaced: funding-as-commercial (e.g. Solace), mislabeled maturity (e.g. Function Health read late-stage despite Series-B/hypergrowth evidence), and reset field-coverage gaps. The engine logic fixes (A/B) are independent of this.
+- [ ] **Real LLM-scored capability-fit (3-attribute A1/A2/A3)** — now tracked as **Phase 2 → Slice 4** (`specs/slice4_capability_fit_spec.md`). Replaces the interim `role_fit` bridge; candidate priorities stay "V4.2-interim" until it lands.
+
+Downstream held chain (runs **in order**, only after Slices 2–4 are merged):
+- [ ] (held — **RUN-ONCE**, only AFTER Slices 2–4 are all merged) **Full data regeneration** — re-research the master on the hardened pipeline to clear the audit's integrity gaps (funding-as-commercial / Solace; mislabeled maturity / Function Health late-stage-vs-Series-B; dead reset signal; bridge capability-fit). Running it on the interim pipeline would bake those gaps into the "trusted" data and force a second expensive refresh — so it waits. See `specs/phase2_refresh_runbook.md`.
+- [ ] (deferred — gated on real capability-fit, on regenerated data) **Commit 5** — make candidate priority authoritative for `final_priority_level` unless a genuine human override; fix the false "Human Reviewed" labeling and the sticky `reviewed_priority_level` auto-seed.
+- [ ] (deferred — after Commit 5) **Commit 6** — master remediation of already-contaminated derived columns + polluted `reviewed_priority_level`.
+- [ ] (deferred — after Commit 6) **Calibration** — tune the moderate/weak signal boundaries (judge too-strict vs too-loose) ONLY against the trusted regenerated distribution, never the interim data.
 
 #### Candidate-engine live verification (Colab — owner: you)
 - [ ] Definitive end-to-end golden-master: raw signals → producers → gate, against the live master (the export lacked raw text signals; gate validated 48/48 against recorded producer outputs so far)
