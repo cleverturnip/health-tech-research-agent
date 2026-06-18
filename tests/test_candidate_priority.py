@@ -24,9 +24,13 @@ from health_tech_research_agent.candidate_priority import (
     STRONG_DUAL_ENGINE,
     STRONG_INSTITUTIONAL_ENGINE,
     WEAK_OR_UNCLEAR,
+    capability_fit_score,
     infer_signals,
+    operator_agency_entry_score,
+    reset_signal,
     scale_path_quality,
     signal_text_to_score,
+    target_archetype,
 )
 
 
@@ -133,3 +137,107 @@ def test_credible_dual_path_accepted_by_gate_but_never_emitted():
     # spec 2c: the gate accepts it, the producer must never emit it.
     assert CREDIBLE_DUAL_PATH in cp.HAS_STRONG_SCALE_PATH
     assert CREDIBLE_DUAL_PATH not in _all_producer_outputs()
+
+
+# ---------------------------------------------------------------------------
+# §9 — reset signal (text-scan, no hardcoded company names)
+# ---------------------------------------------------------------------------
+
+def test_reset_signal_text_scan():
+    assert reset_signal({"review_notes": "leadership churn and a pivot"}) is True
+    assert reset_signal({"final_takeaway": "steady growth, strong retention"}) is False
+
+
+def test_reset_signal_has_no_hardcoded_company_names():
+    # A company name alone (e.g. ZOE) must never trigger reset — only researched text does.
+    assert reset_signal({"company": "ZOE", "final_takeaway": "steady growth"}) is False
+
+
+# ---------------------------------------------------------------------------
+# §3 — agency-entry: band precedence (max/min stacking is authoritative)
+# ---------------------------------------------------------------------------
+
+def test_agency_entry_band_precedence_stacks_via_max():
+    # early-growth(86) + ideal(85) + high-agency(80): the highest floor must win.
+    row = {
+        "operator_timing_score": 70,
+        "katelynd_role_fit_score": 82,
+        "pmf_scale_score": 74,
+        "evidence_confidence_score": 60,
+        "company_maturity_read": "early-growth",
+        "stage_timing_fit": "ideal",
+        "likely_agency_level": "high",
+    }
+    assert operator_agency_entry_score(row) == 86
+
+
+def test_agency_entry_public_ceiling_without_high_agency():
+    row = {
+        "operator_timing_score": 90,
+        "company_maturity_read": "public",
+        "stage_timing_fit": "good",
+    }
+    assert operator_agency_entry_score(row) == 58
+
+
+def test_agency_entry_reset_lifts_mature_scaleup():
+    row = {
+        "operator_timing_score": 50,
+        "company_maturity_read": "scale-up",
+        "stage_timing_fit": "good",
+        "final_takeaway": "major restructure and turnaround underway",
+    }
+    assert operator_agency_entry_score(row) == 78
+
+
+def test_agency_entry_clamped_and_int():
+    score = operator_agency_entry_score({"operator_timing_score": 150})
+    assert isinstance(score, int) and score == 100
+
+
+# ---------------------------------------------------------------------------
+# §4 — interim capability-fit bridge
+# ---------------------------------------------------------------------------
+
+def test_capability_fit_is_role_fit_bridge():
+    assert capability_fit_score({"katelynd_role_fit_score": 81}) == 81
+
+
+# ---------------------------------------------------------------------------
+# §5 — archetype, incl. the reconciled-vocab eligibility (item 5a, same bug-class as §2)
+# ---------------------------------------------------------------------------
+
+def _ideal_row():
+    return {
+        "pmf_scale_score": 75,
+        "evidence_confidence_score": 60,
+        "company_maturity_read": "early-growth",
+        "stage_timing_fit": "ideal",
+    }
+
+
+def test_archetype_institutional_strong_qualifies_ideal():
+    # The reconciled producer emits strong_institutional_engine; the archetype
+    # eligibility list must recognize it. Under the OLD list (strong_single_engine)
+    # this same company silently fails to "Role-scope-dependent" — the §2 bug class.
+    result = target_archetype(_ideal_row(), capability_fit=80, agency_entry=85,
+                              scale_path=STRONG_INSTITUTIONAL_ENGINE)
+    assert result == "Ideal early-growth / high-agency target"
+
+
+def test_archetype_mature_benchmark():
+    row = {"pmf_scale_score": 85, "evidence_confidence_score": 65,
+           "company_maturity_read": "late-stage", "stage_timing_fit": "borderline"}
+    assert target_archetype(row, 70, 60, EMERGING_PATH) == "Strong but mature benchmark"
+
+
+def test_archetype_role_scope_dependent():
+    row = {"pmf_scale_score": 66, "evidence_confidence_score": 55,
+           "company_maturity_read": "early-growth", "stage_timing_fit": "good"}
+    assert target_archetype(row, 75, 70, CREDIBLE_PATH) == "Role-scope-dependent target"
+
+
+def test_archetype_under_proven():
+    row = {"pmf_scale_score": 50, "evidence_confidence_score": 40,
+           "company_maturity_read": "early-growth", "stage_timing_fit": "good"}
+    assert target_archetype(row, 80, 85, CREDIBLE_PATH) == "Interesting but under-proven"
