@@ -1,0 +1,432 @@
+"""Tests for the candidate-priority engine, Commit 1: signal conversion (§1)
+and the reconciled scale-path classifier (§2).
+
+The load-bearing test is `test_producer_outputs_are_all_gate_recognized` — the
+vocabulary closure test. cell159 emitted `strong_single_engine` /
+`credible_single_engine` / `outcomes_plus_path`, names the V4.1 gate's accepted
+lists do not contain; such a value silently reads as "no scale path" and demotes
+a strong company. This test fails for any producer output the gate would not
+recognize, so a vocabulary regression can never ship silently.
+"""
+
+from itertools import product
+
+import pytest
+
+from health_tech_research_agent import candidate_priority as cp
+from health_tech_research_agent.candidate_priority import (
+    CREDIBLE_DUAL_PATH,
+    CREDIBLE_PATH,
+    EMERGING_PATH,
+    PRODUCER_SCALE_PATHS,
+    RECOGNIZED_SCALE_PATHS,
+    STRONG_COMMERCIAL_ENGINE,
+    STRONG_DUAL_ENGINE,
+    STRONG_INSTITUTIONAL_ENGINE,
+    WEAK_OR_UNCLEAR,
+    apply_public_near_ipo_cap,
+    capability_fit_score,
+    compute_candidate_priority,
+    infer_signals,
+    operator_agency_entry_score,
+    reset_signal,
+    scale_path_quality,
+    signal_text_to_score,
+    target_archetype,
+    v41_gate,
+)
+
+
+# ---------------------------------------------------------------------------
+# §1 — signal conversion
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("strong", 3), ("Strong", 3), ("  STRONG ", 3),
+        ("moderate", 2), ("weak", 1),
+        ("none", 0), ("", 0), (None, 0), ("anything-else", 0),
+    ],
+)
+def test_signal_text_to_score(text, expected):
+    assert signal_text_to_score(text) == expected
+
+
+def test_infer_signals_reads_text_columns():
+    row = {
+        "commercial_scale_signal": "strong",
+        "institutional_distribution_signal": "moderate",
+        "outcomes_signal": "weak",
+    }
+    assert infer_signals(row) == {
+        "commercial_scale_signal_inferred": 3,
+        "institutional_distribution_signal_inferred": 2,
+        "outcomes_signal_inferred": 1,
+    }
+
+
+# ---------------------------------------------------------------------------
+# §2 — reconciled scale-path: one case per branch
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "commercial, institutional, outcomes, pmf, evidence, plausible, expected",
+    [
+        # both strong -> dual
+        (3, 3, 0, 0, 0, False, STRONG_DUAL_ENGINE),
+        # institutional-only strong, qualifies via outcomes>=2 -> institutional engine
+        (0, 3, 2, 0, 0, False, STRONG_INSTITUTIONAL_ENGINE),
+        # institutional-only strong, qualifies via pmf>=78 -> institutional engine
+        (1, 3, 0, 78, 0, False, STRONG_INSTITUTIONAL_ENGINE),
+        # institutional-only strong, fails both -> credible_path (was credible_single_engine)
+        (0, 3, 0, 50, 0, False, CREDIBLE_PATH),
+        # commercial-only strong, qualifies -> commercial engine
+        (3, 0, 2, 0, 0, False, STRONG_COMMERCIAL_ENGINE),
+        # commercial-only strong, fails both -> credible_path
+        (3, 1, 0, 50, 0, False, CREDIBLE_PATH),
+        # plausible path
+        (1, 1, 0, 70, 60, True, CREDIBLE_PATH),
+        # outcomes-led (was outcomes_plus_path) -> emerging
+        (2, 0, 3, 0, 0, False, EMERGING_PATH),
+        # some signal >= 2 -> emerging
+        (0, 2, 0, 0, 0, False, EMERGING_PATH),
+        # nothing -> weak_or_unclear
+        (1, 1, 1, 0, 0, False, WEAK_OR_UNCLEAR),
+        (0, 0, 0, 0, 0, False, WEAK_OR_UNCLEAR),
+    ],
+)
+def test_scale_path_branches(commercial, institutional, outcomes, pmf, evidence, plausible, expected):
+    assert scale_path_quality(commercial, institutional, outcomes, pmf, evidence, plausible) == expected
+
+
+def test_scale_path_nan_pmf_treated_as_failing_threshold():
+    # institutional-only strong, outcomes<2, pmf is NaN -> must not qualify as strong
+    assert scale_path_quality(0, 3, 0, float("nan"), 0, False) == CREDIBLE_PATH
+
+
+# ---------------------------------------------------------------------------
+# THE LINCHPIN — vocabulary closure (producer outputs ⊆ gate-recognized names)
+# ---------------------------------------------------------------------------
+
+def _all_producer_outputs():
+    """Every scale_path_quality output across the full signal space."""
+    outputs = set()
+    for commercial, institutional, outcomes in product(range(4), repeat=3):
+        for pmf in (0, 50, 68, 78, 90):
+            for evidence in (0, 50, 60):
+                for plausible in (True, False):
+                    outputs.add(
+                        scale_path_quality(commercial, institutional, outcomes, pmf, evidence, plausible)
+                    )
+    return outputs
+
+
+def test_producer_outputs_are_all_gate_recognized():
+    # Exhaustive: nothing the producer can emit is unknown to the gate.
+    observed = _all_producer_outputs()
+    unrecognized = observed - RECOGNIZED_SCALE_PATHS
+    assert not unrecognized, f"producer emits gate-unrecognized scale paths: {sorted(unrecognized)}"
+
+
+def test_declared_producer_vocabulary_matches_reality():
+    # The declared emittable set equals what the function actually emits...
+    assert _all_producer_outputs() == set(PRODUCER_SCALE_PATHS)
+    # ...and the declared set is a subset of what the gate recognizes.
+    assert PRODUCER_SCALE_PATHS <= RECOGNIZED_SCALE_PATHS
+
+
+def test_credible_dual_path_accepted_by_gate_but_never_emitted():
+    # spec 2c: the gate accepts it, the producer must never emit it.
+    assert CREDIBLE_DUAL_PATH in cp.HAS_STRONG_SCALE_PATH
+    assert CREDIBLE_DUAL_PATH not in _all_producer_outputs()
+
+
+# ---------------------------------------------------------------------------
+# §9 — reset signal (text-scan, no hardcoded company names)
+# ---------------------------------------------------------------------------
+
+def test_reset_signal_text_scan():
+    assert reset_signal({"review_notes": "leadership churn and a pivot"}) is True
+    assert reset_signal({"final_takeaway": "steady growth, strong retention"}) is False
+
+
+def test_reset_signal_has_no_hardcoded_company_names():
+    # A company name alone (e.g. ZOE) must never trigger reset — only researched text does.
+    assert reset_signal({"company": "ZOE", "final_takeaway": "steady growth"}) is False
+
+
+# ---------------------------------------------------------------------------
+# §3 — agency-entry: band precedence (max/min stacking is authoritative)
+# ---------------------------------------------------------------------------
+
+def test_agency_entry_band_precedence_stacks_via_max():
+    # early-growth(86) + ideal(85) + high-agency(80): the highest floor must win.
+    row = {
+        "operator_timing_score": 70,
+        "katelynd_role_fit_score": 82,
+        "pmf_scale_score": 74,
+        "evidence_confidence_score": 60,
+        "company_maturity_read": "early-growth",
+        "stage_timing_fit": "ideal",
+        "likely_agency_level": "high",
+    }
+    assert operator_agency_entry_score(row) == 86
+
+
+def test_agency_entry_public_ceiling_without_high_agency():
+    row = {
+        "operator_timing_score": 90,
+        "company_maturity_read": "public",
+        "stage_timing_fit": "good",
+    }
+    assert operator_agency_entry_score(row) == 58
+
+
+def test_agency_entry_reset_lifts_mature_scaleup():
+    row = {
+        "operator_timing_score": 50,
+        "company_maturity_read": "scale-up",
+        "stage_timing_fit": "good",
+        "final_takeaway": "major restructure and turnaround underway",
+    }
+    assert operator_agency_entry_score(row) == 78
+
+
+def test_agency_entry_clamped_and_int():
+    score = operator_agency_entry_score({"operator_timing_score": 150})
+    assert isinstance(score, int) and score == 100
+
+
+# ---------------------------------------------------------------------------
+# §4 — interim capability-fit bridge
+# ---------------------------------------------------------------------------
+
+def test_capability_fit_is_role_fit_bridge():
+    assert capability_fit_score({"katelynd_role_fit_score": 81}) == 81
+
+
+# ---------------------------------------------------------------------------
+# §5 — archetype, incl. the reconciled-vocab eligibility (item 5a, same bug-class as §2)
+# ---------------------------------------------------------------------------
+
+def _ideal_row():
+    return {
+        "pmf_scale_score": 75,
+        "evidence_confidence_score": 60,
+        "company_maturity_read": "early-growth",
+        "stage_timing_fit": "ideal",
+    }
+
+
+def test_archetype_institutional_strong_qualifies_ideal():
+    # The reconciled producer emits strong_institutional_engine; the archetype
+    # eligibility list must recognize it. Under the OLD list (strong_single_engine)
+    # this same company silently fails to "Role-scope-dependent" — the §2 bug class.
+    result = target_archetype(_ideal_row(), capability_fit=80, agency_entry=85,
+                              scale_path=STRONG_INSTITUTIONAL_ENGINE)
+    assert result == "Ideal early-growth / high-agency target"
+
+
+def test_archetype_emerging_path_is_not_ideal():
+    # §5a: emerging_path is excluded from the Ideal pool (gate caps it at P1), so an
+    # otherwise-Ideal early-growth company on emerging_path is Role-scope-dependent.
+    result = target_archetype(_ideal_row(), capability_fit=80, agency_entry=85,
+                              scale_path=EMERGING_PATH)
+    assert result == "Role-scope-dependent target"
+
+
+def test_archetype_mature_benchmark():
+    row = {"pmf_scale_score": 85, "evidence_confidence_score": 65,
+           "company_maturity_read": "late-stage", "stage_timing_fit": "borderline"}
+    assert target_archetype(row, 70, 60, EMERGING_PATH) == "Strong but mature benchmark"
+
+
+def test_archetype_role_scope_dependent():
+    row = {"pmf_scale_score": 66, "evidence_confidence_score": 55,
+           "company_maturity_read": "early-growth", "stage_timing_fit": "good"}
+    assert target_archetype(row, 75, 70, CREDIBLE_PATH) == "Role-scope-dependent target"
+
+
+def test_archetype_under_proven():
+    row = {"pmf_scale_score": 50, "evidence_confidence_score": 40,
+           "company_maturity_read": "early-growth", "stage_timing_fit": "good"}
+    assert target_archetype(row, 80, 85, CREDIBLE_PATH) == "Interesting but under-proven"
+
+
+# ---------------------------------------------------------------------------
+# §6 — V4.1 gate decision matrix
+# ---------------------------------------------------------------------------
+
+def _p0_inputs(**over):
+    """A fully P0-qualifying input set; override fields to reach other tiers."""
+    base = dict(
+        maturity="early-growth", stage_fit="ideal", agency_level="high",
+        thesis=85, pmf=80, evidence=65, capability=85, agency=85,
+        scale_path=STRONG_INSTITUTIONAL_ENGINE, commercial=0, institutional=3, outcomes=2,
+        archetype="Ideal early-growth / high-agency target", has_reset=False,
+    )
+    base.update(over)
+    return base
+
+
+def test_gate_p0():
+    assert v41_gate(**_p0_inputs()) == "P0"
+
+
+def test_gate_evidence_boundary_is_the_affect_case():
+    # evidence 60 passes the P0 gate; 59 drops to P1 — exactly the Affect case.
+    assert v41_gate(**_p0_inputs(evidence=60)) == "P0"
+    assert v41_gate(**_p0_inputs(evidence=59)) == "P1"
+
+
+def test_gate_p0_thresholds_each_drop_to_p1():
+    # Each P0 score threshold, just below, drops to P1 (still clears P1 floors).
+    assert v41_gate(**_p0_inputs(thesis=77)) == "P1"
+    assert v41_gate(**_p0_inputs(pmf=73)) == "P1"
+    assert v41_gate(**_p0_inputs(capability=77)) == "P1"
+    assert v41_gate(**_p0_inputs(agency=81)) == "P1"
+
+
+def test_gate_p1_standard():
+    # institutional<3 fails P0's strong-channel requirement -> P1 standard.
+    assert v41_gate(**_p0_inputs(scale_path=CREDIBLE_PATH, institutional=2, outcomes=1)) == "P1"
+
+
+def test_gate_p1_special_early_growth_emerging():
+    assert v41_gate(**_p0_inputs(
+        scale_path=EMERGING_PATH, institutional=2, outcomes=2,
+        archetype="Role-scope-dependent target",
+    )) == "P1"
+
+
+def test_gate_p1_special_scaleup_reset():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="good", has_reset=True,
+        scale_path=CREDIBLE_PATH, institutional=1, outcomes=1,
+        archetype="Role-scope-dependent target",
+    )) == "P1"
+
+
+def test_gate_mature_benchmark_in_gate_cap():
+    # late-stage with otherwise-P1 scores -> mature cap removes P0/P1 -> P2.
+    assert v41_gate(**_p0_inputs(
+        maturity="late-stage", scale_path=CREDIBLE_PATH, institutional=2, outcomes=1,
+        archetype="Strong but mature benchmark",
+    )) == "P2"
+
+
+def test_gate_scaleup_borderline_no_reset_capped():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="borderline", has_reset=False,
+        scale_path=CREDIBLE_PATH, institutional=2, outcomes=1,
+        archetype="Role-scope-dependent target",
+    )) == "P2"
+
+
+def test_gate_p2_floor():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="borderline",
+        thesis=66, pmf=66, evidence=50, capability=66, agency=66,
+        scale_path=CREDIBLE_PATH, institutional=1, outcomes=1,
+        archetype="Role-scope-dependent target",
+    )) == "P2"
+
+
+def test_gate_p3_under_proven_and_weak_fit():
+    assert v41_gate(**_p0_inputs(archetype="Interesting but under-proven")) == "P3"
+    assert v41_gate(**_p0_inputs(archetype="Watch list / weak fit")) == "P3"
+
+
+def test_gate_p3_fails_p2_floor():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="borderline", pmf=50, evidence=40,
+        scale_path=WEAK_OR_UNCLEAR, institutional=0, outcomes=0,
+        archetype="Role-scope-dependent target",
+    )) == "P3"
+
+
+# ---------------------------------------------------------------------------
+# §7 — public / near-IPO cap overlay (Q4)
+# ---------------------------------------------------------------------------
+
+def test_cap_public_without_reset_forced_p3():
+    assert apply_public_near_ipo_cap("P2", "public", has_reset=False) == "P3"
+    assert apply_public_near_ipo_cap("P1", "near-ipo", has_reset=False) == "P3"
+
+
+def test_cap_public_with_reset_not_forced():
+    assert apply_public_near_ipo_cap("P2", "public", has_reset=True) == "P2"
+
+
+def test_cap_never_promotes():
+    assert apply_public_near_ipo_cap("P3", "early-growth", has_reset=False) == "P3"
+
+
+# ---------------------------------------------------------------------------
+# Q4 end-to-end: public+reset -> P2 (never P0, never P3); public(no reset) -> P3
+# ---------------------------------------------------------------------------
+
+def _public_row(has_reset_text):
+    row = {
+        "company_maturity_read": "public", "stage_timing_fit": "good",
+        "likely_agency_level": "high",
+        "thesis_fit_score": 85, "pmf_scale_score": 82, "evidence_confidence_score": 65,
+        "katelynd_role_fit_score": 80,  # interim capability
+        "operator_timing_score": 80,
+        "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
+        "outcomes_signal": "strong",
+    }
+    if has_reset_text:
+        row["final_takeaway"] = "major restructure and turnaround underway"
+    return row
+
+
+def test_q4_public_with_reset_is_p2():
+    result = compute_candidate_priority(_public_row(has_reset_text=True))
+    assert result["candidate_priority_code"] == "P2"
+
+
+def test_q4_public_without_reset_is_p3():
+    result = compute_candidate_priority(_public_row(has_reset_text=False))
+    assert result["candidate_priority_code"] == "P3"
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator outputs (§8) — P0-P3 only, interim framework stamp
+# ---------------------------------------------------------------------------
+
+def test_compute_candidate_priority_outputs():
+    row = {
+        "company_maturity_read": "early-growth", "stage_timing_fit": "ideal",
+        "likely_agency_level": "high",
+        "thesis_fit_score": 85, "pmf_scale_score": 80, "evidence_confidence_score": 65,
+        "katelynd_role_fit_score": 85, "operator_timing_score": 85,
+        "commercial_scale_signal": "weak", "institutional_distribution_signal": "strong",
+        "outcomes_signal": "moderate",
+    }
+    out = compute_candidate_priority(row, now_iso="2026-06-18T00:00:00Z")
+    assert out["candidate_priority_code"] == "P0"
+    assert out["candidate_priority_level"] == "P0: Active pursuit target"
+    assert out["candidate_priority_rank"] == 0
+    assert out["candidate_priority_framework_version"] == "V4.2-interim"
+    # interim capability-fit == role_fit bridge
+    assert out["katelynd_capability_fit_score"] == 85
+
+
+def test_engine_never_emits_p4():
+    # Q5: candidate engine ranks P0-P3 only.
+    levels = set()
+    for thesis in (90, 70, 40):
+        for inst in (3, 1, 0):
+            for mat in ("early-growth", "scale-up", "public", "late-stage"):
+                out = compute_candidate_priority({
+                    "company_maturity_read": mat, "stage_timing_fit": "ideal",
+                    "likely_agency_level": "high", "thesis_fit_score": thesis,
+                    "pmf_scale_score": thesis, "evidence_confidence_score": thesis,
+                    "katelynd_role_fit_score": thesis, "operator_timing_score": thesis,
+                    "institutional_distribution_signal": {3: "strong", 1: "weak", 0: "none"}[inst],
+                    "commercial_scale_signal": "none", "outcomes_signal": "moderate",
+                })
+                levels.add(out["candidate_priority_code"])
+    assert levels <= {"P0", "P1", "P2", "P3"}
