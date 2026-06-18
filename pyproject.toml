@@ -17,6 +17,13 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# The research runner calls the OpenAI API. It is an OPTIONAL extra, not a hard
+# dependency: the package must import and the test suite must run offline with no
+# API key (tests inject a fake client). Install with `pip install -e .[research]`
+# in the environment that actually runs live research (e.g. Colab).
+research = [
+    "openai>=1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

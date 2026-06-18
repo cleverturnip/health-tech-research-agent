@@ -34,10 +34,23 @@ Important:
 import os
 import time
 import json
+import sys
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
 from openai import OpenAI, RateLimitError, APIError
 from google.colab import userdata
+
+# --- Make the version-controlled package importable. Same precedent the fit-brief
+# --- taxonomy block already used (sys.path -> repo/src). The research runner now
+# --- lives in the package: src/health_tech_research_agent/research_runner.py
+REPO_DIR = Path("/content/health-tech-research-agent")
+SRC_DIR = REPO_DIR / "src"
+if SRC_DIR.exists() and str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from health_tech_research_agent import research_runner as _research_runner
+from health_tech_research_agent.research_runner import run_research_batch
 
 # Pull your API key securely from Colab Secrets
 os.environ["OPENAI_API_KEY"] = userdata.get("OPENAI_API_KEY")
@@ -59,36 +72,20 @@ MAX_RETRIES = 3
 # =============================================================================
 
 def call_openai(prompt, use_web_search=False, max_output_tokens=500):
+    """Notebook shim -> package call_openai (src/.../research_runner.py).
+
+    Binds the live OpenAI client, MODEL, and MAX_RETRIES to the package
+    implementation. Behavior is unchanged (retry on RateLimitError with
+    90*attempt waits; APIError re-raises immediately); only the source moved.
     """
-    Sends a prompt to OpenAI.
-    If use_web_search=True, it enables the web search tool.
-    Includes retry logic for rate-limit errors.
-    """
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            kwargs = {
-                "model": MODEL,
-                "input": prompt,
-                "max_output_tokens": max_output_tokens,
-            }
-
-            if use_web_search:
-                kwargs["tools"] = [{"type": "web_search"}]
-                kwargs["tool_choice"] = "auto"
-
-            response = client.responses.create(**kwargs)
-            return response.output_text
-
-        except RateLimitError as e:
-            wait_time = 90 * attempt
-            print(f"Rate limit hit. Waiting {wait_time} seconds before retry {attempt}/{MAX_RETRIES}...")
-            time.sleep(wait_time)
-
-        except APIError as e:
-            print(f"API error: {e}")
-            raise
-
-    raise RuntimeError("Max retries reached. Try again later or reduce the company batch size.")
+    return _research_runner.call_openai(
+        prompt,
+        client=client,
+        model=MODEL,
+        use_web_search=use_web_search,
+        max_output_tokens=max_output_tokens,
+        max_retries=MAX_RETRIES,
+    )
 
 # =============================================================================
 
@@ -118,130 +115,23 @@ def call_openai(prompt, use_web_search=False, max_output_tokens=500):
 # - call_openai(prompt, use_web_search=True, max_output_tokens=...)
 
 def search_funding(research_query):
-    prompt = f"""
-Use live web search to find the latest credible funding, valuation, stage, investors, and company maturity signals for:
-
-{research_query}
-
-Look specifically for:
-- latest funding round
-- total funding
-- valuation
-- named investors
-- company stage
-- major acquisitions or strategic investments
-- IPO/S-1/public company status if applicable
-- evidence that funding supports growth versus survival
-
-Important:
-- Prefer company announcements, SEC filings, Crunchbase/PitchBook summaries, TechCrunch, Forbes, Business Insider, Fierce Healthcare, MobiHealthNews, Healthcare Dive, STAT, Rock Health, or reputable investor/VC pages.
-- Do not overstate uncertain funding information.
-- If source quality is weak, say so.
-
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public funding evidence found."
-Keep under 100 words.
-"""
-    return call_openai(prompt, use_web_search=True, max_output_tokens=300)
+    """Notebook shim -> package search_funding (web search ON, 300 tokens)."""
+    return _research_runner.search_funding(research_query, client=client, model=MODEL)
 
 
 def search_payer_signal(research_query):
-    prompt = f"""
-Use live web search to find whether the company has payer, employer, provider, health-system, benefits, pharma, government, or other institutional distribution traction for:
-
-{research_query}
-
-Look specifically for:
-- payer contracts
-- commercial insurance coverage
-- Medicare / Medicaid / CMS activity
-- employer benefits distribution
-- provider / health system partnerships
-- benefits platform partnerships
-- pharma/life sciences partnerships
-- channel partnerships that appear to drive adoption, utilization, covered access, or revenue
-- named customers, covered lives, employer clients, health plans, providers, clinics, or systems
-- evidence that the company has a durable institutional distribution path
-
-Important:
-- Distinguish a real distribution channel from a PR partnership or pilot.
-- One named partnership is useful but should not be overstated as broad institutional traction.
-- If the company is mostly D2C/cash-pay, say that clearly.
-- If there is no payer/employer/provider signal, say so.
-
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public institutional signal found."
-Keep under 120 words.
-"""
-    return call_openai(prompt, use_web_search=True, max_output_tokens=350)
+    """Notebook shim -> package search_payer_signal (web search ON, 350 tokens)."""
+    return _research_runner.search_payer_signal(research_query, client=client, model=MODEL)
 
 
 def search_outcomes(research_query):
-    prompt = f"""
-Use live web search to find credible outcomes, clinical, behavioral, engagement, retention, utilization, or user-impact evidence for:
-
-{research_query}
-
-Look specifically for:
-- peer-reviewed clinical outcomes
-- published real-world evidence
-- clinical trials
-- patient/user outcomes
-- engagement or retention metrics
-- utilization metrics
-- behavior-change evidence
-- satisfaction/NPS if paired with substantive usage or outcome data
-- evidence that the product creates durable user/patient/customer value
-
-Important:
-- Distinguish clinical outcomes from marketing claims.
-- Distinguish user engagement from actual health outcomes.
-- Small pilots, testimonials, and company-only claims should be treated as weak evidence unless supported by specific metrics.
-- If evidence is limited, say so.
-
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public outcomes evidence found."
-Keep under 120 words.
-"""
-    return call_openai(prompt, use_web_search=True, max_output_tokens=350)
+    """Notebook shim -> package search_outcomes (web search ON, 350 tokens)."""
+    return _research_runner.search_outcomes(research_query, client=client, model=MODEL)
 
 
 def search_commercial_scale(research_query):
-    prompt = f"""
-Use live web search to find whether the company has evidence of commercial scale, revenue quality, paid-user scale, or durable growth mechanics for:
-
-{research_query}
-
-Look specifically for:
-- company-reported revenue, ARR, run-rate, GMV, sales, transaction volume, or bookings
-- credible third-party estimated revenue or revenue run-rate
-- credible private-market intelligence sources such as Sacra, The Information, Business Insider, Forbes, PitchBook summaries, CB Insights summaries, or investor reports
-- paid users, subscribers, members, customers, covered lives, active accounts, renewals, or retention
-- year-over-year revenue growth, subscriber growth, customer growth, or cohort expansion
-- renewal rate, churn, retention, repeat purchase, repeat usage, or longitudinal engagement
-- pricing power, annual subscription pricing, add-on revenue, device + subscription model, or high willingness to pay
-- gross margin, scalable margin structure, CAC efficiency, organic demand, waitlist conversion, referrals, or operating leverage
-- implied annualized revenue from paid customers × pricing, when direct ARR is not disclosed
-- evidence that D2C/cash-pay scale can work without payer/employer/provider distribution
-- evidence that institutional channels reduce CAC or improve revenue durability
-
-Important:
-- Clearly distinguish company-reported ARR/revenue from third-party estimated revenue/run-rate.
-- Credible estimated revenue/run-rate should count as a real commercial-scale signal, but label it as estimated.
-- Do not dismiss paid-customer scale just because ARR is not company-reported.
-- Do not over-credit funding, valuation, brand heat, waitlist, downloads, traffic, or vague “fast-growing” claims unless tied to paid usage, retention, revenue, or durable distribution.
-- If revenue is inferred from customer count × pricing, say it is implied/inferred and explain the caveat.
-- If evidence is only marketing language or traffic estimates, say evidence is weak.
-
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public commercial scale evidence found."
-Keep under 150 words.
-"""
-    return call_openai(prompt, use_web_search=True, max_output_tokens=450)
+    """Notebook shim -> package search_commercial_scale (web search ON, 450 tokens)."""
+    return _research_runner.search_commercial_scale(research_query, client=client, model=MODEL)
 
 # =============================================================================
 
@@ -273,340 +163,24 @@ Keep under 150 words.
 
 
 def load_taxonomy_prompt_block_for_fit_brief():
-    """Load controlled taxonomy instructions for the LLM fit brief."""
-    try:
-        from pathlib import Path
-        import sys
-
-        repo_dir = Path("/content/health-tech-research-agent")
-        src_dir = repo_dir / "src"
-
-        if src_dir.exists() and str(src_dir) not in sys.path:
-            sys.path.insert(0, str(src_dir))
-
-        from health_tech_research_agent.taxonomy import build_taxonomy_prompt_block
-
-        return build_taxonomy_prompt_block(repo_dir / "taxonomy")
-    except Exception as e:
-        return (
-            "CONTROLLED HEALTH-TECH TAXONOMY UNAVAILABLE. "
-            "Still return taxonomy_classification using best effort. "
-            f"Taxonomy load error: {e}"
-        )
+    """Notebook shim -> package taxonomy-block loader, pointed at the repo taxonomy dir."""
+    return _research_runner.load_taxonomy_prompt_block_for_fit_brief(REPO_DIR / "taxonomy")
 
 
 def run_company_fit_brief(company_name, latest_status_findings):
-    taxonomy_prompt_block = load_taxonomy_prompt_block_for_fit_brief()
+    """Notebook shim -> package run_company_fit_brief (src/.../research_runner.py).
 
-    prompt = f"""
-You are evaluating a health tech company for Katelynd LaVallee's job search.
-
-Company:
-{company_name}
-
-Latest research findings:
-{latest_status_findings}
-
-Katelynd's background:
-- Former VP of Product Development at Warner Bros. Discovery.
-- 12 years at WBD; progressed from analyst to VP.
-- Led complex consumer digital products, including mobile/live-service products.
-- Managed $50M+ annual operating budgets and organizations of 200+.
-- Strong in product strategy, product operations, data-informed decision-making, consumer insights, experimentation, lifecycle systems, retention/engagement, execution cleanup, operating-model design, and cross-functional alignment.
-- Best-fit environments: complex, high-growth, data-rich products where product, operations, analytics, user behavior, and execution systems need to be connected.
-- Targeting health tech companies where her consumer product/operator background can translate into leadership roles such as VP Product, VP Operations, GM, Chief of Staff to CEO/COO, Commercial/Product Ops, or similar executive operating roles.
-
-Current job-search thesis:
-- Prioritize health tech companies with meaningful patient/user outcomes, recurring engagement, measurable behavior change, data-rich products, and a credible path to scale.
-- Path to scale can come from either:
-  1. durable institutional distribution, such as payer, employer, provider, health-system, benefits, pharma, government, or B2B2C channels; OR
-  2. exceptional commercial traction / revenue quality in a D2C or cash-pay model.
-- D2C is not automatically bad. Unsupported D2C is risky. D2C with credible paid-customer scale, ARR/revenue, subscriber/member growth, renewal/retention, pricing power, repeat usage, or strong recurring monetization can remain highly relevant.
-- Do not overvalue funding, valuation, brand heat, waitlists, downloads, app usage, pricing pages, or vague growth claims unless tied to paid usage, revenue quality, durable distribution, retention, or outcomes.
-
-Preferred stage and role-agency thesis:
-- Katelynd is not primarily looking for a mature enterprise-scale health tech company that already has professionalized executive layers, well-developed operating systems, and narrow leadership lanes.
-- Her highest-fit target is a Series A/B or early Series C company with early product-market fit signs that now needs to scale from early traction toward $100M ARR.
-- The company should have enough traction to prove the market is real, but still enough operating ambiguity that a senior product/operator can materially shape the business.
-- Mature companies can still be useful benchmarks or role-scope-dependent targets, but they should not receive high operator timing scores unless there is specific evidence of high-agency whitespace, a major operating rebuild, a new business line, or unusually immature operating systems relative to revenue/stage.
-
-Core PMF / scale scoring rule:
-For pmf_scale_score, DO NOT average commercial traction and institutional distribution as if both are required.
-
-Instead:
-- Treat revenue quality / commercial traction and payer-employer-provider distribution as alternative primary scale engines.
-- A company can have a strong PMF/scale signal if EITHER:
-  - commercial traction is strong, such as credible revenue, ARR, run-rate, paid users, subscribers, customer/member growth, renewal, retention, pricing power, repeat usage, or credible third-party estimated revenue/run-rate; OR
-  - distribution durability is strong, such as payer, employer, provider, benefits, health-system, pharma, government, or B2B2C adoption.
-- If BOTH commercial traction and institutional distribution are strong, score materially higher.
-- Outcomes / product-value evidence is a validation layer. Strong outcomes evidence strengthens PMF/scale because it suggests durable value. Weak outcomes evidence should create a diligence caveat, but it should NOT erase a strong revenue or distribution scale engine.
-- Evidence confidence is separate. If revenue is credible but estimated, PMF/scale can rise, while evidence_confidence_score should remain moderate rather than high.
-
-Private-company evidence caveat:
-- For private companies, retention, renewal, churn, CAC, gross margin, payback period, and cohort behavior are often not publicly disclosed.
-- Do not heavily penalize a private company simply because those internal operating metrics are unavailable.
-- Missing internal metrics should create a durability caveat and may lower evidence_confidence_score, but should not automatically cap pmf_scale_score if there is credible revenue/run-rate, paid-customer scale, subscriber/member growth, or institutional distribution evidence.
-- Credible estimated revenue/run-rate from sources such as Sacra, The Information, Business Insider, Forbes, PitchBook summaries, CB Insights summaries, or investor materials can support a strong PMF/scale signal, as long as the output clearly labels the figure as estimated rather than company-reported.
-
-PMF / scale interpretation guide:
-- Strong revenue/commercial traction + weak institutional channel + weak outcomes = medium-high PMF/scale, not low.
-- Weak revenue/commercial traction + strong institutional channel + weak outcomes = medium-high PMF/scale, not low.
-- Strong revenue/commercial traction + strong institutional channel + weak outcomes = high PMF/scale.
-- Strong revenue/commercial traction + weak institutional channel + strong outcomes = high PMF/scale.
-- Weak revenue/commercial traction + strong institutional channel + strong outcomes = high PMF/scale.
-- Strong revenue/commercial traction + strong institutional channel + strong outcomes = very high PMF/scale.
-- Weak revenue/commercial traction + weak institutional channel + strong outcomes = low to medium PMF/scale unless there is also a plausible near-term commercial or institutional scale path.
-- Weak revenue/commercial traction + weak institutional channel + weak outcomes = low PMF/scale.
-
-PMF / scale score bands:
-- 90-100: Very strong PMF/scale. Requires multiple strong signals, such as strong commercial traction plus strong institutional distribution, or one exceptional scale engine plus strong outcomes/product-value evidence.
-- 80-89: Strong PMF/scale. Use when there is one strong scale engine plus meaningful supporting evidence from outcomes, retention/engagement, secondary distribution, customer growth, pricing power, renewal, or repeat usage.
-- 70-79: Strong but incomplete PMF/scale. Use when one scale engine is clearly strong and specific, even if outcomes evidence or the secondary scale engine is weak. This is appropriate for private companies with credible estimated revenue/run-rate and paid-customer scale, but missing internal operating metrics.
-- 60-69: Medium PMF/scale. Use when one scale engine is credible but incomplete, or when several moderate signals point in the right direction.
-- 40-59: Weak-to-moderate PMF/scale. Use when there are interesting signals but no clearly proven scale engine.
-- 0-39: Weak PMF/scale. No clear commercial traction, distribution durability, or outcomes/product-value proof.
-
-PMF / scale guardrails:
-- Do not score above 80 based only on funding, valuation, brand awareness, celebrity buzz, waitlist, downloads, pricing pages, or vague “fast-growing” claims.
-- Do not score above 80 based only on estimated revenue unless there is also evidence of paid-customer growth, subscriber/member scale, pricing power, repeat usage, retention/engagement, institutional distribution, or outcomes/product-value durability.
-- Do not require payer/employer/provider distribution for a high PMF/scale score if the company has strong commercial traction.
-- Do not require D2C revenue quality for a high PMF/scale score if the company has strong institutional distribution.
-- Pricing alone, a membership model alone, a waitlist alone, funding alone, or role-fit relevance alone is not enough to establish strong PMF/scale.
-
-Scale signal classification rules:
-
-commercial_scale_signal:
-- Use "strong" only when there is credible revenue, ARR, run-rate, paid-customer scale, subscriber/member scale, strong revenue growth, renewal/retention, repeat usage, pricing power, or credible third-party estimated revenue/run-rate.
-- Use "moderate" when there is a real business model, visible pricing, some usage/customer evidence, or indirect monetization evidence, but no strong public revenue, paid-user, retention, or third-party revenue estimate.
-- Use "weak" when there is pricing or a D2C model but little evidence of actual scale.
-- Use "none" when there is no meaningful public monetization evidence.
-
-institutional_distribution_signal:
-- Use "strong" only when there is credible payer, employer, provider, benefits, health-system, pharma, government, or B2B2C distribution with named customers, covered lives, utilization, revenue, repeated channel evidence, or clear scaled adoption.
-- Use "moderate" when there are pilots, partner pages, employer/provider positioning, limited named partnerships, or channel experiments without proof of scale.
-- Use "weak" when institutional mentions exist but do not appear to drive adoption, revenue, or durable distribution.
-- Use "none" when no meaningful institutional channel is visible.
-
-outcomes_signal:
-- Use "strong" when there is credible peer-reviewed, clinical, real-world, utilization, behavior-change, or health-improvement evidence tied to the company/product.
-- Use "moderate" when evidence is company-reported, small-sample, indirect, engagement-only, validation-only, retrospective, or not clearly outcome-linked.
-- Use "weak" when evidence is mostly marketing claims, testimonials, or indirect product claims.
-- Use "none" when no meaningful outcomes/product-value evidence is found.
-
-plausible_near_term_scale_path:
-- Use true only when the company has a credible path to near-term scale through either commercial traction, institutional distribution, or strong outcomes plus a believable commercial/institutional channel.
-- Use false when the company is interesting but public evidence does not show a clear path from product value to scalable adoption/revenue.
-
-Native priority model:
-- P0: Highest-priority target
-  Use only for the clearest active-pursuit companies. Requires very strong thesis fit, strong PMF/scale, strong role fit, strong operator timing, and either multiple independently strong scale/value signals OR one exceptional scale engine with strong supporting evidence. P0 should be rare.
-- P1: High-priority diligence
-  Use only for companies that are meaningfully stronger than ordinary P2s and close to active pursuit, but not clean enough for P0. P1 still requires strong thesis fit, strong PMF/scale, strong role fit, credible operator timing, and no major timing blocker. Do not use P1 for companies that are public, too late, low-agency, or mainly interesting as market comparables.
-- P2: Worth deeper diligence
-  Use when the company clears the P2 priority gate but still has evidence gaps, timing ambiguity, role-fit questions, missing internal metrics, or one major missing pillar.
-- P3: Watch list
-  Use when the company has some fit or interesting signals, but does not clear the P2 priority gate because scale, evidence, role fit, or timing is not strong enough yet.
-- P4: Low priority / likely reject
-  Use when the company does not currently fit the thesis, has weak scale path, weak role fit, poor timing, or no compelling evidence of relevance.
-
-Hard priority gates:
-- P0 requires thesis_fit_score >= 85, pmf_scale_score >= 80, katelynd_role_fit_score >= 80, operator_timing_score >= 75, evidence_confidence_score >= 60, and stage_timing_fit must not be "too late". P0 should be rare.
-- P1 requires thesis_fit_score >= 80, pmf_scale_score >= 75, katelynd_role_fit_score >= 75, operator_timing_score >= 65, evidence_confidence_score >= 55, and stage_timing_fit must not be "too late".
-- If company_maturity_read is "public", maximum priority is P2 unless the role is explicitly a rare high-agency transformation role.
-- If stage_timing_fit is "too late", maximum priority is P2.
-- If likely_agency_level is "low", maximum priority is P2.
-- Do not use P0 or P1 just because the company is strong. Priority is about Katelynd fit, role agency, timing, and evidence quality together.
-
-Priority gate:
-- P2 requires at least one real reason to believe the company has scale or near-term scale potential.
-- P2 should usually require one of:
-  1. pmf_scale_score >= 70 with evidence_confidence_score >= 50;
-  2. commercial_scale_signal = "strong" with evidence_confidence_score >= 50;
-  3. institutional_distribution_signal = "strong" with evidence_confidence_score >= 50;
-  4. outcomes_signal = "strong" AND plausible_near_term_scale_path = true AND evidence_confidence_score >= 55.
-- P1 should require the P2 gate PLUS strong thesis fit, role fit, and timing, with at least one strong scale engine or a strong outcomes-plus-scale path. P1 is not just a better P2; it is a near-active target.
-- P0 should require P1-level fit PLUS a cleaner active-pursuit case: high PMF/scale, sufficient evidence confidence, and multiple strong scale/value signals or one exceptional scale engine.
-- Strong Katelynd role fit should not override weak PMF/scale evidence.
-- If pmf_scale_score is below 70 and both commercial traction and institutional distribution are weak/none, default to P3 even if thesis_fit_score or katelynd_role_fit_score is high.
-- If evidence_confidence_score is below 50 and pmf_scale_score is below 70, default to P3 unless there is a very clear reason to keep P2.
-- For D2C/cash-pay companies, P2 requires credible commercial-scale evidence or unusually strong outcomes evidence with a plausible commercial path.
-- Pricing alone, a membership model, waitlist, app usage, funding, or role-fit relevance is not enough for P2.
-
-Revenue quality / commercial traction examples:
-- company-reported ARR/revenue/run-rate
-- credible third-party estimated revenue/run-rate, such as Sacra or other private-market intelligence
-- paid members/subscribers/customers
-- renewal rate / retention / churn
-- repeat purchase or repeat usage
-- pricing power
-- scalable margin structure
-- CAC efficiency or organic demand
-- implied annualized revenue from customer count x pricing, if direct ARR is unavailable
-
-Institutional distribution examples:
-- payer coverage or contracts
-- employer benefits distribution
-- provider or health-system adoption
-- benefits platform distribution
-- pharma/life sciences partnerships
-- government/CMS/Medicare/Medicaid activity
-- covered lives, named customers, utilization, or channel-driven revenue
-
-Outcomes / product-value examples:
-- peer-reviewed outcomes
-- real-world evidence
-- clinical trial evidence
-- engagement/retention data tied to value
-- behavior-change data
-- utilization data
-- patient/user improvement metrics
-
-Scoring definitions:
-1. thesis_fit_score
-   Measures strategic alignment with Katelynd's thesis: health tech, meaningful outcomes, recurring engagement, data-rich product, credible scale path, and likely need for operator/product leadership.
-
-2. pmf_scale_score
-   Measures whether the company has credible product-market fit and scale potential.
-   Use the scale-engine logic above. Strong commercial traction OR strong institutional distribution can each independently support a meaningful PMF/scale score.
-   Do not punish private companies simply because internal metrics like churn, CAC, renewal, gross margin, or cohort retention are not public. Treat those as diligence gaps and evidence-confidence caveats.
-
-3. evidence_confidence_score
-   Measures how much to trust the public evidence.
-   Estimated revenue from sources such as Sacra can support PMF/scale, but should usually keep evidence confidence moderate unless corroborated by company-reported data or multiple credible sources.
-
-4. katelynd_role_fit_score
-   Measures whether the company's likely operating problems match Katelynd's specific spike: scaling consumer/patient-facing products through product strategy, operating model design, data-informed decision-making, lifecycle/engagement systems, cross-functional execution, and product-ops/GM leadership.
-
-   This is not a generic "could Katelynd add value?" score. A mature company can have relevant problems but still be a poor Katelynd role fit if the likely roles are narrow, highly specialized, or already owned by mature executive layers.
-
-   High scores require evidence of at least two of:
-   - consumer/patient behavior, engagement, retention, or lifecycle loops matter;
-   - product, operations, analytics, clinical, payer, or commercial functions need stronger connection;
-   - the company is scaling from early traction into repeatable execution;
-   - the business likely needs a senior operator to build systems, cadence, prioritization, and accountability;
-   - a VP Product, VP Ops, GM, Chief of Staff to CEO/COO, Product Ops, or Commercial/Product Strategy leader could own meaningful outcomes.
-
-   Lower scores apply when the company is mostly clinical services, enterprise sales, infrastructure, provider workflow, reimbursement, or narrow functional execution where Katelynd's consumer product/operator background is less central.
-
-5. operator_timing_score
-   Measures whether this is the right maturity window for Katelynd to enter with high agency.
-
-   Katelynd's preferred timing is post-PMF but pre-professionalized scale: typically Series A/B or early Series C, with clear early traction and emerging complexity, but before the company has fully built out mature executive layers and operating systems.
-
-   High scores require evidence that the company likely needs to build or rebuild the operating system needed to scale toward $100M ARR.
-
-   Do not score timing highly just because the company is successful, well-funded, high-growth, famous, or high-revenue. Very mature companies may be excellent businesses but poor timing fits if Katelynd would likely enter a narrow lane with limited agency.
-
-   Timing caps:
-   - Series A/B or equivalent early growth: can score 80-95 if PMF signs and operating complexity are present.
-   - Early Series C / scale-up with major operating ambiguity: can score 70-90.
-   - Late Series C/D or $75M-$150M ARR: cap at 70 unless there is clear evidence of a new business line, major operating rebuild, or unusually high-agency role need.
-   - Series D+ / $100M+ ARR / heavily professionalized org: cap at 60 unless the company is still operationally immature or entering a major new scaling phase.
-   - Public company or post-IPO: cap at 50 unless evaluating a specific role with an unusually broad mandate.
-
-   For mature companies, explicitly distinguish:
-   - "strong company, weak timing";
-   - "strong company, role-scope dependent";
-   - "still early enough for high-agency operator impact."
-
-Calibration rules:
-- If a company has strong commercial traction but weak payer/institutional distribution, do not automatically downgrade PMF/scale. Instead, note that the scale path is commercial/D2C rather than institutional.
-- If a company has strong payer/employer/provider distribution but weak D2C revenue, do not automatically downgrade PMF/scale. Instead, note that the scale path is institutional.
-- If both commercial traction and institutional distribution are weak, PMF/scale should be low unless outcomes/product-value evidence is exceptional and there is a plausible near-term scale path.
-- If PMF/scale is high but evidence confidence is low, flag it.
-- If a company receives P2 despite moderate evidence or PMF, explain the caveat.
-- If a company receives P1, clearly explain why it is differentiated from ordinary P2s but not clean enough for P0.
-- If a company receives P0, clearly explain the active-pursuit rationale.
-- Strong Katelynd role fit should not override weak PMF/scale evidence.
-- A company should not receive P2 solely because Katelynd could add value there or because the company is thesis-relevant.
-- Do NOT flag possible P0/P1 under-promotion for a company whose main strength is a single estimated commercial scale signal if outcomes evidence, institutional distribution, and direct company-reported revenue/retention evidence are still weak or missing. In that case, use a P2 diligence caveat instead.
-
-Return ONLY valid JSON. No markdown. No commentary outside JSON.
-
-Controlled taxonomy instructions:
-{taxonomy_prompt_block}
-
-Important taxonomy rule:
-- Return exactly one primary_market_segment code.
-- Do not put distribution model, wearable/device modality, CGM, D2C, or virtual care into the primary market segment.
-- Use subsegment_tags, product_model_tags, distribution_model_tags, and data_input_tags for nuance.
-- If two primary segments seem plausible, choose the broader mutually exclusive umbrella segment from the taxonomy.
-
-Use this JSON schema exactly:
-
-{{
-  "company": "{company_name}",
-  "verified_facts_with_sources": [
-    "fact with source/date",
-    "fact with source/date"
-  ],
-  "inferences": [
-    "clearly labeled inference",
-    "clearly labeled inference"
-  ],
-  "unverified_or_weak_claims": [
-    "claim or gap"
-  ],
-  "business_model_classification": "short classification",
-  "taxonomy_classification": {{
-    "primary_market_segment": "ONE approved primary market segment code from the controlled taxonomy. Do not invent new codes.",
-    "subsegment_tags": ["zero or more approved subsegment tag codes from the controlled taxonomy"],
-    "product_model_tags": ["zero or more approved product model codes from the controlled taxonomy"],
-    "distribution_model_tags": ["zero or more approved distribution model codes from the controlled taxonomy"],
-    "data_input_tags": ["zero or more approved data/input layer codes from the controlled taxonomy"],
-    "classification_rationale": "short explanation of why the company belongs in the selected primary segment and how nuance was handled"
-  }},
-  "commercial_scale_assessment": "plain-English assessment of revenue quality, paid-customer scale, retention, pricing power, CAC/margin if available, and whether revenue is reported, estimated, or inferred",
-  "pmf_scale_assessment": "plain-English assessment explaining the strongest scale engine, secondary scale engine if any, outcomes/product-value support, and key caveats",
-  "role_timing_assessment": {{
-    "company_maturity_read": "early / early-growth / scale-up / late-stage / public / unclear",
-    "likely_agency_level": "high / medium / low / role-dependent",
-    "stage_timing_fit": "ideal / good / borderline / too late / unclear",
-    "why_now_or_why_not": "short explanation of whether Katelynd can enter with high agency now",
-    "timing_penalty_applied": true
-  }},
-  "scale_signal_assessment": {{
-    "commercial_scale_signal": "strong / moderate / weak / none",
-    "commercial_scale_signal_reason": "short reason",
-    "institutional_distribution_signal": "strong / moderate / weak / none",
-    "institutional_distribution_signal_reason": "short reason",
-    "outcomes_signal": "strong / moderate / weak / none",
-    "outcomes_signal_reason": "short reason",
-    "strong_scale_engine_present": true,
-    "scale_engine_type": "commercial / institutional / both / outcomes_plus_scale_path / none",
-    "plausible_near_term_scale_path": true,
-    "priority_gate_preliminary_result": "qualifies_for_p0 / qualifies_for_p1 / qualifies_for_p2 / does_not_qualify_for_p2",
-    "priority_gate_reason": "short explanation"
-  }},
-  "scores": {{
-    "thesis_fit_score": {{
-      "score": 0,
-      "rationale": "why"
-    }},
-    "pmf_scale_score": {{
-      "score": 0,
-      "rationale": "why, explicitly referencing strongest scale engine logic"
-    }},
-    "evidence_confidence_score": {{
-      "score": 0,
-      "rationale": "why"
-    }},
-    "katelynd_role_fit_score": {{
-      "score": 0,
-      "rationale": "why"
-    }},
-    "operator_timing_score": {{
-      "score": 0,
-      "rationale": "why"
-    }}
-  }},
-  "final_recommendation": "Strong fit, active pursuit / Strong fit, near-priority diligence / Possible fit, pending diligence / Watch list / Weak fit",
-  "priority_level": "P0: Highest-priority target / P1: High-priority diligence / P2: Worth deeper diligence / P3: Watch list / P4: Low priority / likely reject",
-  "calibration_flag": "short flag if needed, otherwise blank string",
-  "final_takeaway": "1-3 sentence concise conclusion"
-}}
-"""
-    return call_openai(prompt, use_web_search=False, max_output_tokens=6500)
+    Binds the live client, MODEL, and repo taxonomy dir. The synthesis prompt, JSON
+    schema, model, web-search-off, and 6500-token cap are unchanged -- the package
+    builds the byte-identical prompt (verified against this file in Commit 1).
+    """
+    return _research_runner.run_company_fit_brief(
+        company_name,
+        latest_status_findings,
+        client=client,
+        model=MODEL,
+        taxonomy_dir=REPO_DIR / "taxonomy",
+    )
 
 # =============================================================================
 
@@ -1088,156 +662,89 @@ drive_batches_folder.mkdir(parents=True, exist_ok=True)
 
 drive_checkpoint_path = drive_batches_folder / f"{BATCH_NAME}_checkpoint.csv"
 
+# =============================================================================
+# COLAB VERIFICATION CHECKLIST - Slice 1 research-runner rewire
+# =============================================================================
+# The offline test suite proves the PACKAGE functions are faithful, but it cannot
+# verify this notebook's wiring to them. After pulling this branch in Colab, run
+# these checks in order. Each line says what you should SEE if the rewire works.
+#
+# 1. Package import resolves (run STEP 1-2):
+#    EXPECT: no ModuleNotFoundError; print(_research_runner.DEFAULT_MODEL) -> "gpt-5.4-mini".
+#    If it fails: confirm the repo is cloned at REPO_DIR and REPO_DIR/src exists.
+#
+# 2. Shims bind with the OLD signatures (run STEP 3-5, then a scratch cell):
+#    EXPECT: callable(call_openai) and callable(run_company_fit_brief) -> True.
+#    EXPECT: call_openai("Reply with the single word OK.") -> short text, no error.
+#    EXPECT: run_company_fit_brief("Test Co", "Funding: seed round.") -> a JSON
+#            string that json.loads() parses (keys include scores, scale_signal_assessment).
+#
+# 3. STEP 7 runs a small batch and produces the SAME 7-column checkpoint:
+#    Set `companies` to ONE real company; run STEP 6 / 6B / 7.
+#    EXPECT: console shows "Researched this run: [<company>]" and "Failed ...: {}".
+#    EXPECT: pd.read_csv(batch_checkpoint_path).columns.tolist() ==
+#            ["company","date_researched","funding_finding",
+#             "payer_institutional_finding","outcomes_finding",
+#             "commercial_scale_finding","fit_brief_json"]   (same schema + order),
+#            exactly one row, every cell non-blank.
+#    EXPECT: the Drive mirror at drive_checkpoint_path matches the local file.
+#    Resume: re-run STEP 7 -> EXPECT "Reused (already complete): [<company>]" and
+#            the company is skipped (not re-researched).
+#
+# 4. Per-company recovery (optional - to watch recovery happen live):
+#    Add one nonsense company name alongside a real one and run STEP 7.
+#    EXPECT: the nonsense one in "Failed (retried on resume)", the real one in
+#            "Researched this run", the batch does NOT abort, and the checkpoint
+#            holds only the real company.
+#
+# 5. STEP 26 still rescores (its exec()-based globals contract):
+#    Run STEP 26 (DRY_RUN) on a couple of companies that have archived evidence.
+#    EXPECT: "PASS: loaded latest Step 5 scoring rubric." and MODEL printed -- i.e.
+#            its assertion that client / MODEL / call_openai / run_company_fit_brief
+#            exist as globals PASSES (now package-backed shims; the names persist).
+#    EXPECT: rescore produces fit briefs with no NameError.
+#
+# 6. STEP 9 backstop still fires on bad JSON (kept as the batch-wide safety net):
+#    EXPECT (normal): STEP 9 reports all fit_brief_json parse OK.
+#    To confirm it still STOPS: hand-edit one checkpoint fit_brief_json cell to
+#    invalid JSON and run STEP 9 -> EXPECT it raises
+#    "Invalid fit_brief_json found. Do not archive until repaired."
+# =============================================================================
+
 # -----------------------------
-# Load checkpoint if it exists
+# Run the batch via the package research runner
 # -----------------------------
+# The loop, per-company checkpointing, and the (new) per-company error recovery now
+# live in the package (src/health_tech_research_agent/research_runner.py), proven
+# faithful by the offline suite. This cell only wires the live client and the
+# Colab/Drive paths into it.
+#
+# Resume is unchanged: companies already complete (all 7 columns non-blank) in the
+# checkpoint are skipped. New: one company's failure (API error, network, or an
+# unparseable fit brief) is caught and recorded; the batch continues, and the failed
+# company is retried on the next run instead of aborting the whole batch.
 
-if checkpoint_path.exists():
-    df_existing = pd.read_csv(checkpoint_path)
+batch_result = run_research_batch(
+    companies,
+    client=client,
+    model=MODEL,
+    checkpoint_path=batch_checkpoint_path,
+    mirror_checkpoint_path=drive_checkpoint_path,
+    taxonomy_dir=REPO_DIR / "taxonomy",
+    wait_between_searches=WAIT_BETWEEN_WEB_SEARCHES,
+)
 
-    for col in required_current_schema_cols:
-        if col not in df_existing.columns:
-            df_existing[col] = ""
-
-    df_existing["is_current_schema_complete"] = df_existing.apply(
-        row_is_current_schema_complete,
-        axis=1
-    )
-
-    incomplete_existing = df_existing[
-        ~df_existing["is_current_schema_complete"]
-    ].copy()
-
-    if not incomplete_existing.empty:
-        print("Found incomplete checkpoint rows. These will be rerun:")
-        display(
-            incomplete_existing[
-                [
-                    col for col in [
-                        "company",
-                        "date_researched",
-                        "funding_finding",
-                        "payer_institutional_finding",
-                        "outcomes_finding",
-                        "commercial_scale_finding"
-                    ]
-                    if col in incomplete_existing.columns
-                ]
-            ]
-        )
-
-    df_existing_complete = df_existing[
-        df_existing["is_current_schema_complete"]
-    ].copy()
-
-    df_existing_complete = df_existing_complete[
-        required_current_schema_cols
-    ].copy()
-
-    results = df_existing_complete.to_dict("records")
-    completed_companies = set(df_existing_complete["company"].tolist())
-
-    print(f"Loaded checkpoint with {len(results)} complete companies:", completed_companies)
-
+# Final df for downstream steps (Step 8 / 9 / 10 consume `df`), re-read from the
+# checkpoint the runner just wrote -- faithful to the prior end-of-Step-7 behavior.
+if batch_checkpoint_path.exists():
+    df = pd.read_csv(batch_checkpoint_path)
 else:
-    results = []
-    completed_companies = set()
-    print("No existing checkpoint found. Starting fresh.")
-
-# -----------------------------
-# Run missing companies
-# -----------------------------
-
-for company_item in companies:
-    if isinstance(company_item, dict):
-        company = company_item["company"]
-        research_query = company_item["research_query"]
-    else:
-        company = company_item
-        research_query = company_item
-
-    if company in completed_companies:
-        print(f"Skipping {company}; already completed in checkpoint.")
-        continue
-
-    print(f"\n--- Researching {company} ---")
-
-    funding = search_funding(research_query)
-    print("Funding:", funding)
-
-    time.sleep(WAIT_BETWEEN_WEB_SEARCHES)
-
-    payer = search_payer_signal(research_query)
-    print("Payer / institutional signal:", payer)
-
-    time.sleep(WAIT_BETWEEN_WEB_SEARCHES)
-
-    outcomes = search_outcomes(research_query)
-    print("Outcomes:", outcomes)
-
-    time.sleep(WAIT_BETWEEN_WEB_SEARCHES)
-
-    commercial_scale = search_commercial_scale(research_query)
-    print("Commercial scale:", commercial_scale)
-
-    latest_status_findings = f"""
-Funding:
-{funding}
-
-Payer / institutional signal:
-{payer}
-
-Outcomes:
-{outcomes}
-
-Commercial scale / revenue quality:
-{commercial_scale}
-"""
-
-    fit_brief = run_company_fit_brief(company, latest_status_findings)
-
-    new_record = {
-        "company": company,
-        "date_researched": datetime.now().strftime("%Y-%m-%d"),
-        "funding_finding": funding,
-        "payer_institutional_finding": payer,
-        "outcomes_finding": outcomes,
-        "commercial_scale_finding": commercial_scale,
-        "fit_brief_json": fit_brief
-    }
-
-    results.append(new_record)
-    completed_companies.add(company)
-
-    df = pd.DataFrame(results)
-
-    # Keep one row per company, latest run wins
-    df = df.drop_duplicates(subset=["company"], keep="last").reset_index(drop=True)
-
-    # Save local checkpoint
-    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(checkpoint_path, index=False)
-
-    # Save Drive checkpoint after each company
-    shutil.copy(checkpoint_path, drive_checkpoint_path)
-
-    print(f"Checkpoint saved after {company}.")
-    print("Local checkpoint:", checkpoint_path)
-    print("Drive checkpoint:", drive_checkpoint_path)
-    print(f"Finished {company}. Waiting before next company...")
-
-    time.sleep(WAIT_BETWEEN_WEB_SEARCHES)
-
-# -----------------------------
-# Final df for downstream steps
-# -----------------------------
-
-if checkpoint_path.exists():
-    df = pd.read_csv(checkpoint_path)
-else:
-    df = pd.DataFrame(results)
+    df = pd.DataFrame(columns=required_current_schema_cols)
 
 print("\nStep 7 complete.")
+print("Researched this run:", batch_result.completed)
+print("Reused (already complete):", batch_result.reused)
+print("Failed (retried on resume):", batch_result.failed)
 print("df shape:", df.shape)
 print("companies in df:", df["company"].tolist() if "company" in df.columns else [])
 
