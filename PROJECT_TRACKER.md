@@ -19,7 +19,7 @@ Two environments matter throughout:
 
 ---
 
-## Phase 1 — Current milestone: dashboard rebuild & completion validation
+## Phase 1 — Dashboard rebuild & completion validation (done; live verification pending in Colab)
 
 Goal: get `boston_blind_spot_batch_1` from `ERROR_REQUIRES_REVIEW` / `REFRESH_DASHBOARD` to a validated `COMPLETE`.
 
@@ -45,9 +45,11 @@ Goal: get `boston_blind_spot_batch_1` from `ERROR_REQUIRES_REVIEW` / `REFRESH_DA
 
 ---
 
-## Phase 2 — Harden the research front half
+## Phase 2 — Current milestone: harden the research front half
 
 The biggest gap between "polished back half" and "agent a user can actually ask to find companies." Order matters: extract the research runner first, since everything else here depends on it.
+
+> **Why this is the current milestone.** Extracting the research runner into the package is the unblocking task. Real capability-fit (Phase 3) needs the fit-brief prompt to gain the capability-fit field *in the package* (not the notebook), which requires the research runner to live in the package first. The dependency cascades: research runner → real capability-fit → Commit 5 (candidate → `final_priority_level` authority) → Commit 6 (master remediation).
 
 - [ ] **Extract the research runner into the package** — package-level function with retries and per-company recovery, out of notebook logic (Step 4 / Step 7). *Highest leverage; do first.*
 - [ ] Raw archive & data-depth remediation rules — move into package functions
@@ -67,6 +69,8 @@ Each piece: same discipline as Phase 1 — implement, red→green tests, stop fo
 - [ ] Recommendation rationale tied to evidence quality and role/operator timing
 - [ ] Explicit uncertainty & missing-evidence requirements
 - [ ] Structured recommendation artifact produced before the second human review
+
+> **Relationship to the engine below.** The *deterministic priority core* of this layer is now built — see "Candidate Priority Engine" below. What remains of the original recommendation-layer vision (the four bullets above) is the **LLM-assessment / recommendation-summary layer that sits on top of the engine**: the step where the LLM reviews the engine's deterministic output and brings recommended priority changes (and additional-research flags) to the human review gate. The engine is the deterministic foundation; these bullets are the LLM layer on top of it. (Per Rule 7: the engine decides priority deterministically; the LLM only gathers evidence beforehand and recommends afterward.)
 
 ### Candidate Priority Engine (deterministic; shipped — framework "V4.2-interim")
 - [x] Commit 1 — signal conversion + reconciled scale-path; single source-of-truth vocabulary + closure test (commit `2023dca`)
