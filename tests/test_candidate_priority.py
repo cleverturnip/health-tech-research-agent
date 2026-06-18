@@ -464,3 +464,36 @@ def test_reset_ripples_into_scaleup_borderline_p1_vs_p2():
                      "review_notes": "workflow integration and platform rebuild"}  # incidental, no stored signal
     assert compute_candidate_priority(with_reset)["candidate_priority_code"] == "P1"
     assert compute_candidate_priority(without_reset)["candidate_priority_code"] == "P2"
+
+
+# ---------------------------------------------------------------------------
+# §6 — P0 scale-path: strong commercial OR strong institutional qualifies (Commit B)
+# ---------------------------------------------------------------------------
+
+def test_p0_strong_commercial_qualifies():
+    # Oura-like: strong commercial, weak institutional, early-growth, scores above P0 bars.
+    # Previously blocked by the hard institutional>=3 condition; now reaches P0.
+    assert v41_gate(**_p0_inputs(scale_path=STRONG_COMMERCIAL_ENGINE, commercial=3, institutional=0)) == "P0"
+
+
+def test_p0_strong_institutional_still_qualifies():
+    # No regression: a strong-institutional company still reaches P0.
+    assert v41_gate(**_p0_inputs(scale_path=STRONG_INSTITUTIONAL_ENGINE, commercial=0, institutional=3)) == "P0"
+
+
+def test_p0_strong_dual_still_qualifies():
+    assert v41_gate(**_p0_inputs(scale_path=STRONG_DUAL_ENGINE, commercial=3, institutional=3)) == "P0"
+
+
+def test_p0_strong_commercial_blocked_by_low_evidence():
+    # Only the scale-path condition was relaxed: a strong-commercial co failing another
+    # P0 bar (evidence < 60) is NOT P0 (it clears P1).
+    result = v41_gate(**_p0_inputs(scale_path=STRONG_COMMERCIAL_ENGINE, commercial=3, institutional=0, evidence=59))
+    assert result != "P0"
+    assert result == "P1"
+
+
+def test_p0_strict_commercial_bar_unchanged():
+    # commercial < 3 (moderate) does not create a strong-commercial P0 path.
+    result = v41_gate(**_p0_inputs(scale_path=EMERGING_PATH, commercial=2, institutional=1, outcomes=2))
+    assert result != "P0"
