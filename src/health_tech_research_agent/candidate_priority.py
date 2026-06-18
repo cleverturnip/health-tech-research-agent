@@ -17,6 +17,7 @@ reconciles, and the closure test in the suite locks it.
 
 from __future__ import annotations
 
+from .models import utc_now_iso
 from .priority import as_number, safe_text
 
 # ---------------------------------------------------------------------------
@@ -310,3 +311,212 @@ def target_archetype(row, capability_fit, agency_entry, scale_path) -> str:
         return "Interesting but under-proven"
 
     return "Watch list / weak fit"
+
+
+# ---------------------------------------------------------------------------
+# §6 — V4.1 gate + §7 public/near-IPO cap
+# ---------------------------------------------------------------------------
+_MATURE_BENCHMARK_MATURITIES = {"late-stage", "public", "near-ipo"}
+_PUBLIC_MATURITIES = {"public", "near-ipo"}
+
+ARCHETYPE_UNDER_PROVEN = "Interesting but under-proven"
+ARCHETYPE_WEAK_FIT = "Watch list / weak fit"
+ARCHETYPE_MATURE_BENCHMARK = "Strong but mature benchmark"
+
+# Candidate engine ranks P0-P3 only — never P4 (Q5).
+_CANDIDATE_LABELS = {
+    "P0": "P0: Active pursuit target",
+    "P1": "P1: High-priority diligence",
+    "P2": "P2: Worth deeper diligence",
+    "P3": "P3: Watch list",
+}
+_CANDIDATE_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+
+def v41_gate(
+    *,
+    maturity,
+    stage_fit,
+    agency_level,
+    thesis,
+    pmf,
+    evidence,
+    capability,
+    agency,
+    scale_path,
+    commercial,
+    institutional,
+    outcomes,
+    archetype,
+    has_reset,
+) -> str:
+    """The V4.1 candidate-priority gate (spec §6), ported as-is. Returns P0-P3 only
+    (never P4 — Q5). The public/near-IPO cap (§7) is applied separately as an overlay.
+
+    under_proven / weak_fit map to the two archetypes (Q1).
+    """
+    maturity = _norm(maturity)
+    stage_fit = _norm(stage_fit)
+    agency_level = _norm(agency_level)
+    thesis = _safe_num(thesis)
+    pmf = _safe_num(pmf)
+    evidence = _safe_num(evidence)
+    capability = _safe_num(capability)
+    agency = _safe_num(agency)
+    commercial = int(commercial)
+    institutional = int(institutional)
+    outcomes = int(outcomes)
+
+    early_growth = maturity in _EARLY_GROWTH_MATURITIES
+    mature_benchmark = archetype == ARCHETYPE_MATURE_BENCHMARK or maturity in _MATURE_BENCHMARK_MATURITIES
+    scaleup_borderline = maturity == "scale-up" and stage_fit == "borderline"
+    scaleup_good_with_reset = (
+        maturity == "scale-up" and stage_fit in {"good", "borderline"} and has_reset
+    )
+    weak_noninstitutional_scaleup = (
+        not early_growth
+        and not has_reset
+        and scale_path == EMERGING_PATH
+        and institutional < 2
+        and commercial < 3
+    )
+    under_proven = archetype == ARCHETYPE_UNDER_PROVEN
+    weak_fit = archetype == ARCHETYPE_WEAK_FIT
+    has_strong = scale_path in HAS_STRONG_SCALE_PATH
+    has_path = scale_path in HAS_SCALE_PATH
+    stage_ok = stage_fit in {"ideal", "good"}
+    agency_not_low = agency_level != "low"
+
+    p0 = (
+        early_growth and stage_ok
+        and thesis >= 78 and pmf >= 74 and evidence >= 60
+        and capability >= 78 and agency >= 82
+        and has_strong and institutional >= 3 and outcomes >= 2
+        and agency_not_low and not under_proven and not weak_fit
+    )
+
+    p1_standard = (
+        not p0 and not mature_benchmark and not scaleup_borderline
+        and not weak_noninstitutional_scaleup and not under_proven and not weak_fit
+        and stage_ok
+        and thesis >= 75 and pmf >= 68 and evidence >= 55
+        and capability >= 74 and agency >= 78
+        and has_path and agency_not_low
+    )
+    p1_early_growth_emerging = (
+        early_growth and scale_path == EMERGING_PATH
+        and thesis >= 78 and pmf >= 70 and evidence >= 55
+        and capability >= 78 and agency >= 82
+        and institutional >= 2 and outcomes >= 2
+    )
+    p1_scaleup_reset = (
+        maturity == "scale-up" and stage_fit in {"good", "borderline"} and has_reset
+        and thesis >= 75 and pmf >= 68 and evidence >= 55
+        and capability >= 74 and agency >= 78
+        and has_path and agency_not_low
+    )
+    p1 = p1_standard or p1_early_growth_emerging or p1_scaleup_reset
+
+    # Mature cap (in-gate): a mature/scaleup-borderline company without a scale-up
+    # reset cannot be P0/P1.
+    if (mature_benchmark or scaleup_borderline) and not scaleup_good_with_reset:
+        p0 = False
+        p1 = False
+
+    if p0:
+        return "P0"
+    if p1:
+        return "P1"
+    if (
+        not under_proven and not weak_fit
+        and pmf >= 60 and evidence >= 45 and capability >= 65 and has_path
+    ):
+        return "P2"
+    return "P3"
+
+
+def apply_public_near_ipo_cap(priority: str, maturity, has_reset: bool) -> str:
+    """§7 overlay: a public/near-IPO company is forced to P3 UNLESS a reset signal
+    lifts the cap — reset is the ONLY exception (RESOLVED 7a). Never promotes."""
+    if _norm(maturity) in _PUBLIC_MATURITIES and not has_reset:
+        return "P3"
+    return priority
+
+
+# ---------------------------------------------------------------------------
+# §8 — Outputs + reason text (V4.1 fixed per-tier strings; 8a)
+# ---------------------------------------------------------------------------
+# Interim because capability-fit is the role_fit bridge (§4 deferred): the
+# version string makes the interim quality explicit so these are not mistaken
+# for final priorities.
+CANDIDATE_FRAMEWORK_VERSION = "V4.2-interim"
+_CANDIDATE_SOURCE = "deterministic engine (interim capability-fit = role_fit bridge)"
+_CANDIDATE_REASONS = {
+    "P0": "Active pursuit: clears the V4.2 P0 gate (early-growth, strong fit/timing, real scale channel).",
+    "P1": "High-priority diligence: near active-pursuit; one or more P0 conditions unmet.",
+    "P2": "Worth deeper diligence: credible, but not yet a clean active-pursuit case.",
+    "P3": "Watch list: does not currently justify active pursuit.",
+}
+
+
+def compute_candidate_priority(row, *, now_iso=None) -> dict:
+    """Run the full §0 pipeline for one company and emit the candidate fields.
+
+    Order: signals -> scale_path -> agency -> capability(interim) -> archetype ->
+    gate (§6) -> public/near-IPO cap (§7) -> outputs (§8). Emits P0-P3 only (Q5).
+    Read-only: does NOT touch final_priority_level or the master (Commit 5 held).
+    """
+    signals = infer_signals(row)
+    commercial = signals["commercial_scale_signal_inferred"]
+    institutional = signals["institutional_distribution_signal_inferred"]
+    outcomes = signals["outcomes_signal_inferred"]
+
+    scale_path = scale_path_quality(
+        commercial=commercial,
+        institutional=institutional,
+        outcomes=outcomes,
+        pmf=row.get("pmf_scale_score"),
+        evidence=row.get("evidence_confidence_score"),
+        plausible=parse_plausible(row.get("plausible_near_term_scale_path")),
+    )
+    agency = operator_agency_entry_score(row)
+    capability = capability_fit_score(row)  # INTERIM bridge
+    archetype = target_archetype(row, capability, agency, scale_path)
+    has_reset = reset_signal(row)
+
+    level = v41_gate(
+        maturity=row.get("company_maturity_read"),
+        stage_fit=row.get("stage_timing_fit"),
+        agency_level=row.get("likely_agency_level"),
+        thesis=row.get("thesis_fit_score"),
+        pmf=row.get("pmf_scale_score"),
+        evidence=row.get("evidence_confidence_score"),
+        capability=capability,
+        agency=agency,
+        scale_path=scale_path,
+        commercial=commercial,
+        institutional=institutional,
+        outcomes=outcomes,
+        archetype=archetype,
+        has_reset=has_reset,
+    )
+    level = apply_public_near_ipo_cap(level, row.get("company_maturity_read"), has_reset)
+
+    return {
+        "candidate_priority_level": _CANDIDATE_LABELS[level],
+        "candidate_priority_code": level,
+        "candidate_priority_rank": _CANDIDATE_RANK[level],
+        "candidate_priority_reason": _CANDIDATE_REASONS[level],
+        "candidate_priority_framework_version": CANDIDATE_FRAMEWORK_VERSION,
+        "candidate_priority_source": _CANDIDATE_SOURCE,
+        "candidate_priority_updated_at": now_iso or utc_now_iso(),
+        # Producer outputs (for the display contract + audit trail).
+        "target_archetype": archetype,
+        "scale_path_quality": scale_path,
+        "operator_agency_entry_score": agency,
+        "katelynd_capability_fit_score": capability,
+        "commercial_scale_signal_inferred": commercial,
+        "institutional_distribution_signal_inferred": institutional,
+        "outcomes_signal_inferred": outcomes,
+        "reset_or_restructure_signal": has_reset,
+    }

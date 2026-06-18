@@ -24,13 +24,16 @@ from health_tech_research_agent.candidate_priority import (
     STRONG_DUAL_ENGINE,
     STRONG_INSTITUTIONAL_ENGINE,
     WEAK_OR_UNCLEAR,
+    apply_public_near_ipo_cap,
     capability_fit_score,
+    compute_candidate_priority,
     infer_signals,
     operator_agency_entry_score,
     reset_signal,
     scale_path_quality,
     signal_text_to_score,
     target_archetype,
+    v41_gate,
 )
 
 
@@ -249,3 +252,181 @@ def test_archetype_under_proven():
     row = {"pmf_scale_score": 50, "evidence_confidence_score": 40,
            "company_maturity_read": "early-growth", "stage_timing_fit": "good"}
     assert target_archetype(row, 80, 85, CREDIBLE_PATH) == "Interesting but under-proven"
+
+
+# ---------------------------------------------------------------------------
+# §6 — V4.1 gate decision matrix
+# ---------------------------------------------------------------------------
+
+def _p0_inputs(**over):
+    """A fully P0-qualifying input set; override fields to reach other tiers."""
+    base = dict(
+        maturity="early-growth", stage_fit="ideal", agency_level="high",
+        thesis=85, pmf=80, evidence=65, capability=85, agency=85,
+        scale_path=STRONG_INSTITUTIONAL_ENGINE, commercial=0, institutional=3, outcomes=2,
+        archetype="Ideal early-growth / high-agency target", has_reset=False,
+    )
+    base.update(over)
+    return base
+
+
+def test_gate_p0():
+    assert v41_gate(**_p0_inputs()) == "P0"
+
+
+def test_gate_evidence_boundary_is_the_affect_case():
+    # evidence 60 passes the P0 gate; 59 drops to P1 — exactly the Affect case.
+    assert v41_gate(**_p0_inputs(evidence=60)) == "P0"
+    assert v41_gate(**_p0_inputs(evidence=59)) == "P1"
+
+
+def test_gate_p0_thresholds_each_drop_to_p1():
+    # Each P0 score threshold, just below, drops to P1 (still clears P1 floors).
+    assert v41_gate(**_p0_inputs(thesis=77)) == "P1"
+    assert v41_gate(**_p0_inputs(pmf=73)) == "P1"
+    assert v41_gate(**_p0_inputs(capability=77)) == "P1"
+    assert v41_gate(**_p0_inputs(agency=81)) == "P1"
+
+
+def test_gate_p1_standard():
+    # institutional<3 fails P0's strong-channel requirement -> P1 standard.
+    assert v41_gate(**_p0_inputs(scale_path=CREDIBLE_PATH, institutional=2, outcomes=1)) == "P1"
+
+
+def test_gate_p1_special_early_growth_emerging():
+    assert v41_gate(**_p0_inputs(
+        scale_path=EMERGING_PATH, institutional=2, outcomes=2,
+        archetype="Role-scope-dependent target",
+    )) == "P1"
+
+
+def test_gate_p1_special_scaleup_reset():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="good", has_reset=True,
+        scale_path=CREDIBLE_PATH, institutional=1, outcomes=1,
+        archetype="Role-scope-dependent target",
+    )) == "P1"
+
+
+def test_gate_mature_benchmark_in_gate_cap():
+    # late-stage with otherwise-P1 scores -> mature cap removes P0/P1 -> P2.
+    assert v41_gate(**_p0_inputs(
+        maturity="late-stage", scale_path=CREDIBLE_PATH, institutional=2, outcomes=1,
+        archetype="Strong but mature benchmark",
+    )) == "P2"
+
+
+def test_gate_scaleup_borderline_no_reset_capped():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="borderline", has_reset=False,
+        scale_path=CREDIBLE_PATH, institutional=2, outcomes=1,
+        archetype="Role-scope-dependent target",
+    )) == "P2"
+
+
+def test_gate_p2_floor():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="borderline",
+        thesis=66, pmf=66, evidence=50, capability=66, agency=66,
+        scale_path=CREDIBLE_PATH, institutional=1, outcomes=1,
+        archetype="Role-scope-dependent target",
+    )) == "P2"
+
+
+def test_gate_p3_under_proven_and_weak_fit():
+    assert v41_gate(**_p0_inputs(archetype="Interesting but under-proven")) == "P3"
+    assert v41_gate(**_p0_inputs(archetype="Watch list / weak fit")) == "P3"
+
+
+def test_gate_p3_fails_p2_floor():
+    assert v41_gate(**_p0_inputs(
+        maturity="scale-up", stage_fit="borderline", pmf=50, evidence=40,
+        scale_path=WEAK_OR_UNCLEAR, institutional=0, outcomes=0,
+        archetype="Role-scope-dependent target",
+    )) == "P3"
+
+
+# ---------------------------------------------------------------------------
+# §7 — public / near-IPO cap overlay (Q4)
+# ---------------------------------------------------------------------------
+
+def test_cap_public_without_reset_forced_p3():
+    assert apply_public_near_ipo_cap("P2", "public", has_reset=False) == "P3"
+    assert apply_public_near_ipo_cap("P1", "near-ipo", has_reset=False) == "P3"
+
+
+def test_cap_public_with_reset_not_forced():
+    assert apply_public_near_ipo_cap("P2", "public", has_reset=True) == "P2"
+
+
+def test_cap_never_promotes():
+    assert apply_public_near_ipo_cap("P3", "early-growth", has_reset=False) == "P3"
+
+
+# ---------------------------------------------------------------------------
+# Q4 end-to-end: public+reset -> P2 (never P0, never P3); public(no reset) -> P3
+# ---------------------------------------------------------------------------
+
+def _public_row(has_reset_text):
+    row = {
+        "company_maturity_read": "public", "stage_timing_fit": "good",
+        "likely_agency_level": "high",
+        "thesis_fit_score": 85, "pmf_scale_score": 82, "evidence_confidence_score": 65,
+        "katelynd_role_fit_score": 80,  # interim capability
+        "operator_timing_score": 80,
+        "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
+        "outcomes_signal": "strong",
+    }
+    if has_reset_text:
+        row["final_takeaway"] = "major restructure and turnaround underway"
+    return row
+
+
+def test_q4_public_with_reset_is_p2():
+    result = compute_candidate_priority(_public_row(has_reset_text=True))
+    assert result["candidate_priority_code"] == "P2"
+
+
+def test_q4_public_without_reset_is_p3():
+    result = compute_candidate_priority(_public_row(has_reset_text=False))
+    assert result["candidate_priority_code"] == "P3"
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator outputs (§8) — P0-P3 only, interim framework stamp
+# ---------------------------------------------------------------------------
+
+def test_compute_candidate_priority_outputs():
+    row = {
+        "company_maturity_read": "early-growth", "stage_timing_fit": "ideal",
+        "likely_agency_level": "high",
+        "thesis_fit_score": 85, "pmf_scale_score": 80, "evidence_confidence_score": 65,
+        "katelynd_role_fit_score": 85, "operator_timing_score": 85,
+        "commercial_scale_signal": "weak", "institutional_distribution_signal": "strong",
+        "outcomes_signal": "moderate",
+    }
+    out = compute_candidate_priority(row, now_iso="2026-06-18T00:00:00Z")
+    assert out["candidate_priority_code"] == "P0"
+    assert out["candidate_priority_level"] == "P0: Active pursuit target"
+    assert out["candidate_priority_rank"] == 0
+    assert out["candidate_priority_framework_version"] == "V4.2-interim"
+    # interim capability-fit == role_fit bridge
+    assert out["katelynd_capability_fit_score"] == 85
+
+
+def test_engine_never_emits_p4():
+    # Q5: candidate engine ranks P0-P3 only.
+    levels = set()
+    for thesis in (90, 70, 40):
+        for inst in (3, 1, 0):
+            for mat in ("early-growth", "scale-up", "public", "late-stage"):
+                out = compute_candidate_priority({
+                    "company_maturity_read": mat, "stage_timing_fit": "ideal",
+                    "likely_agency_level": "high", "thesis_fit_score": thesis,
+                    "pmf_scale_score": thesis, "evidence_confidence_score": thesis,
+                    "katelynd_role_fit_score": thesis, "operator_timing_score": thesis,
+                    "institutional_distribution_signal": {3: "strong", 1: "weak", 0: "none"}[inst],
+                    "commercial_scale_signal": "none", "outcomes_signal": "moderate",
+                })
+                levels.add(out["candidate_priority_code"])
+    assert levels <= {"P0", "P1", "P2", "P3"}
