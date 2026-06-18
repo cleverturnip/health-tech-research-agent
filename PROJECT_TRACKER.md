@@ -77,9 +77,12 @@ Each piece: same discipline as Phase 1 — implement, red→green tests, stop fo
 - [x] Commit 2 — agency-entry + archetype producers (verbatim cell159) + shared `reset_signal` text-scan, no hardcoded company names (commit `f06ccca`; §5a fixup `514aac8`)
 - [x] Commit 4 — V4.1 gate + V4.2 public/near-IPO cap + `compute_candidate_priority` orchestrator; emits P0–P3 only (commit `760e958`)
 - [x] Merge to `main` (PR #24)
+- [x] Commit A — reset reads the researched `reset_or_restructure_signal` field; text-scan retired (fixes the audit's 6 false-positive / 1 false-negative finding: videahealth-type incidental "integration", ZOE-type manual override) (PR #27)
+- [x] Commit B — P0 scale-path accepts strong commercial OR institutional OR dual; standalone `institutional ≥ 3` dropped so strong-D2C (e.g. Oura) can reach P0. Strict `commercial == 3` definition and all other P0 conditions unchanged (PR #27)
 - [ ] (deferred) Real LLM-scored capability-fit (3-attribute A1/A2/A3) + fit-brief prompt change — replaces the interim `role_fit` bridge; candidate priorities are "V4.2-interim" until this lands
 - [ ] (deferred — gated on real capability-fit) Commit 5 — make candidate priority authoritative for `final_priority_level` unless a genuine human override; fix the false "Human Reviewed" labeling and the sticky `reviewed_priority_level` auto-seed
 - [ ] (deferred — after Commit 5) Commit 6 — master remediation of already-contaminated derived columns + polluted `reviewed_priority_level`
+- [ ] (held — separate track) Data regeneration to fix research integrity issues the audit surfaced: funding-as-commercial (e.g. Solace), mislabeled maturity (e.g. Function Health read late-stage despite Series-B/hypergrowth evidence), and reset field-coverage gaps. The engine logic fixes (A/B) are independent of this.
 
 #### Candidate-engine live verification (Colab — owner: you)
 - [ ] Definitive end-to-end golden-master: raw signals → producers → gate, against the live master (the export lacked raw text signals; gate validated 48/48 against recorded producer outputs so far)
