@@ -143,17 +143,35 @@ def test_credible_dual_path_accepted_by_gate_but_never_emitted():
 
 
 # ---------------------------------------------------------------------------
-# §9 — reset signal (text-scan, no hardcoded company names)
+# §9 — reset signal (reads the researched field; text-scan retired)
 # ---------------------------------------------------------------------------
 
-def test_reset_signal_text_scan():
-    assert reset_signal({"review_notes": "leadership churn and a pivot"}) is True
-    assert reset_signal({"final_takeaway": "steady growth, strong retention"}) is False
+def test_reset_signal_reads_stored_field_zoe_type():
+    # A stored/researched reset determination (incl. a manual override) is detected,
+    # even with no reset terms anywhere in the text fields.
+    assert reset_signal({
+        "reset_or_restructure_signal": "1.0",
+        "reset_or_restructure_basis": "manual_reset_override_for_audit",
+        "final_takeaway": "steady growth, strong retention",
+    }) is True
+    assert reset_signal({"reset_or_restructure_signal": "yes"}) is True
 
 
-def test_reset_signal_has_no_hardcoded_company_names():
-    # A company name alone (e.g. ZOE) must never trigger reset — only researched text does.
-    assert reset_signal({"company": "ZOE", "final_takeaway": "steady growth"}) is False
+def test_reset_signal_ignores_incidental_text_videahealth_type():
+    # Incidental 'integration'/'pivot'/'rebuild' language with NO stored reset signal
+    # must NOT flag reset (the old text-scan false-positive, e.g. "workflow integration").
+    assert reset_signal({
+        "reset_or_restructure_signal": "0.0",
+        "review_notes": "enterprise adoption, Series B timing, workflow integration",
+    }) is False
+    assert reset_signal({"final_takeaway": "a clean pivot to platform integration and rebuild"}) is False
+
+
+def test_reset_signal_blank_or_unclear_is_false():
+    assert reset_signal({}) is False                                    # older-round companies: no field
+    assert reset_signal({"reset_or_restructure_signal": ""}) is False
+    assert reset_signal({"reset_or_restructure_signal": "unclear"}) is False
+    assert reset_signal({"reset_or_restructure_signal": "0"}) is False
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +206,7 @@ def test_agency_entry_reset_lifts_mature_scaleup():
         "operator_timing_score": 50,
         "company_maturity_read": "scale-up",
         "stage_timing_fit": "good",
-        "final_takeaway": "major restructure and turnaround underway",
+        "reset_or_restructure_signal": "1.0",
     }
     assert operator_agency_entry_score(row) == 78
 
@@ -367,7 +385,7 @@ def test_cap_never_promotes():
 # Q4 end-to-end: public+reset -> P2 (never P0, never P3); public(no reset) -> P3
 # ---------------------------------------------------------------------------
 
-def _public_row(has_reset_text):
+def _public_row(has_reset):
     row = {
         "company_maturity_read": "public", "stage_timing_fit": "good",
         "likely_agency_level": "high",
@@ -377,18 +395,18 @@ def _public_row(has_reset_text):
         "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
         "outcomes_signal": "strong",
     }
-    if has_reset_text:
-        row["final_takeaway"] = "major restructure and turnaround underway"
+    if has_reset:
+        row["reset_or_restructure_signal"] = "1.0"
     return row
 
 
 def test_q4_public_with_reset_is_p2():
-    result = compute_candidate_priority(_public_row(has_reset_text=True))
+    result = compute_candidate_priority(_public_row(has_reset=True))
     assert result["candidate_priority_code"] == "P2"
 
 
 def test_q4_public_without_reset_is_p3():
-    result = compute_candidate_priority(_public_row(has_reset_text=False))
+    result = compute_candidate_priority(_public_row(has_reset=False))
     assert result["candidate_priority_code"] == "P3"
 
 
@@ -430,3 +448,52 @@ def test_engine_never_emits_p4():
                 })
                 levels.add(out["candidate_priority_code"])
     assert levels <= {"P0", "P1", "P2", "P3"}
+
+
+def test_reset_ripples_into_scaleup_borderline_p1_vs_p2():
+    # scale-up + borderline: a STORED reset lifts it to P1 (scale-up+reset path);
+    # without the stored signal it stays P2 — and incidental text must NOT lift it.
+    base = dict(
+        company_maturity_read="scale-up", stage_timing_fit="borderline", likely_agency_level="high",
+        thesis_fit_score=80, pmf_scale_score=75, evidence_confidence_score=58,
+        katelynd_role_fit_score=80, operator_timing_score=80,
+        commercial_scale_signal="strong", institutional_distribution_signal="strong", outcomes_signal="moderate",
+    )
+    with_reset = {**base, "reset_or_restructure_signal": "1.0"}
+    without_reset = {**base, "reset_or_restructure_signal": "0.0",
+                     "review_notes": "workflow integration and platform rebuild"}  # incidental, no stored signal
+    assert compute_candidate_priority(with_reset)["candidate_priority_code"] == "P1"
+    assert compute_candidate_priority(without_reset)["candidate_priority_code"] == "P2"
+
+
+# ---------------------------------------------------------------------------
+# §6 — P0 scale-path: strong commercial OR strong institutional qualifies (Commit B)
+# ---------------------------------------------------------------------------
+
+def test_p0_strong_commercial_qualifies():
+    # Oura-like: strong commercial, weak institutional, early-growth, scores above P0 bars.
+    # Previously blocked by the hard institutional>=3 condition; now reaches P0.
+    assert v41_gate(**_p0_inputs(scale_path=STRONG_COMMERCIAL_ENGINE, commercial=3, institutional=0)) == "P0"
+
+
+def test_p0_strong_institutional_still_qualifies():
+    # No regression: a strong-institutional company still reaches P0.
+    assert v41_gate(**_p0_inputs(scale_path=STRONG_INSTITUTIONAL_ENGINE, commercial=0, institutional=3)) == "P0"
+
+
+def test_p0_strong_dual_still_qualifies():
+    assert v41_gate(**_p0_inputs(scale_path=STRONG_DUAL_ENGINE, commercial=3, institutional=3)) == "P0"
+
+
+def test_p0_strong_commercial_blocked_by_low_evidence():
+    # Only the scale-path condition was relaxed: a strong-commercial co failing another
+    # P0 bar (evidence < 60) is NOT P0 (it clears P1).
+    result = v41_gate(**_p0_inputs(scale_path=STRONG_COMMERCIAL_ENGINE, commercial=3, institutional=0, evidence=59))
+    assert result != "P0"
+    assert result == "P1"
+
+
+def test_p0_strict_commercial_bar_unchanged():
+    # commercial < 3 (moderate) does not create a strong-commercial P0 path.
+    result = v41_gate(**_p0_inputs(scale_path=EMERGING_PATH, commercial=2, institutional=1, outcomes=2))
+    assert result != "P0"

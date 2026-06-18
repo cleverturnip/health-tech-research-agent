@@ -57,6 +57,16 @@ HAS_SCALE_PATH = HAS_STRONG_SCALE_PATH | {EMERGING_PATH}
 # as "no scale path" and demote a strong company — the closure test forbids it.
 RECOGNIZED_SCALE_PATHS = HAS_SCALE_PATH | {WEAK_OR_UNCLEAR}
 
+# P0 scale-path policy (Commit B): a clear path to scale via EITHER a strong
+# institutional engine (payer) OR a strong commercial engine (D2C) qualifies for
+# active pursuit — there is no standalone institutional>=3 requirement. Only the
+# three STRONG engines count; credible_path / emerging_path are not enough for P0.
+P0_SCALE_PATHS = frozenset({
+    STRONG_DUAL_ENGINE,
+    STRONG_INSTITUTIONAL_ENGINE,
+    STRONG_COMMERCIAL_ENGINE,
+})
+
 
 # ---------------------------------------------------------------------------
 # Small helpers (mirror cell 159 semantics: norm + safe_num)
@@ -159,40 +169,35 @@ def scale_path_quality_for_row(row) -> str:
 
 
 # ---------------------------------------------------------------------------
-# §9 — Reset / restructure signal (shared text-scan; NO hardcoded company names)
+# §9 — Reset / restructure signal (READ the researched field; text-scan retired)
 # ---------------------------------------------------------------------------
-_RESET_MARKERS = (
-    "restructure",
-    "turnaround",
-    "reset",
-    "off track",
-    "missed target",
-    "leadership churn",
-    "new business line",
-    "operating rebuild",
-    "rebuild",
-    "integration",
-    "pivot",
-)
+# The previous text-scan was unreliable: it false-positived on incidental language
+# (e.g. "workflow integration" tripping the "integration" marker — videahealth) and
+# could not reproduce the audit's MANUAL reset overrides (e.g. ZOE). We now read the
+# researched determination stored in `reset_or_restructure_signal`, which carries
+# those manual overrides. Absent / blank / "unclear" -> False (e.g. the older-round
+# companies that lack the field). `reset_or_restructure_basis` is preserved as
+# supporting evidence on the output, not part of this boolean.
+_RESET_TRUE_TOKENS = {"yes", "true", "y", "reset", "restructure", "1"}
+_RESET_FALSE_TOKENS = {"", "no", "false", "n", "none", "unclear", "nan", "0"}
 
-_RESET_TEXT_FIELDS = (
-    "why_now_or_why_not",
-    "review_notes",
-    "priority_review_note",
-    "final_takeaway",
-    "business_model_classification",
-)
+
+def _is_reset_value(value) -> bool:
+    text = _norm(value)
+    if text in _RESET_TRUE_TOKENS:
+        return True
+    if text in _RESET_FALSE_TOKENS:
+        return False
+    number = as_number(value)
+    if number is not None and number == number:  # numeric, not NaN
+        return number != 0.0
+    return False
 
 
 def reset_signal(row) -> bool:
-    """Detect a reset/restructure entry point from researched text (cell159 markers).
-
-    Shared by the agency-entry producer and the V4.1 cap. Pure text-scan over the
-    researched fields below — no hardcoded company names (the `{"zoe"}` hardcode
-    lived only in the gate cell we are not porting).
-    """
-    blob = " ".join(_norm(row.get(field, "")) for field in _RESET_TEXT_FIELDS)
-    return any(marker in blob for marker in _RESET_MARKERS)
+    """Researched reset/restructure determination (the audit field, incl. manual
+    overrides). Blank / absent / "unclear" -> False."""
+    return _is_reset_value(row.get("reset_or_restructure_signal"))
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +387,6 @@ def v41_gate(
     )
     under_proven = archetype == ARCHETYPE_UNDER_PROVEN
     weak_fit = archetype == ARCHETYPE_WEAK_FIT
-    has_strong = scale_path in HAS_STRONG_SCALE_PATH
     has_path = scale_path in HAS_SCALE_PATH
     stage_ok = stage_fit in {"ideal", "good"}
     agency_not_low = agency_level != "low"
@@ -391,7 +395,9 @@ def v41_gate(
         early_growth and stage_ok
         and thesis >= 78 and pmf >= 74 and evidence >= 60
         and capability >= 78 and agency >= 82
-        and has_strong and institutional >= 3 and outcomes >= 2
+        # Strong commercial OR strong institutional (OR dual) is a clear scale path;
+        # no standalone institutional>=3 requirement (Commit B).
+        and scale_path in P0_SCALE_PATHS and outcomes >= 2
         and agency_not_low and not under_proven and not weak_fit
     )
 
@@ -519,4 +525,5 @@ def compute_candidate_priority(row, *, now_iso=None) -> dict:
         "institutional_distribution_signal_inferred": institutional,
         "outcomes_signal_inferred": outcomes,
         "reset_or_restructure_signal": has_reset,
+        "reset_or_restructure_basis": safe_text(row.get("reset_or_restructure_basis")),
     }
