@@ -373,20 +373,20 @@ Commercial evidence — gather FACTS and answer the four red-flag questions. Do 
   - "credible-estimate" = a named reputable third party with a methodology (Sacra, CB Insights, reputable press citing sources);
   - "unverified-promotional" = the company's own marketing, vague "fast-growing", or figures with no attributable source.
 
-Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator. This is a signal about OPERATOR OPPORTUNITY (whitespace + a forward-looking mandate to BUILD) — NOT about the company's strategy or health, and NOT a reward for any change that merely looks disruptive.
-- reset_event_type — the kind of disruption found, or "none":
+Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
+A company may be doing SEVERAL of these at once (e.g. pivoting its business model AND restructuring its team). List EACH distinct event as its own object in reset_events, and answer the opening question PER EVENT, on that event's own terms. Do NOT let one event's nature determine another's — a strategic pivot does not make a coexisting restructuring an opening, and a loud pivot must NOT hide a restructuring that IS an opening. If you find no reset/restructure events, return an empty list [].
+For each event:
+- event_type:
   - leadership-change — new CEO / senior exec layer brought in to build or turn the company around.
   - declared-transformation — an OPERATIONAL rebuild that creates a builder mandate (rebuilding HOW the company operates). Reserve this for an operating-model rebuild, NOT a change of what the company sells.
   - founder-transition — founder stepping back / bringing in professional leadership to scale.
   - post-failure-rebuild — rebuilding after a stumble, with a forward mandate.
-  - restructuring-layoffs — restructuring / layoffs. This can be EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question below decides.
+  - restructuring-layoffs — restructuring / layoffs. This can be EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question for THIS event decides.
   - strategic-pivot — a change of business model / go-to-market (e.g. D2C -> payer / B2B). A business-model or go-to-market change is strategic-pivot EVEN IF the company frames it as a "transformation". ("Changed what we sell" = strategic-pivot; "rebuilding how we operate" = declared-transformation.)
   - ma-integration — merger / acquisition integration work.
-  - none — no notable reset / restructure event.
-- reset_basis — cite the source + date for the event you found (empty if none).
-- reset_creates_high_agency_opening — the POINTED question: "yes" / "no" / "unclear". Answer "yes" ONLY when the event creates a FORWARD-LOOKING MANDATE for a senior operator to BUILD — the company is actively rebuilding / transforming and needs operators to do it. Answer "no" when it is a DEFENSIVE reaction — a pivot made under competitive pressure, a contraction toward survival/decline, or routine integration — where no builder mandate exists. Answer "unclear" when the evidence doesn't let you tell. A change that LOOKS disruptive is NOT an opening unless the forward-build mandate is real:
-  - "yes": a struggling company installs new leadership with a public turnaround / rebuild mandate -> a senior operator is needed to build -> opening.
-  - "no": a D2C company shifts to a payer / B2B model under competitive pressure while struggling -> defensive reaction, not a builder opening (even though it looks disruptive).
+- basis — cite the source + date for THIS event.
+- creates_high_agency_opening — for THIS event: "yes" only when THIS event creates a FORWARD-LOOKING MANDATE for a senior operator to BUILD (the company is actively rebuilding / transforming and needs operators to do it); "no" when THIS event is a DEFENSIVE reaction (a pivot under competitive pressure, a contraction toward survival/decline, or routine integration); "unclear" when the evidence doesn't let you tell.
+  - Example: a company simultaneously (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures its team to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
 
 Scale signal classification rules (institutional + outcomes):
 
@@ -584,9 +584,13 @@ Use this JSON schema exactly:
     "timing_penalty_applied": true
   }},
   "reset_evidence": {{
-    "reset_event_type": "none / leadership-change / declared-transformation / founder-transition / post-failure-rebuild / restructuring-layoffs / strategic-pivot / ma-integration",
-    "reset_basis": "source + date for the event found, or empty if none",
-    "reset_creates_high_agency_opening": "yes / no / unclear"
+    "reset_events": [
+      {{
+        "event_type": "leadership-change / declared-transformation / founder-transition / post-failure-rebuild / restructuring-layoffs / strategic-pivot / ma-integration",
+        "basis": "source + date for THIS event",
+        "creates_high_agency_opening": "yes / no / unclear"
+      }}
+    ]
   }},
   "commercial_evidence": {{
     "revenue_or_arr": "figure + source/date, or empty if none found",
