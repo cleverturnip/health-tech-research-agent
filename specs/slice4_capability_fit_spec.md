@@ -29,23 +29,35 @@ score, NOT here — so the two scores stay distinct and do not double-count.
 
 ## The three attributes
 
-### A1 — Live, continuously-data-driven business
-The company runs a LIVE-BUSINESS model (mobile app / game genre) where USER DATA IS
-GENERATED DAILY and the culture USES that daily data to drive decisions.
-- What matters: the daily-data-driven culture AND live-business model EXIST.
-- DO NOT penalize an immature or broken optimization WORKFLOW — fixing that stall is the
-  value-add, not a disqualifier. (Asymmetry: no data culture = low; data culture but
-  messy/immature optimization process = HIGH, because that's the opportunity.)
-- False positive (score low): "data-driven" that actually runs on slow/periodic data —
-  quarterly surveys informing the roadmap, analytics feeding planning cycles rather than
-  daily decisions. If the daily-data-loop culture genuinely isn't there, that's the
-  disqualifier.
+> **A1 and A2 are reframed by Slice 3.7** (`specs/slice3_7_search_layer_redesign_spec.md` is
+> the source of truth for both definitions). A1 = product-engagement structure (data-driven by
+> necessity); A2 = operational strain (NOT "complexity exists"). A3 unchanged. The equal-thirds
+> scoring model above is unchanged — only the A1/A2 definitions change.
 
-### A2 — Cross-domain people + product + process complexity
-The company faces complex challenges spanning PEOPLE, PRODUCT, and PROCESS, where teams
-STALL AT THE SEAMS and there is WHITESPACE to own cross-functional execution.
-- False positive (score low): complexity that is just BIGNESS / BUREAUCRACY, not the
-  cross-functional-stall kind.
+### A1 — Product-engagement structure → data-driven by necessity
+**Reframed by `specs/slice3_7_search_layer_redesign_spec.md` (source of truth).** A1 is NOT a
+"do they have a data culture" inquiry — that is unverifiable and companies self-describe. It is
+a PRODUCT-STRUCTURE question: a product with a daily/habitual engagement loop whose REVENUE
+DEPENDS on sustained engagement is data-driven BY NECESSITY — the economics force it,
+regardless of whether they do it well.
+- Score HIGH when the product is habit-dependent AND revenue hangs on retention.
+- Score LOW when engagement is periodic/optional, or revenue doesn't depend on it (a
+  one-time/transactional purchase, or analytics feeding slow planning cycles rather than the
+  product's own daily loop).
+- Asymmetry preserved: doing the data loop badly is the value-add, not a disqualifier — the
+  structural dependence is what scores, not execution quality.
+- Evidence (shared with A3): `search_operating_characteristics`, product-engagement lens.
+
+### A2 — Operational STRAIN (not "complexity exists")
+**Reframed by `specs/slice3_7_search_layer_redesign_spec.md` (source of truth).** A2 is NOT
+"cross-domain complexity exists" — the LLM finds that for every competitive company, so it does
+not discriminate. It is EVIDENCE OF OPERATIONAL STRAIN: scaling outrunning process, things
+breaking under growth — the signal that the company needs someone with this operator's skillset.
+- INTENDED BEHAVIOR: a healthy, smoothly-scaling, well-run company scores LOW on A2 — the strain
+  IS the opportunity, so its absence correctly lowers fit.
+- Consequence to expect in regenerated data: a "better" (coping) company can score LOWER on
+  capability-fit than a struggling one. That is correct and intended.
+- Evidence: `search_operating_characteristics`, operational-strain lens.
 
 ### A3 — Digital consumer habitual-engagement product
 A DIGITAL CONSUMER product where HABIT / RETENTION is LOAD-BEARING for the product's
@@ -53,6 +65,8 @@ success.
 - False positive (score low): a consumer SURFACE without habit-dependence (one-time
   transaction), or B2B2C where the real customer is the employer/payer and habit is
   secondary.
+- Unchanged in intent; now explicitly SHARES the product-engagement evidence with reframed
+  A1 (both fed by `search_operating_characteristics`).
 
 ## LLM output (persisted as columns)
 - `capability_a1_score`, `capability_a1_basis`
