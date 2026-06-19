@@ -325,8 +325,10 @@ def test_prompt_drops_llm_maturity_and_commercial_judgment_fields():
 
 def test_prompt_has_reset_evidence_block():
     prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    # Slice 3.5: reset_evidence is now a LIST of per-event objects
     assert '"reset_evidence": {' in prompt
-    for field in ["reset_event_type", "reset_basis", "reset_creates_high_agency_opening"]:
+    assert '"reset_events": [' in prompt
+    for field in ["event_type", "basis", "creates_high_agency_opening"]:
         assert f'"{field}":' in prompt
     # the event-type vocabulary is offered to the LLM
     for et in [
@@ -334,6 +336,10 @@ def test_prompt_has_reset_evidence_block():
         "post-failure-rebuild", "restructuring-layoffs", "strategic-pivot", "ma-integration",
     ]:
         assert et in prompt
+    # the single-value field names are gone (replaced by per-event objects)
+    assert '"reset_event_type":' not in prompt
+    assert '"reset_basis":' not in prompt
+    assert '"reset_creates_high_agency_opening":' not in prompt
 
 
 def test_prompt_reset_vs_pivot_framing():
@@ -341,12 +347,22 @@ def test_prompt_reset_vs_pivot_framing():
     # the forward-mandate vs defensive-reaction poles, both concrete
     assert "FORWARD-LOOKING MANDATE" in prompt
     assert "DEFENSIVE reaction" in prompt
-    # restructuring-layoffs is not pre-judged — the opening question decides
-    assert "do NOT prejudge it; the opening question below decides" in prompt
+    # restructuring-layoffs is not pre-judged — the opening question decides (now per-event)
+    assert "do NOT prejudge it; the opening question for THIS event decides" in prompt
     # the strategic-pivot strengthening: a "transformation" framing can't upgrade a pivot
     assert 'strategic-pivot EVEN IF the company frames it as a "transformation"' in prompt
     assert '"Changed what we sell" = strategic-pivot' in prompt
     assert '"rebuilding how we operate" = declared-transformation' in prompt
+
+
+def test_prompt_reset_multi_event_per_event_framing():
+    # Slice 3.5: list each event, answer opening PER EVENT, don't let one bury another
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert "List EACH distinct event as its own object in reset_events" in prompt
+    assert "answer the opening question PER EVENT" in prompt
+    assert "Do NOT let one event's nature determine another's" in prompt
+    assert "a loud pivot must NOT hide a restructuring that IS an opening" in prompt
+    assert "return an empty list" in prompt
 
 
 def test_build_fit_brief_prompt_is_pure_and_repeatable():

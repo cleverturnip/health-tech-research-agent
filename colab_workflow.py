@@ -1788,10 +1788,12 @@ from health_tech_research_agent.structured_evidence import (
     commercial_signal_to_text,
     flatten_slice2_fields,
     derive_reset_signal,
+    reset_basis_for,
+    reset_needs_review,
     flatten_reset_fields,
     MATURITY_EVIDENCE_FIELDS,
     COMMERCIAL_EVIDENCE_FIELDS,
-    RESET_EVIDENCE_FIELDS,
+    RESET_PERSIST_FIELDS,
 )
 
 if (
@@ -1805,8 +1807,8 @@ if (
         list(MATURITY_EVIDENCE_FIELDS)
         + list(COMMERCIAL_EVIDENCE_FIELDS)
         + ["commercial_scale_signal", "commercial_scale_signal_inferred"]
-        + list(RESET_EVIDENCE_FIELDS)
-        + ["reset_or_restructure_signal", "reset_or_restructure_basis"]
+        + list(RESET_PERSIST_FIELDS)
+        + ["reset_or_restructure_signal", "reset_or_restructure_basis", "reset_needs_review"]
     )
     for _col in _slice2_cols:
         if _col not in summary_df.columns:
@@ -1825,14 +1827,17 @@ if (
         _signal_int = derive_commercial_signal(_commercial_evidence)
         _flat["commercial_scale_signal_inferred"] = _signal_int
         _flat["commercial_scale_signal"] = commercial_signal_to_text(_signal_int)
-        # Slice 3: reset/restructure — flatten the 3 researched fields + derive the signal.
-        # strategic-pivot / ma-integration / none never fire (recorded but not scored).
+        # Slice 3.5: reset/restructure — flatten the per-event list (reset_events_json +
+        # reset_event_types) and derive the signal PER EVENT. strategic-pivot / ma-integration
+        # never fire (recorded but not scored); an unrecognized event type is surfaced via
+        # reset_needs_review rather than fired blind.
         _flat.update(flatten_reset_fields(_parsed_s2))
         _reset_evidence = _parsed_s2.get("reset_evidence", {}) if isinstance(_parsed_s2, dict) else {}
         if not isinstance(_reset_evidence, dict):
             _reset_evidence = {}
         _flat["reset_or_restructure_signal"] = derive_reset_signal(_reset_evidence)
-        _flat["reset_or_restructure_basis"] = _flat.get("reset_basis", "")
+        _flat["reset_or_restructure_basis"] = reset_basis_for(_reset_evidence)
+        _flat["reset_needs_review"] = reset_needs_review(_reset_evidence)
         _slice2_lookup[_company] = _flat
 
     for _idx, _summary_row in summary_df.iterrows():
@@ -1874,23 +1879,27 @@ else:
 # =============================================================================
 
 # =============================================================================
-# COLAB VERIFICATION CHECKLIST - Slice 3 (reset/restructure) notebook wiring
+# COLAB VERIFICATION CHECKLIST - Slice 3.5 (multi-event reset) notebook wiring
 # =============================================================================
 # After researching ONE real company through STEP 7 -> 10, check, in order:
-# 1. The 3 reset component columns populate on a real company:
-#    EXPECT summary_df has reset_event_type / reset_basis / reset_creates_high_agency_opening
-#    populated (reset_event_type may be "none" if no event; basis cites a source when found).
-# 2. reset_or_restructure_signal derives correctly from the researched fields:
-#    EXPECT it == derive_reset_signal(reset_evidence): a researched reset event with opening=yes
-#    (e.g. leadership-change / declared-transformation) -> True; a strategic-pivot (or
-#    ma-integration / none) -> False even if opening=yes. Spot-check a known-reset company
-#    (e.g. ZOE) comes back True now that the manual override is superseded by the research.
+# 1. The reset_events LIST populates from real output:
+#    parsed["reset_evidence"]["reset_events"] is a list of {event_type, basis,
+#    creates_high_agency_opening}; summary_df has reset_events_json (the full list) +
+#    reset_event_types (comma-joined). Empty list when no event is found.
+# 2. ZOE comes back with TWO events and fires on the restructuring:
+#    EXPECT ZOE's reset_event_types includes BOTH strategic-pivot AND restructuring-layoffs,
+#    and reset_or_restructure_signal == True (the restructuring's opening=yes fires; the louder
+#    pivot no longer buries it). EXPECT it == derive_reset_signal(reset_evidence).
+#    (Noom -> [strategic-pivot] only -> False, unchanged.)
 # 3. The MATERIALIZED signal is what the engine reads:
 #    from health_tech_research_agent.candidate_priority import reset_signal
-#    EXPECT reset_signal(row) (reads reset_or_restructure_signal) == the derived bool for the company.
-# 4. Columns land on the master via STEP 12:
-#    After the master update, EXPECT the master CSV has reset_event_type, reset_basis,
-#    reset_creates_high_agency_opening, reset_or_restructure_signal, reset_or_restructure_basis.
+#    EXPECT reset_signal(row) (reads reset_or_restructure_signal) == the derived bool.
+# 4. Scan reset_needs_review:
+#    EXPECT reset_needs_review == True only where an event_type is outside the seven recognized
+#    types — those rows are findable (not fired blind, not silently dropped).
+# 5. Columns land on the master via STEP 12:
+#    After the master update, EXPECT the master CSV has reset_events_json, reset_event_types,
+#    reset_or_restructure_signal, reset_or_restructure_basis, reset_needs_review.
 # =============================================================================
 
 # STEP 10A - Deterministic priority adjudication

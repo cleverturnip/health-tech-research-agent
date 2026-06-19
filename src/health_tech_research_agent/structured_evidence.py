@@ -23,6 +23,7 @@ post-frame calibration (Part C) — STRONG is anchored on near-objective conditi
 
 from __future__ import annotations
 
+import json
 import math
 import re
 
@@ -78,21 +79,20 @@ COMMERCIAL_EVIDENCE_FIELDS = [
     "q4_evidence_quality",
 ]
 
-# Reset / restructure (Slice 3) vocab.
+# Reset / restructure (Slice 3 + 3.5 multi-event) vocab.
+# The seven recognized event types (no "none" — absence of events is the empty list).
 RESET_EVENT_TYPES = frozenset(
-    {"none", "leadership-change", "declared-transformation", "founder-transition",
+    {"leadership-change", "declared-transformation", "founder-transition",
      "post-failure-rebuild", "restructuring-layoffs", "strategic-pivot", "ma-integration"}
 )
-# Event types that can NEVER fire reset (not high-agency openings). "none" is included so the
-# logically-incoherent none + opening=yes case is structurally impossible — a real reset event
-# is never typed "none", so this cannot suppress a legitimate reset (Slice 3 Flag 2).
-RESET_NEVER_FIRE = frozenset({"strategic-pivot", "ma-integration", "none"})
+# Recognized types that can NEVER fire reset (not high-agency openings).
+RESET_NEVER_FIRE = frozenset({"strategic-pivot", "ma-integration"})
+# Recognized types that CAN fire (with opening == yes). An unrecognized type is in NEITHER
+# set: it does not fire and is surfaced via reset_needs_review (Slice 3.5 Flag 4).
+RESET_FIREABLE_TYPES = frozenset(RESET_EVENT_TYPES - RESET_NEVER_FIRE)
 
-RESET_EVIDENCE_FIELDS = [
-    "reset_event_type",
-    "reset_basis",
-    "reset_creates_high_agency_opening",
-]
+# Columns produced by flatten_reset_fields (the derived signal/basis are persisted separately).
+RESET_PERSIST_FIELDS = ["reset_events_json", "reset_event_types"]
 
 # Sentinels that mean "no real evidence here" when a fact field is technically non-empty.
 _ABSENT_SENTINELS = frozenset(
@@ -265,33 +265,85 @@ def flatten_slice2_fields(parsed) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Reset / restructure (Slice 3) — fires only for a genuine high-agency opening.
+# Reset / restructure (Slice 3.5 multi-event) — per-event opening evaluation.
 # ---------------------------------------------------------------------------
 
-def derive_reset_signal(row) -> bool:
-    """Return whether reset fires, from the stored researched fields (spec Slice 3).
+def _reset_events_from(obj) -> list:
+    """Normalize the carriers of the reset event list to a list of event dicts: the live
+    reset_evidence dict ({"reset_events": [...]}), a stored row/dict with "reset_events_json"
+    (string — recalibration), or a bare list."""
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        events = obj.get("reset_events")
+        if isinstance(events, list):
+            return events
+        raw = obj.get("reset_events_json")
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except (ValueError, TypeError):
+                return []
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict) and isinstance(parsed.get("reset_events"), list):
+                return parsed["reset_events"]
+    return []
 
-    Reset fires IFF the event creates a high-agency opening AND the event type is not one
-    that can never be an opening:
 
-        reset = (reset_creates_high_agency_opening == "yes")
-                and (reset_event_type NOT IN {strategic-pivot, ma-integration, none})
+def derive_reset_signal(obj) -> bool:
+    """Whether reset fires, evaluated PER EVENT (spec Slice 3.5).
 
-    strategic-pivot / ma-integration / none never fire. ``restructuring-layoffs`` is NOT
-    pre-bucketed — it rides on the opening question (rebuild-toward-growth = yes -> fires;
-    contraction-toward-decline = no -> does not). Pure function of stored fields; the engine's
-    reset_signal(row) reads the materialized reset_or_restructure_signal this produces.
+    Fires IFF at least one event is a RECOGNIZED, fireable type (not strategic-pivot /
+    ma-integration) AND that event's opening == "yes". A pivot's "no" can no longer bury a
+    coexisting restructuring's "yes" — each event is judged on its own. Empty list -> False.
+    An unrecognized event type does NOT fire (it is surfaced via reset_needs_review). Accepts
+    the live reset_evidence dict OR a stored reset_events_json (recomputable without re-research);
+    the engine's reset_signal(row) reads the materialized reset_or_restructure_signal this produces.
     """
-    event = _norm_reset_event(row.get("reset_event_type"))
-    opening = _norm_enum(row.get("reset_creates_high_agency_opening"))
-    if event in RESET_NEVER_FIRE:
-        return False
-    return opening == "yes"
+    for ev in _reset_events_from(obj):
+        if not isinstance(ev, dict):
+            continue
+        etype = _norm_reset_event(ev.get("event_type"))
+        opening = _norm_enum(ev.get("creates_high_agency_opening"))
+        if etype in RESET_FIREABLE_TYPES and opening == "yes":
+            return True
+    return False
+
+
+def reset_needs_review(obj) -> bool:
+    """True if any event carries a non-empty event_type that is NOT one of the seven recognized
+    types (after normalization). Such events do not fire and are surfaced for human review
+    rather than silently dropped or fired blind (Slice 3.5 Flag 4)."""
+    for ev in _reset_events_from(obj):
+        if not isinstance(ev, dict):
+            continue
+        etype = _norm_reset_event(ev.get("event_type"))
+        if etype and etype not in RESET_EVENT_TYPES:
+            return True
+    return False
+
+
+def reset_basis_for(obj) -> str:
+    """Basis of the FIRING event (first that fires), else the first listed event's basis,
+    else empty."""
+    events = [ev for ev in _reset_events_from(obj) if isinstance(ev, dict)]
+    for ev in events:
+        etype = _norm_reset_event(ev.get("event_type"))
+        opening = _norm_enum(ev.get("creates_high_agency_opening"))
+        if etype in RESET_FIREABLE_TYPES and opening == "yes":
+            return _safe_text(ev.get("basis"))
+    return _safe_text(events[0].get("basis")) if events else ""
 
 
 def flatten_reset_fields(parsed) -> dict:
-    """Extract the reset_evidence fields from a parsed fit-brief JSON into flat columns
-    (empty string when the block/field is absent; tolerant of non-dict input)."""
-    reset = parsed.get("reset_evidence") if isinstance(parsed, dict) else None
-    reset = reset if isinstance(reset, dict) else {}
-    return {field: _safe_text(reset.get(field, "")) for field in RESET_EVIDENCE_FIELDS}
+    """Flatten reset_evidence into persisted columns: reset_events_json (the full event list —
+    dashboard-visible and recomputable without re-research, per Part C) and reset_event_types
+    (comma-joined types for scanning). Tolerant of missing block / non-dict / empty list."""
+    reset_evidence = parsed.get("reset_evidence") if isinstance(parsed, dict) else None
+    events = [ev for ev in _reset_events_from(reset_evidence) if isinstance(ev, dict)]
+    types = ", ".join(t for t in (_safe_text(ev.get("event_type")) for ev in events) if t)
+    return {
+        "reset_events_json": json.dumps(events, ensure_ascii=False),
+        "reset_event_types": types,
+    }
