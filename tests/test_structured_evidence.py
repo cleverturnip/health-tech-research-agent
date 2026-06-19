@@ -6,6 +6,8 @@ The audit cases are the proof:
 - Solace (q3 funding-dependent, thin real traction) -> capped below strong, never 3.
 """
 
+import json
+
 import pytest
 
 from health_tech_research_agent import structured_evidence as se
@@ -294,97 +296,116 @@ def test_flatten_and_derive_compose():
 
 
 # ---------------------------------------------------------------------------
-# derive_reset_signal (Slice 3) — fires only for a genuine high-agency opening
+# derive_reset_signal (Slice 3.5 multi-event) — per-event opening evaluation
 # ---------------------------------------------------------------------------
 
 
-def _reset_row(**over):
-    base = {
-        "reset_event_type": "none",
-        "reset_basis": "",
-        "reset_creates_high_agency_opening": "no",
-    }
-    base.update(over)
-    return base
+def _ev(event_type, opening, basis=""):
+    return {"event_type": event_type, "basis": basis, "creates_high_agency_opening": opening}
 
 
-def test_reset_zoe_leadership_change_fires():
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="leadership-change", reset_creates_high_agency_opening="yes")
-    ) is True
+def _reset(*events):
+    """Live reset_evidence dict carrying a reset_events list."""
+    return {"reset_events": list(events)}
 
 
-def test_reset_zoe_declared_transformation_fires():
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="declared-transformation", reset_creates_high_agency_opening="yes")
-    ) is True
+def test_reset_zoe_multi_event_fires_on_restructuring():
+    # THE proof for 3.5: a coexisting restructuring's "yes" is not buried by a louder pivot's "no".
+    zoe = _reset(_ev("strategic-pivot", "no"), _ev("restructuring-layoffs", "yes"))
+    assert se.derive_reset_signal(zoe) is True
 
 
 def test_reset_noom_strategic_pivot_never_fires():
-    # Even when the LLM (wrongly) answers opening=yes, a strategic pivot is never an opening.
+    assert se.derive_reset_signal(_reset(_ev("strategic-pivot", "yes"))) is False
+
+
+def test_reset_single_recognized_event_fires():
+    assert se.derive_reset_signal(_reset(_ev("leadership-change", "yes"))) is True
+    assert se.derive_reset_signal(_reset(_ev("declared-transformation", "yes"))) is True
+
+
+def test_reset_empty_list_is_false():
+    assert se.derive_reset_signal(_reset()) is False
+    assert se.derive_reset_signal({}) is False
+
+
+def test_reset_multiple_never_fire_only_is_false():
     assert se.derive_reset_signal(
-        _reset_row(reset_event_type="strategic-pivot", reset_creates_high_agency_opening="yes")
+        _reset(_ev("strategic-pivot", "yes"), _ev("ma-integration", "yes"))
     ) is False
+
+
+def test_reset_mixed_pivot_no_plus_leadership_yes_fires():
+    assert se.derive_reset_signal(
+        _reset(_ev("strategic-pivot", "no"), _ev("leadership-change", "yes"))
+    ) is True
 
 
 def test_reset_restructuring_layoffs_rides_the_opening_question():
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="restructuring-layoffs", reset_creates_high_agency_opening="yes")
-    ) is True
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="restructuring-layoffs", reset_creates_high_agency_opening="no")
-    ) is False
+    assert se.derive_reset_signal(_reset(_ev("restructuring-layoffs", "yes"))) is True
+    assert se.derive_reset_signal(_reset(_ev("restructuring-layoffs", "no"))) is False
 
 
-def test_reset_ma_integration_never_fires():
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="ma-integration", reset_creates_high_agency_opening="yes")
-    ) is False
-    # 'M&A integration' must normalize to ma-integration and still never fire
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="M&A integration", reset_creates_high_agency_opening="yes")
-    ) is False
-
-
-def test_reset_none_never_fires():
-    # Flag 2: none + opening=yes is incoherent and is structurally impossible to fire.
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="none", reset_creates_high_agency_opening="yes")
-    ) is False
+def test_reset_ma_integration_never_fires_incl_ampersand_variant():
+    assert se.derive_reset_signal(_reset(_ev("ma-integration", "yes"))) is False
+    assert se.derive_reset_signal(_reset(_ev("M&A integration", "yes"))) is False  # normalizes
 
 
 def test_reset_opening_no_or_unclear_is_false():
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="leadership-change", reset_creates_high_agency_opening="no")
-    ) is False
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="leadership-change", reset_creates_high_agency_opening="unclear")
-    ) is False
+    assert se.derive_reset_signal(_reset(_ev("leadership-change", "no"))) is False
+    assert se.derive_reset_signal(_reset(_ev("leadership-change", "unclear"))) is False
 
 
 def test_reset_normalizes_input_variants():
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="Leadership Change", reset_creates_high_agency_opening="Yes")
-    ) is True
-    assert se.derive_reset_signal(
-        _reset_row(reset_event_type="Strategic Pivot", reset_creates_high_agency_opening="yes")
-    ) is False
+    assert se.derive_reset_signal(_reset(_ev("Leadership Change", "Yes"))) is True
+    assert se.derive_reset_signal(_reset(_ev("Strategic Pivot", "yes"))) is False
+
+
+def test_reset_unrecognized_type_does_not_fire_and_flags_review():
+    # Flag 4: an unrecognized type does NOT auto-fire and is surfaced for review.
+    ev = _reset(_ev("rebranding", "yes"))
+    assert se.derive_reset_signal(ev) is False
+    assert se.reset_needs_review(ev) is True
+
+
+def test_reset_needs_review_false_for_recognized_or_empty():
+    assert se.reset_needs_review(_reset(_ev("restructuring-layoffs", "yes"))) is False
+    assert se.reset_needs_review(_reset()) is False
+
+
+def test_reset_basis_for_firing_else_first_else_empty():
+    zoe = _reset(_ev("strategic-pivot", "no", "pivot basis"),
+                 _ev("restructuring-layoffs", "yes", "restructuring basis"))
+    assert se.reset_basis_for(zoe) == "restructuring basis"   # the firing event's basis
+    noom = _reset(_ev("strategic-pivot", "no", "pivot basis"))
+    assert se.reset_basis_for(noom) == "pivot basis"          # nothing fires -> first-listed
+    assert se.reset_basis_for(_reset()) == ""                  # empty -> empty
+
+
+def test_reset_recalibration_from_stored_json():
+    # Part C: derive off the persisted reset_events_json reproduces the bool (no re-research).
+    zoe = _reset(_ev("strategic-pivot", "no", "p"), _ev("restructuring-layoffs", "yes", "r"))
+    flat = se.flatten_reset_fields({"reset_evidence": zoe})
+    row = {"reset_events_json": flat["reset_events_json"]}
+    assert se.derive_reset_signal(row) is True
+    assert se.reset_basis_for(row) == "r"
 
 
 def test_flatten_reset_fields():
-    parsed = {"reset_evidence": {
-        "reset_event_type": "leadership-change",
-        "reset_basis": "New CEO hired to lead a turnaround (TechCrunch, 2025).",
-        "reset_creates_high_agency_opening": "yes",
-    }}
+    parsed = {"reset_evidence": _reset(
+        _ev("strategic-pivot", "no", "D2C->payer (src)"),
+        _ev("restructuring-layoffs", "yes", "team rebuild toward expansion (src)"),
+    )}
     flat = se.flatten_reset_fields(parsed)
-    assert set(flat) == set(se.RESET_EVIDENCE_FIELDS)
-    assert flat["reset_event_type"] == "leadership-change"
-    assert flat["reset_creates_high_agency_opening"] == "yes"
+    assert set(flat) == set(se.RESET_PERSIST_FIELDS)
+    assert flat["reset_event_types"] == "strategic-pivot, restructuring-layoffs"
+    roundtrip = json.loads(flat["reset_events_json"])
+    assert [e["event_type"] for e in roundtrip] == ["strategic-pivot", "restructuring-layoffs"]
 
 
 def test_flatten_reset_fields_missing_or_nondict():
-    for parsed in ({}, {"reset_evidence": None}, "not-a-dict"):
+    for parsed in ({}, {"reset_evidence": None}, {"reset_evidence": {"reset_events": "oops"}}, "not-a-dict"):
         flat = se.flatten_reset_fields(parsed)
-        assert set(flat) == set(se.RESET_EVIDENCE_FIELDS)
-        assert all(v == "" for v in flat.values())
+        assert set(flat) == set(se.RESET_PERSIST_FIELDS)
+        assert flat["reset_event_types"] == ""
+        assert flat["reset_events_json"] == "[]"
