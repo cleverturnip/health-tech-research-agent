@@ -1787,8 +1787,11 @@ from health_tech_research_agent.structured_evidence import (
     derive_commercial_signal,
     commercial_signal_to_text,
     flatten_slice2_fields,
+    derive_reset_signal,
+    flatten_reset_fields,
     MATURITY_EVIDENCE_FIELDS,
     COMMERCIAL_EVIDENCE_FIELDS,
+    RESET_EVIDENCE_FIELDS,
 )
 
 if (
@@ -1802,6 +1805,8 @@ if (
         list(MATURITY_EVIDENCE_FIELDS)
         + list(COMMERCIAL_EVIDENCE_FIELDS)
         + ["commercial_scale_signal", "commercial_scale_signal_inferred"]
+        + list(RESET_EVIDENCE_FIELDS)
+        + ["reset_or_restructure_signal", "reset_or_restructure_basis"]
     )
     for _col in _slice2_cols:
         if _col not in summary_df.columns:
@@ -1820,6 +1825,14 @@ if (
         _signal_int = derive_commercial_signal(_commercial_evidence)
         _flat["commercial_scale_signal_inferred"] = _signal_int
         _flat["commercial_scale_signal"] = commercial_signal_to_text(_signal_int)
+        # Slice 3: reset/restructure — flatten the 3 researched fields + derive the signal.
+        # strategic-pivot / ma-integration / none never fire (recorded but not scored).
+        _flat.update(flatten_reset_fields(_parsed_s2))
+        _reset_evidence = _parsed_s2.get("reset_evidence", {}) if isinstance(_parsed_s2, dict) else {}
+        if not isinstance(_reset_evidence, dict):
+            _reset_evidence = {}
+        _flat["reset_or_restructure_signal"] = derive_reset_signal(_reset_evidence)
+        _flat["reset_or_restructure_basis"] = _flat.get("reset_basis", "")
         _slice2_lookup[_company] = _flat
 
     for _idx, _summary_row in summary_df.iterrows():
@@ -1829,7 +1842,7 @@ if (
         for _col, _value in _slice2_lookup[_company].items():
             summary_df.at[_idx, _col] = _value  # authoritative derived values
 
-    print("PASS: Slice 2 structured-evidence flatten + commercial-signal derivation applied.")
+    print("PASS: Slice 2/3 structured-evidence flatten + commercial-signal + reset derivation applied.")
 else:
     print("WARNING: Slice 2 structured-evidence block skipped; summary_df/df/fit_brief_json unavailable.")
 
@@ -1858,6 +1871,26 @@ else:
 # 6. New columns land on the master via STEP 12:
 #    After the master update, EXPECT the master CSV has the 8 maturity + 10 commercial
 #    component columns + maturity_needs_review + commercial_scale_signal_inferred.
+# =============================================================================
+
+# =============================================================================
+# COLAB VERIFICATION CHECKLIST - Slice 3 (reset/restructure) notebook wiring
+# =============================================================================
+# After researching ONE real company through STEP 7 -> 10, check, in order:
+# 1. The 3 reset component columns populate on a real company:
+#    EXPECT summary_df has reset_event_type / reset_basis / reset_creates_high_agency_opening
+#    populated (reset_event_type may be "none" if no event; basis cites a source when found).
+# 2. reset_or_restructure_signal derives correctly from the researched fields:
+#    EXPECT it == derive_reset_signal(reset_evidence): a researched reset event with opening=yes
+#    (e.g. leadership-change / declared-transformation) -> True; a strategic-pivot (or
+#    ma-integration / none) -> False even if opening=yes. Spot-check a known-reset company
+#    (e.g. ZOE) comes back True now that the manual override is superseded by the research.
+# 3. The MATERIALIZED signal is what the engine reads:
+#    from health_tech_research_agent.candidate_priority import reset_signal
+#    EXPECT reset_signal(row) (reads reset_or_restructure_signal) == the derived bool for the company.
+# 4. Columns land on the master via STEP 12:
+#    After the master update, EXPECT the master CSV has reset_event_type, reset_basis,
+#    reset_creates_high_agency_opening, reset_or_restructure_signal, reset_or_restructure_basis.
 # =============================================================================
 
 # STEP 10A - Deterministic priority adjudication
