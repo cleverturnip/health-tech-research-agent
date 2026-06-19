@@ -356,13 +356,24 @@ PMF / scale guardrails:
 - Do not require D2C revenue quality for a high PMF/scale score if the company has strong institutional distribution.
 - Pricing alone, a membership model alone, a waitlist alone, funding alone, or role-fit relevance alone is not enough to establish strong PMF/scale.
 
-Scale signal classification rules:
+Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the system derives it deterministically from funding_stage + ipo_status.
+- funding_stage = the company's MOST RECENT priced round. If credible sources don't establish it, use "unknown" — do NOT infer a stage from headcount, revenue, valuation, or "feel."
+- ipo_status = "public" if shares trade publicly; "filed" ONLY if an S-1 / IPO registration is publicly filed but shares are not yet trading; otherwise "private".
+- Revenue, ARR, valuation, and growth do NOT determine maturity — capture those under commercial_evidence. A Series B company with large revenue is still funding_stage = "series-b".
+- funding_stage_evidence: cite the source + date for the stage and IPO status.
 
-commercial_scale_signal:
-- Use "strong" only when there is credible revenue, ARR, run-rate, paid-customer scale, subscriber/member scale, strong revenue growth, renewal/retention, repeat usage, pricing power, or credible third-party estimated revenue/run-rate.
-- Use "moderate" when there is a real business model, visible pricing, some usage/customer evidence, or indirect monetization evidence, but no strong public revenue, paid-user, retention, or third-party revenue estimate.
-- Use "weak" when there is pricing or a D2C model but little evidence of actual scale.
-- Use "none" when there is no meaningful public monetization evidence.
+Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
+- Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
+- funding_evidence is context ONLY. Funding raised and valuation are NOT commercial traction and are structurally excluded from the signal — do not let them influence q1/q2.
+- q1_acquisition: direction of the PAYING base (growing / flat / declining).
+- q2_monetization: revenue-per-user vs. what is normal FOR THIS business model (strong / typical / weak).
+- q3_funding_dependent: "yes" if, setting the funding/valuation story aside, the real commercial evidence (revenue + paying customers) would be thin. (Explicit funding-as-commercial catch.)
+- q4_evidence_quality:
+  - "company-reported" = the company disclosed the figure;
+  - "credible-estimate" = a named reputable third party with a methodology (Sacra, CB Insights, reputable press citing sources);
+  - "unverified-promotional" = the company's own marketing, vague "fast-growing", or figures with no attributable source.
+
+Scale signal classification rules (institutional + outcomes):
 
 institutional_distribution_signal:
 - Use "strong" only when there is credible payer, employer, provider, benefits, health-system, pharma, government, or B2B2C distribution with named customers, covered lives, utilization, revenue, repeated channel evidence, or clear scaled adoption.
@@ -541,16 +552,35 @@ Use this JSON schema exactly:
   }},
   "commercial_scale_assessment": "plain-English assessment of revenue quality, paid-customer scale, retention, pricing power, CAC/margin if available, and whether revenue is reported, estimated, or inferred",
   "pmf_scale_assessment": "plain-English assessment explaining the strongest scale engine, secondary scale engine if any, outcomes/product-value support, and key caveats",
+  "maturity_evidence": {{
+    "funding_stage": "most recent priced round: pre-seed / seed / series-a / series-b / series-c / series-d-plus / public / unknown",
+    "ipo_status": "private / filed / public",
+    "ipo_or_filing_date": "date if filed or public, else empty",
+    "founding_year": "YYYY, or empty",
+    "last_raise_date": "date of most recent raise, or empty",
+    "last_raise_amount": "amount + currency of most recent raise, or empty",
+    "total_funding": "total disclosed funding, or empty",
+    "funding_stage_evidence": "short source/basis (name + date) for funding_stage and ipo_status"
+  }},
   "role_timing_assessment": {{
-    "company_maturity_read": "early / early-growth / scale-up / late-stage / public / unclear",
     "likely_agency_level": "high / medium / low / role-dependent",
     "stage_timing_fit": "ideal / good / borderline / too late / unclear",
     "why_now_or_why_not": "short explanation of whether Katelynd can enter with high agency now",
     "timing_penalty_applied": true
   }},
+  "commercial_evidence": {{
+    "revenue_or_arr": "figure + source/date, or empty if none found",
+    "paying_customer_count": "PAYING users/subscribers/members/customers only (exclude free/trial/pilot/waitlist) + source, or empty",
+    "revenue_per_user": "reported or derived revenue per paying user, or empty",
+    "growth_signal": "growing / flat / declining (+ rough rate if available)",
+    "business_model_type": "consumer-subscription / enterprise / payer-reimbursed / other",
+    "funding_evidence": "raises / valuation (context ONLY; the system EXCLUDES this from the commercial signal)",
+    "q1_acquisition": "is the PAYING base growing, flat, or declining? growing / flat / declining",
+    "q2_monetization": "is revenue-per-user strong, typical, or weak FOR THIS BUSINESS MODEL? strong / typical / weak",
+    "q3_funding_dependent": "does the commercial story rest mainly on funding/valuation rather than revenue/paying customers? yes / no",
+    "q4_evidence_quality": "company-reported / credible-estimate / unverified-promotional"
+  }},
   "scale_signal_assessment": {{
-    "commercial_scale_signal": "strong / moderate / weak / none",
-    "commercial_scale_signal_reason": "short reason",
     "institutional_distribution_signal": "strong / moderate / weak / none",
     "institutional_distribution_signal_reason": "short reason",
     "outcomes_signal": "strong / moderate / weak / none",

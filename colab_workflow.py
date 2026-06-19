@@ -1393,6 +1393,7 @@ for _col in ROLE_TIMING_FIELDS + [
     "operator_timing_score_raw",
     "operator_timing_score_cap",
     "operator_timing_calibration_flag",
+    "maturity_needs_review",
 ]:
     if _col not in summary_df.columns:
         summary_df[_col] = ""
@@ -1445,28 +1446,11 @@ def _rt_get_raw_text_for_company(company, parsed=None):
 
     return " ".join([_rt_safe_text(piece).lower() for piece in pieces])
 
-def _rt_infer_maturity_read(text):
-    late_stage_terms = [
-        "series d", "series e", "series f", "late-stage", "late stage",
-        "unicorn", "$1b valuation", "over $1b", "> $1b", ">$1b",
-        "$100m arr", "100m arr", "$100m revenue", "100m revenue",
-        "$150m", "150m revenue", "revenue run-rate", "revenue run rate",
-    ]
-    public_terms = [
-        "public company", "post-ipo", "post ipo", "ipo", "s-1", "nyse", "nasdaq",
-    ]
-    early_c_terms = ["series c", "early series c"]
-    early_terms = ["series a", "series b", "seed", "pre-seed", "pre seed"]
-
-    if any(term in text for term in public_terms):
-        return "public"
-    if any(term in text for term in late_stage_terms):
-        return "late-stage"
-    if any(term in text for term in early_c_terms):
-        return "scale-up"
-    if any(term in text for term in early_terms):
-        return "early-growth"
-    return "unclear"
+# _rt_infer_maturity_read RETIRED (Slice 2): company_maturity_read is now derived
+# deterministically from the researched funding_stage / ipo_status by
+# structured_evidence.derive_maturity (revenue/scale never touch maturity), not from a
+# keyword text-scan over the findings.
+from health_tech_research_agent.structured_evidence import derive_maturity
 
 def _rt_has_high_agency_exception(text):
     exception_terms = [
@@ -1529,10 +1513,11 @@ for _idx, _summary_row in summary_df.iterrows():
         _role_timing = {}
 
     _raw_text = _rt_get_raw_text_for_company(_company, _parsed)
-    _inferred_maturity = _rt_infer_maturity_read(_raw_text)
+    _maturity_evidence = _parsed.get("maturity_evidence", {})
+    if not isinstance(_maturity_evidence, dict):
+        _maturity_evidence = {}
+    _maturity_read, _maturity_needs_review = derive_maturity(_maturity_evidence)
     _high_agency_exception = _rt_has_high_agency_exception(_raw_text)
-
-    _maturity_read = _rt_safe_text(_role_timing.get("company_maturity_read", "")) or _inferred_maturity
     _agency_level = _rt_safe_text(_role_timing.get("likely_agency_level", "")) or _rt_default_agency_level(_maturity_read, _high_agency_exception)
     _stage_fit = _rt_safe_text(_role_timing.get("stage_timing_fit", "")) or _rt_default_stage_timing_fit(_maturity_read, _high_agency_exception)
     _why_now = _rt_safe_text(_role_timing.get("why_now_or_why_not", ""))
@@ -1574,6 +1559,7 @@ for _idx, _summary_row in summary_df.iterrows():
         _timing_flag = "CHECK: mature company may be too late for high-agency operator entry."
 
     summary_df.at[_idx, "company_maturity_read"] = _maturity_read
+    summary_df.at[_idx, "maturity_needs_review"] = "TRUE" if _maturity_needs_review else "FALSE"
     summary_df.at[_idx, "likely_agency_level"] = _agency_level
     summary_df.at[_idx, "stage_timing_fit"] = _stage_fit
     summary_df.at[_idx, "why_now_or_why_not"] = _why_now
@@ -1788,6 +1774,92 @@ if (
 else:
     print("WARNING: scale-signal flattening skipped; summary_df/df/fit_brief_json unavailable.")
 
+# -----------------------------
+# SLICE 2 STRUCTURED-EVIDENCE BLOCK
+# -----------------------------
+# Flatten maturity_evidence + commercial_evidence from fit_brief_json into persisted
+# columns, and derive the commercial signal deterministically from them (package:
+# structured_evidence). company_maturity_read / maturity_needs_review are set in the
+# role/timing block above via derive_maturity. Persisting the COMPONENTS lets the
+# labels/signals be recalibrated later WITHOUT re-research (spec Part C).
+
+from health_tech_research_agent.structured_evidence import (
+    derive_commercial_signal,
+    commercial_signal_to_text,
+    flatten_slice2_fields,
+    MATURITY_EVIDENCE_FIELDS,
+    COMMERCIAL_EVIDENCE_FIELDS,
+)
+
+if (
+    "summary_df" in globals()
+    and isinstance(summary_df, pd.DataFrame)
+    and "df" in globals()
+    and isinstance(df, pd.DataFrame)
+    and "fit_brief_json" in df.columns
+):
+    _slice2_cols = (
+        list(MATURITY_EVIDENCE_FIELDS)
+        + list(COMMERCIAL_EVIDENCE_FIELDS)
+        + ["commercial_scale_signal", "commercial_scale_signal_inferred"]
+    )
+    for _col in _slice2_cols:
+        if _col not in summary_df.columns:
+            summary_df[_col] = ""
+
+    _slice2_lookup = {}
+    for _, _raw_row in df.iterrows():
+        _company = _scale_signal_safe_text(_raw_row.get("company", ""))
+        if not _company:
+            continue
+        _parsed_s2 = _scale_signal_parse_fit_json(_raw_row.get("fit_brief_json", ""))
+        _flat = flatten_slice2_fields(_parsed_s2)
+        _commercial_evidence = _parsed_s2.get("commercial_evidence", {}) if isinstance(_parsed_s2, dict) else {}
+        if not isinstance(_commercial_evidence, dict):
+            _commercial_evidence = {}
+        _signal_int = derive_commercial_signal(_commercial_evidence)
+        _flat["commercial_scale_signal_inferred"] = _signal_int
+        _flat["commercial_scale_signal"] = commercial_signal_to_text(_signal_int)
+        _slice2_lookup[_company] = _flat
+
+    for _idx, _summary_row in summary_df.iterrows():
+        _company = _scale_signal_safe_text(_summary_row.get("company", ""))
+        if _company not in _slice2_lookup:
+            continue
+        for _col, _value in _slice2_lookup[_company].items():
+            summary_df.at[_idx, _col] = _value  # authoritative derived values
+
+    print("PASS: Slice 2 structured-evidence flatten + commercial-signal derivation applied.")
+else:
+    print("WARNING: Slice 2 structured-evidence block skipped; summary_df/df/fit_brief_json unavailable.")
+
+# =============================================================================
+# COLAB VERIFICATION CHECKLIST - Slice 2 (structured evidence) notebook wiring
+# =============================================================================
+# Offline tests cover the package functions; this wiring is Colab-verified. After
+# pulling this branch, research ONE real company (small batch) through STEP 7 -> 10 ->
+# 10A, then check, in order:
+# 1. New component columns exist + non-empty on a real company:
+#    cols = MATURITY_EVIDENCE_FIELDS + COMMERCIAL_EVIDENCE_FIELDS
+#    EXPECT summary_df[cols] populated (funding_stage, q1..q4, etc.) for the company.
+# 2. Derived maturity is from funding stage, NOT a text-scan:
+#    EXPECT company_maturity_read matches the derive_maturity rule for its funding_stage
+#    (e.g. a Series B with big revenue -> "early-growth", never "late-stage"); and
+#    maturity_needs_review == "TRUE" only when funding_stage is unknown.
+# 3. Derived commercial signal:
+#    EXPECT commercial_scale_signal (text) + commercial_scale_signal_inferred (0-3) match
+#    derive_commercial_signal on the company's commercial_evidence (funding-dependent -> not strong).
+# 4. Retired inferences are gone:
+#    EXPECT no _rt_infer_maturity_read / infer_commercial_signal in the live module
+#    namespace (NameError if referenced); no stale text-scan maturity.
+# 5. STEP 26 still rescores with derived maturity:
+#    Run STEP 26 (DRY_RUN=False) on one company w/ archived evidence -> EXPECT it completes
+#    and cap_info["company_maturity_read"] equals derive_maturity for that company.
+# 6. New columns land on the master via STEP 12:
+#    After the master update, EXPECT the master CSV has the 8 maturity + 10 commercial
+#    component columns + maturity_needs_review + commercial_scale_signal_inferred.
+# =============================================================================
+
 # STEP 10A - Deterministic priority adjudication
 
 # =============================================================================
@@ -1996,83 +2068,14 @@ def get_scale_assessment(parsed):
 
     return {}
 
-def infer_commercial_signal(row, parsed):
-    scale_assessment = get_scale_assessment(parsed)
-    explicit = normalize_signal(scale_assessment.get("commercial_scale_signal", ""))
-
-    if explicit in ["strong", "moderate", "weak", "none"] and str(scale_assessment.get("commercial_scale_signal", "")).strip():
-        return explicit
-
-    text = " ".join([
-        str(row.get("commercial_scale_finding", "")),
-        str(parsed.get("commercial_scale_assessment", "")),
-        str(parsed.get("pmf_scale_assessment", "")),
-    ]).lower()
-
-    weak_markers = [
-        "weak public commercial",
-        "weak commercial",
-        "no strong public commercial",
-        "no strong public commercial scale",
-        "no credible public arr",
-        "no public arr",
-        "no company-reported arr",
-        "no company-reported revenue",
-        "no credible third-party revenue",
-        "no credible third-party revenue estimate",
-        "not well evidenced",
-        "unproven publicly",
-        "commercial traction remains unsubstantiated",
-        "does not yet establish strong revenue quality",
-        "pricing exists, but commercial traction remains unsubstantiated"
-    ]
-
-    strong_markers = [
-        "strong commercial",
-        "$100m",
-        "$1b",
-        "$500m",
-        "100m revenue",
-        "100m arr",
-        "1b arr",
-        "500m/year",
-        "paid-member scale",
-        "paid-user scale",
-        "paying members",
-        "paying subscribers",
-        "subscribers",
-        "first-year renewal",
-        "substantial paid-user scale",
-        "meaningful paid-customer scale",
-        "credible estimated revenue",
-        "estimated revenue",
-        "revenue run-rate",
-        "arr"
-    ]
-
-    moderate_markers = [
-        "moderate commercial",
-        "moderately evidenced",
-        "paid pricing",
-        "subscription model",
-        "membership model",
-        "test-kit",
-        "consumer usage",
-        "pricing and product signals",
-        "visible pricing",
-        "real business model"
-    ]
-
-    if text_contains_any(text, weak_markers):
-        return "weak"
-
-    if text_contains_any(text, strong_markers):
-        return "strong"
-
-    if text_contains_any(text, moderate_markers):
-        return "moderate"
-
-    return "none"
+# infer_commercial_signal RETIRED (Slice 2): the commercial signal is now derived
+# deterministically from the researched commercial facts + four red-flags by
+# structured_evidence.derive_commercial_signal (funding structurally excluded; the old
+# dollar-token strong_markers, which could not tell revenue from funding, are gone).
+from health_tech_research_agent.structured_evidence import (
+    derive_commercial_signal,
+    commercial_signal_to_text,
+)
 
 def infer_institutional_signal(row, parsed):
     scale_assessment = get_scale_assessment(parsed)
@@ -2221,7 +2224,10 @@ for idx, row in df.iterrows():
 
     scale_assessment = get_scale_assessment(parsed)
 
-    commercial_signal = infer_commercial_signal(row, parsed)
+    _commercial_evidence = parsed.get("commercial_evidence", {})
+    if not isinstance(_commercial_evidence, dict):
+        _commercial_evidence = {}
+    commercial_signal = commercial_signal_to_text(derive_commercial_signal(_commercial_evidence))
     institutional_signal = infer_institutional_signal(row, parsed)
     outcomes_signal = infer_outcomes_signal(row, parsed)
 
@@ -10012,19 +10018,14 @@ def step26_infer_maturity_and_cap(company, evidence_text, parsed):
         "early growth",
     ]
 
-    if reliable_public_company_signal:
-        inferred = "public"
-    elif any(term in combined_lower for term in late_terms):
-        inferred = "late-stage"
-    elif any(term in combined_lower for term in scaleup_terms):
-        inferred = "scale-up"
-    elif any(term in combined_lower for term in early_growth_terms):
-        inferred = "early-growth"
-    else:
-        # Never trust model-supplied "public" unless hard public-company evidence exists.
-        if maturity == "public":
-            maturity = "unclear"
-        inferred = maturity or "unclear"
+    # Slice 2: the maturity LABEL is DERIVED deterministically from the researched
+    # funding_stage / ipo_status (structured_evidence.derive_maturity), not the
+    # keyword/regex text-scan. The public-detection machinery above now only feeds the
+    # reporting fields in the return dict; the label no longer comes from it.
+    from health_tech_research_agent.structured_evidence import derive_maturity as _derive_maturity
+    inferred, _maturity_needs_review = _derive_maturity(
+        parsed.get("maturity_evidence", {}) if isinstance(parsed, dict) else {}
+    )
 
     high_agency_terms = [
         "new business line",
@@ -10390,19 +10391,14 @@ def step26_infer_maturity_and_cap(company, evidence_text, parsed):
         "early growth",
     ]
 
-    if reliable_public_company_signal:
-        inferred = "public"
-    elif any(term in combined_lower for term in late_terms):
-        inferred = "late-stage"
-    elif any(term in combined_lower for term in scaleup_terms):
-        inferred = "scale-up"
-    elif any(term in combined_lower for term in early_growth_terms):
-        inferred = "early-growth"
-    else:
-        # Never trust model-supplied "public" unless hard public-company evidence exists.
-        if maturity == "public":
-            maturity = "unclear"
-        inferred = maturity or "unclear"
+    # Slice 2: the maturity LABEL is DERIVED deterministically from the researched
+    # funding_stage / ipo_status (structured_evidence.derive_maturity), not the
+    # keyword/regex text-scan. The public-detection machinery above now only feeds the
+    # reporting fields in the return dict; the label no longer comes from it.
+    from health_tech_research_agent.structured_evidence import derive_maturity as _derive_maturity
+    inferred, _maturity_needs_review = _derive_maturity(
+        parsed.get("maturity_evidence", {}) if isinstance(parsed, dict) else {}
+    )
 
     high_agency_terms = [
         "new business line",

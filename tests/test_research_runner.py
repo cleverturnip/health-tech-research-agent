@@ -242,7 +242,10 @@ def test_build_fit_brief_prompt_structure_and_interpolation():
     assert "Use this JSON schema exactly:" in prompt
     assert '"role_timing_assessment": {' in prompt
     assert '"scale_signal_assessment": {' in prompt
-    assert '"company_maturity_read": "early / early-growth / scale-up / late-stage / public / unclear"' in prompt
+    # Slice 2: the LLM no longer emits the maturity/commercial JUDGMENTS as output
+    # fields (it emits the evidence instead); these are derived deterministically.
+    assert '"company_maturity_read":' not in prompt
+    assert '"commercial_scale_signal":' not in prompt
 
     # f-string brace-escapes rendered correctly ({{ -> {, }} -> })
     assert prompt.rstrip().endswith("}")
@@ -250,6 +253,69 @@ def test_build_fit_brief_prompt_structure_and_interpolation():
 
     # the curly-quote guardrail line is preserved verbatim
     assert "vague “fast-growing” claims" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Slice 2 — structured-evidence prompt fields (maturity + commercial)
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_has_maturity_evidence_block():
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert '"maturity_evidence": {' in prompt
+    for field in [
+        "funding_stage",
+        "ipo_status",
+        "founding_year",
+        "last_raise_date",
+        "last_raise_amount",
+        "total_funding",
+        "funding_stage_evidence",
+    ]:
+        assert f'"{field}":' in prompt
+    # the maturity-revenue separation backstop, stated in the prompt (Function fix)
+    assert "do NOT infer a stage from headcount, revenue" in prompt
+    assert 'still funding_stage = "series-b"' in prompt
+
+
+def test_prompt_has_commercial_evidence_and_four_redflags():
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert '"commercial_evidence": {' in prompt
+    for field in [
+        "revenue_or_arr",
+        "paying_customer_count",
+        "revenue_per_user",
+        "growth_signal",
+        "business_model_type",
+        "funding_evidence",
+    ]:
+        assert f'"{field}":' in prompt
+    for q in ["q1_acquisition", "q2_monetization", "q3_funding_dependent", "q4_evidence_quality"]:
+        assert f'"{q}":' in prompt
+    # funding is structurally excluded; q3 phrased as the counterfactual (Solace catch)
+    assert "structurally excluded" in prompt
+    assert "setting the funding/valuation story aside" in prompt
+
+
+def test_prompt_q4_evidence_quality_anchors():
+    # the Function case depends on credible-estimate vs unverified-promotional being crisp
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert "company-reported" in prompt
+    assert "credible-estimate" in prompt
+    assert "unverified-promotional" in prompt
+    assert "Sacra" in prompt
+    assert "CB Insights" in prompt
+
+
+def test_prompt_drops_llm_maturity_and_commercial_judgment_fields():
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    # removed as OUTPUT fields (prose references in the priority-gate guidance may remain)
+    assert '"company_maturity_read":' not in prompt
+    assert '"commercial_scale_signal":' not in prompt
+    assert '"commercial_scale_signal_reason":' not in prompt
+    # institutional + outcomes signals are out of Slice 2 scope and remain
+    assert '"institutional_distribution_signal":' in prompt
+    assert '"outcomes_signal":' in prompt
 
 
 def test_build_fit_brief_prompt_is_pure_and_repeatable():
