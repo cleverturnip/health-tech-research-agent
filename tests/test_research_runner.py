@@ -318,6 +318,37 @@ def test_prompt_drops_llm_maturity_and_commercial_judgment_fields():
     assert '"outcomes_signal":' in prompt
 
 
+# ---------------------------------------------------------------------------
+# Slice 3 — reset / restructure researched field
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_has_reset_evidence_block():
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert '"reset_evidence": {' in prompt
+    for field in ["reset_event_type", "reset_basis", "reset_creates_high_agency_opening"]:
+        assert f'"{field}":' in prompt
+    # the event-type vocabulary is offered to the LLM
+    for et in [
+        "leadership-change", "declared-transformation", "founder-transition",
+        "post-failure-rebuild", "restructuring-layoffs", "strategic-pivot", "ma-integration",
+    ]:
+        assert et in prompt
+
+
+def test_prompt_reset_vs_pivot_framing():
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    # the forward-mandate vs defensive-reaction poles, both concrete
+    assert "FORWARD-LOOKING MANDATE" in prompt
+    assert "DEFENSIVE reaction" in prompt
+    # restructuring-layoffs is not pre-judged — the opening question decides
+    assert "do NOT prejudge it; the opening question below decides" in prompt
+    # the strategic-pivot strengthening: a "transformation" framing can't upgrade a pivot
+    assert 'strategic-pivot EVEN IF the company frames it as a "transformation"' in prompt
+    assert '"Changed what we sell" = strategic-pivot' in prompt
+    assert '"rebuilding how we operate" = declared-transformation' in prompt
+
+
 def test_build_fit_brief_prompt_is_pure_and_repeatable():
     a = rr.build_fit_brief_prompt("C", "F", "T")
     b = rr.build_fit_brief_prompt("C", "F", "T")
