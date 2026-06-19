@@ -291,3 +291,100 @@ def test_flatten_and_derive_compose():
     flat = se.flatten_slice2_fields(parsed)
     assert se.derive_maturity(flat) == ("early-growth", False)
     assert se.derive_commercial_signal(flat) == 3
+
+
+# ---------------------------------------------------------------------------
+# derive_reset_signal (Slice 3) — fires only for a genuine high-agency opening
+# ---------------------------------------------------------------------------
+
+
+def _reset_row(**over):
+    base = {
+        "reset_event_type": "none",
+        "reset_basis": "",
+        "reset_creates_high_agency_opening": "no",
+    }
+    base.update(over)
+    return base
+
+
+def test_reset_zoe_leadership_change_fires():
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="leadership-change", reset_creates_high_agency_opening="yes")
+    ) is True
+
+
+def test_reset_zoe_declared_transformation_fires():
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="declared-transformation", reset_creates_high_agency_opening="yes")
+    ) is True
+
+
+def test_reset_noom_strategic_pivot_never_fires():
+    # Even when the LLM (wrongly) answers opening=yes, a strategic pivot is never an opening.
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="strategic-pivot", reset_creates_high_agency_opening="yes")
+    ) is False
+
+
+def test_reset_restructuring_layoffs_rides_the_opening_question():
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="restructuring-layoffs", reset_creates_high_agency_opening="yes")
+    ) is True
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="restructuring-layoffs", reset_creates_high_agency_opening="no")
+    ) is False
+
+
+def test_reset_ma_integration_never_fires():
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="ma-integration", reset_creates_high_agency_opening="yes")
+    ) is False
+    # 'M&A integration' must normalize to ma-integration and still never fire
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="M&A integration", reset_creates_high_agency_opening="yes")
+    ) is False
+
+
+def test_reset_none_never_fires():
+    # Flag 2: none + opening=yes is incoherent and is structurally impossible to fire.
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="none", reset_creates_high_agency_opening="yes")
+    ) is False
+
+
+def test_reset_opening_no_or_unclear_is_false():
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="leadership-change", reset_creates_high_agency_opening="no")
+    ) is False
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="leadership-change", reset_creates_high_agency_opening="unclear")
+    ) is False
+
+
+def test_reset_normalizes_input_variants():
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="Leadership Change", reset_creates_high_agency_opening="Yes")
+    ) is True
+    assert se.derive_reset_signal(
+        _reset_row(reset_event_type="Strategic Pivot", reset_creates_high_agency_opening="yes")
+    ) is False
+
+
+def test_flatten_reset_fields():
+    parsed = {"reset_evidence": {
+        "reset_event_type": "leadership-change",
+        "reset_basis": "New CEO hired to lead a turnaround (TechCrunch, 2025).",
+        "reset_creates_high_agency_opening": "yes",
+    }}
+    flat = se.flatten_reset_fields(parsed)
+    assert set(flat) == set(se.RESET_EVIDENCE_FIELDS)
+    assert flat["reset_event_type"] == "leadership-change"
+    assert flat["reset_creates_high_agency_opening"] == "yes"
+
+
+def test_flatten_reset_fields_missing_or_nondict():
+    for parsed in ({}, {"reset_evidence": None}, "not-a-dict"):
+        flat = se.flatten_reset_fields(parsed)
+        assert set(flat) == set(se.RESET_EVIDENCE_FIELDS)
+        assert all(v == "" for v in flat.values())
