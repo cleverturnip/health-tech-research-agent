@@ -32,14 +32,22 @@ lost. **Read this before running any full research refresh.**
    its wiring to it was not live-checked — and STEP 26 is the path that brings the 8 older-round
    companies up to current standard during regeneration, so confirm it works before relying on it.
 
+4. **Verify multi-event reset on a known multi-event company.** Research one company doing more
+   than one reset-type event at once (e.g. ZOE: a strategic-pivot AND a restructuring-toward-
+   expansion). EXPECT `reset_or_restructure_signal` fires on the restructuring event even
+   alongside the pivot (Slice 3.5 per-event evaluation). Under the single-value Slice 3, the
+   louder pivot buried the restructuring and reset wrongly came back False — that live finding is
+   what motivated 3.5. Also scan for `reset_needs_review == TRUE` rows (unrecognized event types
+   surfaced for review).
+
 ## The full data regeneration is RUN-ONCE — wait for Slices 2–4
 
-Do **not** run the full master regeneration until Slices 2, 3, and 4 are all merged. The
+Do **not** run the full master regeneration until Slices 2, 3, 3.5, and 4 are all merged. The
 interim pipeline still has the known audit gaps:
 
 - maturity mislabel (Function Health read "late-stage" despite Series-B / hypergrowth) — fixed by **Slice 2**
 - funding scored as commercial strength (Solace) — fixed by **Slice 2**
-- reset signal is a dead input (no automated producer; manual-only) — fixed by **Slice 3**
+- reset signal is a dead input (no automated producer; manual-only) — fixed by **Slice 3** (+ **Slice 3.5**: multi-event, so a coexisting restructuring isn't buried by a louder pivot)
 - capability-fit is the interim `role_fit` bridge — fixed by **Slice 4**
 
 Regenerating on the interim pipeline would bake those gaps into the "trusted" data and force a
