@@ -39,16 +39,22 @@ lost. **Read this before running any full research refresh.**
    louder pivot buried the restructuring and reset wrongly came back False — that live finding is
    what motivated 3.5. Also scan for `reset_needs_review == TRUE` rows (unrecognized event types
    surfaced for review).
+   - **Update (Slice 3.5 live run):** ZOE returned an EMPTY events list — neither event surfaced,
+     because reset was synthesized only from the four market/financial searches. So the live
+     multi-event FIRE could not be reproduced under 3.5 alone. **Slice 3.7's `search_org_events`
+     is the fix** — re-run this verification AFTER 3.7, when ZOE's org events should actually
+     surface. (The per-event firing logic itself is already proven by the offline red→green test.)
 
 ## The full data regeneration is RUN-ONCE — wait for Slices 2–4
 
-Do **not** run the full master regeneration until Slices 2, 3, 3.5, and 4 are all merged. The
-interim pipeline still has the known audit gaps:
+Do **not** run the full master regeneration until Slices 2, 3, 3.5, **3.7**, and 4 are all
+merged. The interim pipeline still has the known audit gaps:
 
 - maturity mislabel (Function Health read "late-stage" despite Series-B / hypergrowth) — fixed by **Slice 2**
 - funding scored as commercial strength (Solace) — fixed by **Slice 2**
 - reset signal is a dead input (no automated producer; manual-only) — fixed by **Slice 3** (+ **Slice 3.5**: multi-event, so a coexisting restructuring isn't buried by a louder pivot)
-- capability-fit is the interim `role_fit` bridge — fixed by **Slice 4**
+- **operator/organizational evidence has NO search behind it** — reset fires only on incidental mentions in the four market/financial searches (ZOE's restructuring never surfaced → it returned an empty events list), and capability-fit A1/A2 likewise have no targeting search; the high-demand searches are also evidence-starved by the stale one-bullet constraint — all fixed by **Slice 3.7** (search-layer redesign: `search_org_events` + `search_operating_characteristics` + commercial/funding re-budget)
+- capability-fit is the interim `role_fit` bridge — fixed by **Slice 4** (which consumes Slice 3.7's `search_operating_characteristics`)
 
 Regenerating on the interim pipeline would bake those gaps into the "trusted" data and force a
 second expensive full refresh. Regenerate **once**, after all three slices land. (Tracked as a
