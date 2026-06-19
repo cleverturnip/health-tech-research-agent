@@ -78,6 +78,22 @@ COMMERCIAL_EVIDENCE_FIELDS = [
     "q4_evidence_quality",
 ]
 
+# Reset / restructure (Slice 3) vocab.
+RESET_EVENT_TYPES = frozenset(
+    {"none", "leadership-change", "declared-transformation", "founder-transition",
+     "post-failure-rebuild", "restructuring-layoffs", "strategic-pivot", "ma-integration"}
+)
+# Event types that can NEVER fire reset (not high-agency openings). "none" is included so the
+# logically-incoherent none + opening=yes case is structurally impossible — a real reset event
+# is never typed "none", so this cannot suppress a legitimate reset (Slice 3 Flag 2).
+RESET_NEVER_FIRE = frozenset({"strategic-pivot", "ma-integration", "none"})
+
+RESET_EVIDENCE_FIELDS = [
+    "reset_event_type",
+    "reset_basis",
+    "reset_creates_high_agency_opening",
+]
+
 # Sentinels that mean "no real evidence here" when a fact field is technically non-empty.
 _ABSENT_SENTINELS = frozenset(
     {"", "none", "n/a", "na", "unknown", "no evidence", "not found", "not disclosed",
@@ -127,6 +143,15 @@ def _norm_stage(value) -> str:
 def _has_real_evidence(value) -> bool:
     """True when a fact field holds real evidence (non-empty and not an 'absent' sentinel)."""
     return _norm(value) not in _ABSENT_SENTINELS
+
+
+def _norm_reset_event(value) -> str:
+    """Normalize a reset_event_type to the vocab, folding common variants
+    (e.g. 'M&A integration' / 'm&a-integration' -> 'ma-integration')."""
+    text = _norm(value).replace("&", "")  # 'm&a' -> 'ma'
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-")
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -237,3 +262,36 @@ def flatten_slice2_fields(parsed) -> dict:
     for field in COMMERCIAL_EVIDENCE_FIELDS:
         out[field] = _safe_text(commercial.get(field, ""))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Reset / restructure (Slice 3) — fires only for a genuine high-agency opening.
+# ---------------------------------------------------------------------------
+
+def derive_reset_signal(row) -> bool:
+    """Return whether reset fires, from the stored researched fields (spec Slice 3).
+
+    Reset fires IFF the event creates a high-agency opening AND the event type is not one
+    that can never be an opening:
+
+        reset = (reset_creates_high_agency_opening == "yes")
+                and (reset_event_type NOT IN {strategic-pivot, ma-integration, none})
+
+    strategic-pivot / ma-integration / none never fire. ``restructuring-layoffs`` is NOT
+    pre-bucketed — it rides on the opening question (rebuild-toward-growth = yes -> fires;
+    contraction-toward-decline = no -> does not). Pure function of stored fields; the engine's
+    reset_signal(row) reads the materialized reset_or_restructure_signal this produces.
+    """
+    event = _norm_reset_event(row.get("reset_event_type"))
+    opening = _norm_enum(row.get("reset_creates_high_agency_opening"))
+    if event in RESET_NEVER_FIRE:
+        return False
+    return opening == "yes"
+
+
+def flatten_reset_fields(parsed) -> dict:
+    """Extract the reset_evidence fields from a parsed fit-brief JSON into flat columns
+    (empty string when the block/field is absent; tolerant of non-dict input)."""
+    reset = parsed.get("reset_evidence") if isinstance(parsed, dict) else None
+    reset = reset if isinstance(reset, dict) else {}
+    return {field: _safe_text(reset.get(field, "")) for field in RESET_EVIDENCE_FIELDS}
