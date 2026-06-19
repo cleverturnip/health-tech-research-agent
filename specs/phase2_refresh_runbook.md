@@ -24,6 +24,14 @@ lost. **Read this before running any full research refresh.**
            os.remove(f); print("removed", f)
    ```
 
+3. **Verify the STEP 26 rescore path with the new derived maturity.** Run ONE STEP 26 rescore
+   (`STEP_26_DRY_RUN = False`) on a single company that has archived evidence; confirm it
+   completes and that `cap_info["company_maturity_read"]` equals `derive_maturity(...)` for that
+   company. *Why:* Slice 2's Colab run verified the STEP 7 → 10 → 10A path live but **skipped
+   STEP 26**. STEP 26 calls the same `derive_maturity` (so the derivation itself is proven), but
+   its wiring to it was not live-checked — and STEP 26 is the path that brings the 8 older-round
+   companies up to current standard during regeneration, so confirm it works before relying on it.
+
 ## The full data regeneration is RUN-ONCE — wait for Slices 2–4
 
 Do **not** run the full master regeneration until Slices 2, 3, and 4 are all merged. The
