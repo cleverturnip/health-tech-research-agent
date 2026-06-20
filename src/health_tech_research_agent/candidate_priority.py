@@ -354,6 +354,7 @@ def v41_gate(
     outcomes,
     archetype,
     has_reset,
+    capability_reset_adjusted=None,
 ) -> str:
     """The V4.1 candidate-priority gate (spec §6), ported as-is. Returns P0-P3 only
     (never P4 — Q5). The public/near-IPO cap (§7) is applied separately as an overlay.
@@ -368,6 +369,18 @@ def v41_gate(
     evidence = _safe_num(evidence)
     capability = _safe_num(capability)
     agency = _safe_num(agency)
+
+    # Slice 4 double-count fix: for a reset-LIFTED scale-up, the P1 capability threshold uses the
+    # A1/A3 mean only — A2's strain was already consumed by the reset cap-lift / agency floor, so
+    # counting it again here would let ONE event clear two gates (reset + capability). Applies to
+    # the scale-up reset P1 paths (p1_scaleup_reset AND p1_standard, since a reset-floored
+    # scale-up/good can reach P1 either way). Everything else uses the full capability. Falls back
+    # to the full capability when no adjusted value is supplied (pre-Slice-4 callers/rows), so
+    # behavior is unchanged unless an adjusted value is passed. The stored score is never altered.
+    if has_reset and maturity == "scale-up" and capability_reset_adjusted is not None:
+        gate_capability_for_p1 = _safe_num(capability_reset_adjusted)
+    else:
+        gate_capability_for_p1 = capability
     commercial = int(commercial)
     institutional = int(institutional)
     outcomes = int(outcomes)
@@ -406,7 +419,7 @@ def v41_gate(
         and not weak_noninstitutional_scaleup and not under_proven and not weak_fit
         and stage_ok
         and thesis >= 75 and pmf >= 68 and evidence >= 55
-        and capability >= 74 and agency >= 78
+        and gate_capability_for_p1 >= 74 and agency >= 78
         and has_path and agency_not_low
     )
     p1_early_growth_emerging = (
@@ -418,7 +431,7 @@ def v41_gate(
     p1_scaleup_reset = (
         maturity == "scale-up" and stage_fit in {"good", "borderline"} and has_reset
         and thesis >= 75 and pmf >= 68 and evidence >= 55
-        and capability >= 74 and agency >= 78
+        and gate_capability_for_p1 >= 74 and agency >= 78
         and has_path and agency_not_low
     )
     p1 = p1_standard or p1_early_growth_emerging or p1_scaleup_reset
@@ -487,6 +500,16 @@ def compute_candidate_priority(row, *, now_iso=None) -> dict:
     )
     agency = operator_agency_entry_score(row)
     capability = capability_fit_score(row)  # INTERIM bridge
+    # Slice 4 gate double-count fix: the reset-lifted scale-up P1 threshold uses the A1/A3 mean
+    # (A2 excluded). From the stored components; None when either is unscorable/absent (v41_gate
+    # then falls back to the full capability). The repoint + the suppression guard are Commit 4.
+    _a1 = as_number(row.get("capability_a1_score"))
+    _a3 = as_number(row.get("capability_a3_score"))
+    capability_reset_adjusted = (
+        (_a1 + _a3) / 2.0
+        if (_a1 is not None and _a1 == _a1 and _a3 is not None and _a3 == _a3)
+        else None
+    )
     archetype = target_archetype(row, capability, agency, scale_path)
     has_reset = reset_signal(row)
 
@@ -505,6 +528,7 @@ def compute_candidate_priority(row, *, now_iso=None) -> dict:
         outcomes=outcomes,
         archetype=archetype,
         has_reset=has_reset,
+        capability_reset_adjusted=capability_reset_adjusted,
     )
     level = apply_public_near_ipo_cap(level, row.get("company_maturity_read"), has_reset)
 

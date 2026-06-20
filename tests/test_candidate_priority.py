@@ -365,6 +365,89 @@ def test_gate_p3_fails_p2_floor():
 
 
 # ---------------------------------------------------------------------------
+# Slice 4 (Commit 3) — gate-time A1/A3 recompute for reset-lifted scale-ups.
+# Double-count fix: A2-strain is already consumed by the reset cap-lift / agency floor, so a
+# reset scale-up's P1 capability threshold uses the A1/A3 mean only — on BOTH P1 paths. Non-reset
+# rows use the full capability. (The suppression GUARD + capability_needs_review FLAG ride with
+# the repoint in Commit 4; here we prove the gate fix + that the gate is None-safe.)
+# ---------------------------------------------------------------------------
+
+
+def _reset_scaleup(**over):
+    """A reset scale-up clearing the non-capability P1 floors; capability is the variable."""
+    base = dict(
+        maturity="scale-up", stage_fit="good", has_reset=True,
+        scale_path=CREDIBLE_PATH, institutional=1, outcomes=1,
+        archetype="Role-scope-dependent target",
+        thesis=85, pmf=80, evidence=65, agency=85,
+    )
+    base.update(over)
+    return _p0_inputs(**base)
+
+
+def test_gate_reset_scaleup_compounding_blocked_on_a1a3_mean():
+    # Full capability 76 (A2-inflated) WOULD clear P1, but the A1/A3 mean (70) does not -> P2.
+    assert v41_gate(**_reset_scaleup(capability=76, capability_reset_adjusted=70)) == "P2"
+    # control: with no adjusted value supplied, the full 76 clears P1 (fallback / pre-fix path).
+    assert v41_gate(**_reset_scaleup(capability=76)) == "P1"
+
+
+def test_gate_reset_scaleup_clears_on_a1a3_mean():
+    # Mirror: clears P1 on the A1/A3 mean itself (79 >= 74), independent of A2.
+    assert v41_gate(**_reset_scaleup(capability=76, capability_reset_adjusted=79)) == "P1"
+
+
+def test_gate_reset_scaleup_p1_standard_path_also_uses_a1a3_mean():
+    # scale-up/good + reset can also reach P1 via p1_standard (institutional>=2); the recompute
+    # must cover it. Full 76 would clear p1_standard; the A1/A3 mean 70 blocks it -> P2.
+    assert v41_gate(**_reset_scaleup(
+        institutional=2, capability=76, capability_reset_adjusted=70,
+    )) == "P2"
+
+
+def test_gate_non_reset_uses_full_capability_no_a2_exclusion():
+    # Non-reset row: the A1/A3 mean is NOT applied even if supplied; the full capability is used.
+    # early-growth P1 (institutional<3), full capability 76 clears; adjusted 70 must be ignored.
+    assert v41_gate(**_p0_inputs(
+        scale_path=CREDIBLE_PATH, institutional=2, outcomes=1,
+        capability=76, capability_reset_adjusted=70,   # has_reset=False default -> ignored
+    )) == "P1"
+
+
+def test_gate_reset_scaleup_none_capability_routes_to_p3_no_throw():
+    # Adjusted-path null / suppression at the gate: A1 or A3 unscorable -> the full score is ALSO
+    # suppressed, so capability AND capability_reset_adjusted both arrive None. The gate routes to
+    # P3 (never P0/P1/P2) without throwing and without treating null as a 0 that could clear.
+    # (The capability_needs_review FLAG + the end-to-end orchestrator routing ride with Commit 4.)
+    assert v41_gate(**_reset_scaleup(capability=None, capability_reset_adjusted=None)) == "P3"
+
+
+def test_compute_reset_scaleup_wires_a1a3_mean_from_components():
+    # End-to-end wiring: compute_candidate_priority derives capability_reset_adjusted from the
+    # stored A1/A3 components and the gate applies it on the reset scale-up P1 path.
+    row = {
+        "company_maturity_read": "scale-up", "stage_timing_fit": "good",
+        "likely_agency_level": "high",
+        "thesis_fit_score": 85, "pmf_scale_score": 80, "evidence_confidence_score": 65,
+        "katelynd_role_fit_score": 76,            # interim (bridge) capability
+        "operator_timing_score": 85,
+        "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
+        "outcomes_signal": "strong",
+        "plausible_near_term_scale_path": True,
+        "reset_or_restructure_signal": "1.0",
+        "capability_a1_score": 70, "capability_a2_score": 95, "capability_a3_score": 70,
+    }
+    # A1/A3 mean = 70 (< 74) blocks the reset scale-up off P1, despite role_fit 76 and A2 95.
+    assert compute_candidate_priority(row)["candidate_priority_code"] == "P2"
+    # Without the components, capability_reset_adjusted is None -> falls back to the bridge (76) -> P1.
+    row_no_components = {
+        k: v for k, v in row.items()
+        if k not in ("capability_a1_score", "capability_a2_score", "capability_a3_score")
+    }
+    assert compute_candidate_priority(row_no_components)["candidate_priority_code"] == "P1"
+
+
+# ---------------------------------------------------------------------------
 # §7 — public / near-IPO cap overlay (Q4)
 # ---------------------------------------------------------------------------
 
