@@ -3340,6 +3340,43 @@ optional_model_cols = [
     "capability_needs_review",
 ]
 
+# ---------------------------------------------------------------------------
+# Pre-regen master-completeness (Slice 2/3.5 carry gap, surfaced while wiring Slice 4).
+# The candidate engine (held Commit 5) reads these DERIVED SIGNALS off the row it scores. STEP 12
+# only persists columns in model_cols_to_update (<- optional_model_cols), so without this the
+# regenerated master would lack the engine inputs: reset companies would lose their cap-lift and
+# the commercial/institutional/outcomes signals would collapse to 0 -> broad mis-tiering when the
+# engine is wired against the master. All are produced into summary_df by STEP 10 (carried only if
+# present). The Slice 2 components are also recoverable from archived fit_brief_json, but a
+# complete master beats a master + a recovery step. NOT an engine bug today (the engine is not
+# wired into any notebook path) - this makes the durable master engine-ready before the run-once.
+# ---------------------------------------------------------------------------
+from health_tech_research_agent.structured_evidence import (
+    MATURITY_EVIDENCE_FIELDS as _MASTER_MATURITY_FIELDS,
+    COMMERCIAL_EVIDENCE_FIELDS as _MASTER_COMMERCIAL_FIELDS,
+    RESET_PERSIST_FIELDS as _MASTER_RESET_PERSIST_FIELDS,
+)
+_master_completeness_cols = (
+    # Slice 3/3.5 reset: the signal engine.reset_signal() reads, + basis + the multi-event audit
+    ["reset_or_restructure_signal", "reset_or_restructure_basis", "reset_needs_review"]
+    + list(_MASTER_RESET_PERSIST_FIELDS)   # reset_events_json, reset_event_types
+    # Scale signals: engine.infer_signals() reads the text signals; scale_path_quality() the path
+    + [
+        "commercial_scale_signal",
+        "commercial_scale_signal_inferred",
+        "institutional_distribution_signal",
+        "outcomes_signal",
+        "plausible_near_term_scale_path",
+    ]
+    # Slice 2 components (recoverable from fit_brief_json; carried for a complete master)
+    + ["maturity_needs_review"]
+    + list(_MASTER_MATURITY_FIELDS)
+    + list(_MASTER_COMMERCIAL_FIELDS)
+)
+for _mc in _master_completeness_cols:
+    if _mc not in optional_model_cols:
+        optional_model_cols.append(_mc)
+
 for col in taxonomy_model_cols:
     if col in summary_df.columns and col not in model_cols_to_update:
         model_cols_to_update.append(col)
