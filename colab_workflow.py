@@ -1813,9 +1813,12 @@ from health_tech_research_agent.structured_evidence import (
     reset_basis_for,
     reset_needs_review,
     flatten_reset_fields,
+    derive_capability_fit_score,
+    flatten_capability_fields,
     MATURITY_EVIDENCE_FIELDS,
     COMMERCIAL_EVIDENCE_FIELDS,
     RESET_PERSIST_FIELDS,
+    CAPABILITY_FIELDS,
 )
 
 if (
@@ -1831,6 +1834,8 @@ if (
         + ["commercial_scale_signal", "commercial_scale_signal_inferred"]
         + list(RESET_PERSIST_FIELDS)
         + ["reset_or_restructure_signal", "reset_or_restructure_basis", "reset_needs_review"]
+        + list(CAPABILITY_FIELDS)
+        + ["katelynd_capability_fit_score", "capability_needs_review"]
     )
     for _col in _slice2_cols:
         if _col not in summary_df.columns:
@@ -1860,6 +1865,17 @@ if (
         _flat["reset_or_restructure_signal"] = derive_reset_signal(_reset_evidence)
         _flat["reset_or_restructure_basis"] = reset_basis_for(_reset_evidence)
         _flat["reset_needs_review"] = reset_needs_review(_reset_evidence)
+        # Slice 4: capability-fit — flatten the three components (a1/a2/a3 score + basis) and
+        # derive the average + suppression flag. Any null attribute -> score suppressed (blank) +
+        # capability_needs_review True (the engine routes such rows to P3 for human review).
+        _flat.update(flatten_capability_fields(_parsed_s2))
+        _cap_score, _cap_needs_review = derive_capability_fit_score(
+            _flat.get("capability_a1_score"),
+            _flat.get("capability_a2_score"),
+            _flat.get("capability_a3_score"),
+        )
+        _flat["katelynd_capability_fit_score"] = "" if _cap_score is None else _cap_score
+        _flat["capability_needs_review"] = _cap_needs_review
         _slice2_lookup[_company] = _flat
 
     for _idx, _summary_row in summary_df.iterrows():
@@ -1869,7 +1885,7 @@ if (
         for _col, _value in _slice2_lookup[_company].items():
             summary_df.at[_idx, _col] = _value  # authoritative derived values
 
-    print("PASS: Slice 2/3 structured-evidence flatten + commercial-signal + reset derivation applied.")
+    print("PASS: Slice 2/3/4 structured-evidence flatten + commercial-signal + reset + capability derivation applied.")
 else:
     print("WARNING: Slice 2 structured-evidence block skipped; summary_df/df/fit_brief_json unavailable.")
 
@@ -1955,6 +1971,27 @@ else:
 #
 # 5. Capability A1/A2/A3 are NOT scored yet (that is Slice 4): the fit brief gathers the
 #    operating-characteristics evidence but emits no capability_a*_score fields.
+# =============================================================================
+
+# =============================================================================
+# COLAB VERIFICATION CHECKLIST - Slice 4 (real capability-fit) notebook wiring
+# =============================================================================
+# After researching ONE real company through STEP 7 -> 10, check, in order:
+# 1. STEP 10 persists the capability columns into summary_df:
+#    EXPECT capability_a1_score/_basis, capability_a2_score/_basis, capability_a3_score/_basis,
+#    katelynd_capability_fit_score, capability_needs_review. EXPECT katelynd_capability_fit_score
+#    == round(mean(a1,a2,a3)), or BLANK when any attribute is null -> capability_needs_review True.
+# 2. A2 = operational STRAIN, not complexity: a smoothly-scaling company scores LOW on
+#    capability_a2_score; a strained one scores HIGH (the reframe is live in the rubric).
+# 3. The engine reads the REAL score (V4.2, not the role_fit bridge):
+#    from health_tech_research_agent.candidate_priority import compute_candidate_priority
+#    EXPECT candidate_priority_framework_version == "V4.2"; a suppressed row (any null attribute)
+#    -> candidate_priority_code "P3" + capability_needs_review True (never P0/P1/P2).
+# 4. Columns land on the master via STEP 12:
+#    After the master update, EXPECT the master CSV carries all six capability_a* columns +
+#    katelynd_capability_fit_score + capability_needs_review (optional_model_cols carries them).
+# 5. Transitional state: pre-Slice-4 master rows (no capability components) resolve to P3 +
+#    capability_needs_review until the run-once regeneration produces real scores. Expected.
 # =============================================================================
 
 # STEP 10A - Deterministic priority adjudication
@@ -3288,7 +3325,19 @@ optional_model_cols = [
     "timing_penalty_applied",
     "operator_timing_score_raw",
     "operator_timing_score_cap",
-    "operator_timing_calibration_flag"
+    "operator_timing_calibration_flag",
+    # Slice 4 capability-fit: carry the components + average + suppression flag to the master so
+    # the score is recomputable without re-research and capability_needs_review reaches the
+    # human-review packet at regen. (STEP 12 only persists columns listed here -> see also the
+    # FLAGGED gap for the reset / Slice 2 component columns, which are NOT yet carried.)
+    "capability_a1_score",
+    "capability_a1_basis",
+    "capability_a2_score",
+    "capability_a2_basis",
+    "capability_a3_score",
+    "capability_a3_basis",
+    "katelynd_capability_fit_score",
+    "capability_needs_review",
 ]
 
 for col in taxonomy_model_cols:
@@ -6465,6 +6514,7 @@ candidate_default_columns = {
     "target_archetype": "",
     "scale_path_quality": "",
     "katelynd_capability_fit_score": np.nan,
+    "capability_needs_review": "",
     "operator_agency_entry_score": np.nan,
     "reset_or_restructure_signal": "",
     "reset_or_restructure_basis": "",
