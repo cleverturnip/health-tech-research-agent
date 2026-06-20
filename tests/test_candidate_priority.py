@@ -14,6 +14,7 @@ from itertools import product
 import pytest
 
 from health_tech_research_agent import candidate_priority as cp
+from health_tech_research_agent.structured_evidence import derive_capability_fit_score
 from health_tech_research_agent.candidate_priority import (
     CREDIBLE_DUAL_PATH,
     CREDIBLE_PATH,
@@ -217,11 +218,21 @@ def test_agency_entry_clamped_and_int():
 
 
 # ---------------------------------------------------------------------------
-# §4 — interim capability-fit bridge
+# §4 — real capability-fit (Slice 4 repoint; replaces the role_fit bridge)
 # ---------------------------------------------------------------------------
 
-def test_capability_fit_is_role_fit_bridge():
-    assert capability_fit_score({"katelynd_role_fit_score": 81}) == 81
+def test_capability_fit_score_uses_real_not_bridge():
+    # Repointed: reads katelynd_capability_fit_score, NOT the old katelynd_role_fit_score bridge.
+    assert capability_fit_score(
+        {"katelynd_capability_fit_score": 60, "katelynd_role_fit_score": 90}
+    ) == 60
+
+
+def test_capability_fit_score_none_when_absent_or_suppressed():
+    # Absent (un-scored / pre-Slice-4 row) or a suppressed/blank score -> None (routes to review).
+    assert capability_fit_score({"katelynd_role_fit_score": 90}) is None
+    assert capability_fit_score({"katelynd_capability_fit_score": ""}) is None
+    assert capability_fit_score({"katelynd_capability_fit_score": None}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -422,29 +433,25 @@ def test_gate_reset_scaleup_none_capability_routes_to_p3_no_throw():
     assert v41_gate(**_reset_scaleup(capability=None, capability_reset_adjusted=None)) == "P3"
 
 
-def test_compute_reset_scaleup_wires_a1a3_mean_from_components():
-    # End-to-end wiring: compute_candidate_priority derives capability_reset_adjusted from the
-    # stored A1/A3 components and the gate applies it on the reset scale-up P1 path.
-    row = {
-        "company_maturity_read": "scale-up", "stage_timing_fit": "good",
-        "likely_agency_level": "high",
+def test_compute_reset_scaleup_uses_a1a3_mean_post_repoint():
+    # End-to-end (post-repoint): capability is the real stored score; the reset scale-up P1
+    # threshold uses the A1/A3 mean derived from the components.
+    base = {
+        "company_maturity_read": "scale-up", "stage_timing_fit": "good", "likely_agency_level": "high",
         "thesis_fit_score": 85, "pmf_scale_score": 80, "evidence_confidence_score": 65,
-        "katelynd_role_fit_score": 76,            # interim (bridge) capability
-        "operator_timing_score": 85,
+        "katelynd_role_fit_score": 85, "operator_timing_score": 85,   # agency reads role_fit
         "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
-        "outcomes_signal": "strong",
-        "plausible_near_term_scale_path": True,
+        "outcomes_signal": "strong", "plausible_near_term_scale_path": True,
         "reset_or_restructure_signal": "1.0",
-        "capability_a1_score": 70, "capability_a2_score": 95, "capability_a3_score": 70,
     }
-    # A1/A3 mean = 70 (< 74) blocks the reset scale-up off P1, despite role_fit 76 and A2 95.
-    assert compute_candidate_priority(row)["candidate_priority_code"] == "P2"
-    # Without the components, capability_reset_adjusted is None -> falls back to the bridge (76) -> P1.
-    row_no_components = {
-        k: v for k, v in row.items()
-        if k not in ("capability_a1_score", "capability_a2_score", "capability_a3_score")
-    }
-    assert compute_candidate_priority(row_no_components)["candidate_priority_code"] == "P1"
+    # Low A1/A3 mean (70) blocks P1 even though the full score (78) and A2 (95) are high -> P2.
+    low = {**base, "katelynd_capability_fit_score": 78,
+           "capability_a1_score": 70, "capability_a2_score": 95, "capability_a3_score": 70}
+    assert compute_candidate_priority(low)["candidate_priority_code"] == "P2"
+    # High A1/A3 mean (80) clears P1 on the reset path -> P1.
+    high = {**base, "katelynd_capability_fit_score": 85,
+            "capability_a1_score": 80, "capability_a2_score": 95, "capability_a3_score": 80}
+    assert compute_candidate_priority(high)["candidate_priority_code"] == "P1"
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +480,8 @@ def _public_row(has_reset):
         "company_maturity_read": "public", "stage_timing_fit": "good",
         "likely_agency_level": "high",
         "thesis_fit_score": 85, "pmf_scale_score": 82, "evidence_confidence_score": 65,
-        "katelynd_role_fit_score": 80,  # interim capability
+        "katelynd_role_fit_score": 80,  # feeds operator_agency_entry_score
+        "katelynd_capability_fit_score": 80,  # real capability (Slice 4)
         "operator_timing_score": 80,
         "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
         "outcomes_signal": "strong",
@@ -494,6 +502,45 @@ def test_q4_public_without_reset_is_p3():
 
 
 # ---------------------------------------------------------------------------
+# Slice 4 (Commit 4) — engine repoint: suppression guard + end-to-end null routing
+# ---------------------------------------------------------------------------
+
+def test_compute_reset_scaleup_a1a3_null_is_p3_and_flagged():
+    # Now reachable post-repoint: a reset scale-up with A2 present but A1 (or A3) unscorable ->
+    # the full score is suppressed (derive -> None) -> P3 + capability_needs_review, never P0/P1/P2.
+    score, needs_review = derive_capability_fit_score(None, 95, 70)  # A1 null
+    assert score is None and needs_review is True
+    row = {
+        "company_maturity_read": "scale-up", "stage_timing_fit": "good", "likely_agency_level": "high",
+        "thesis_fit_score": 85, "pmf_scale_score": 80, "evidence_confidence_score": 65,
+        "katelynd_role_fit_score": 85, "operator_timing_score": 85,
+        "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
+        "outcomes_signal": "strong", "plausible_near_term_scale_path": True,
+        "reset_or_restructure_signal": "1.0",
+        "katelynd_capability_fit_score": score,   # None (suppressed)
+        "capability_a1_score": None, "capability_a2_score": 95, "capability_a3_score": 70,
+    }
+    result = compute_candidate_priority(row)
+    assert result["candidate_priority_code"] == "P3"
+    assert result["capability_needs_review"] is True
+
+
+def test_compute_pre_slice4_row_suppresses_to_p3_flagged():
+    # The transitional state: a component-less interim-master row has no capability score ->
+    # capability None -> P3 + flag (cannot auto-tier on a missing capability read).
+    row = {
+        "company_maturity_read": "early-growth", "stage_timing_fit": "ideal", "likely_agency_level": "high",
+        "thesis_fit_score": 85, "pmf_scale_score": 80, "evidence_confidence_score": 65,
+        "katelynd_role_fit_score": 85, "operator_timing_score": 85,
+        "commercial_scale_signal": "strong", "institutional_distribution_signal": "strong",
+        "outcomes_signal": "strong",
+    }
+    out = compute_candidate_priority(row)
+    assert out["candidate_priority_code"] == "P3"
+    assert out["capability_needs_review"] is True
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator outputs (§8) — P0-P3 only, interim framework stamp
 # ---------------------------------------------------------------------------
 
@@ -502,7 +549,8 @@ def test_compute_candidate_priority_outputs():
         "company_maturity_read": "early-growth", "stage_timing_fit": "ideal",
         "likely_agency_level": "high",
         "thesis_fit_score": 85, "pmf_scale_score": 80, "evidence_confidence_score": 65,
-        "katelynd_role_fit_score": 85, "operator_timing_score": 85,
+        "katelynd_role_fit_score": 85, "katelynd_capability_fit_score": 85,
+        "operator_timing_score": 85,
         "commercial_scale_signal": "weak", "institutional_distribution_signal": "strong",
         "outcomes_signal": "moderate",
     }
@@ -510,9 +558,9 @@ def test_compute_candidate_priority_outputs():
     assert out["candidate_priority_code"] == "P0"
     assert out["candidate_priority_level"] == "P0: Active pursuit target"
     assert out["candidate_priority_rank"] == 0
-    assert out["candidate_priority_framework_version"] == "V4.2-interim"
-    # interim capability-fit == role_fit bridge
+    assert out["candidate_priority_framework_version"] == "V4.2"   # no longer interim (Slice 4)
     assert out["katelynd_capability_fit_score"] == 85
+    assert out["capability_needs_review"] is False
 
 
 def test_engine_never_emits_p4():
@@ -525,7 +573,8 @@ def test_engine_never_emits_p4():
                     "company_maturity_read": mat, "stage_timing_fit": "ideal",
                     "likely_agency_level": "high", "thesis_fit_score": thesis,
                     "pmf_scale_score": thesis, "evidence_confidence_score": thesis,
-                    "katelynd_role_fit_score": thesis, "operator_timing_score": thesis,
+                    "katelynd_role_fit_score": thesis,
+                    "katelynd_capability_fit_score": thesis, "operator_timing_score": thesis,
                     "institutional_distribution_signal": {3: "strong", 1: "weak", 0: "none"}[inst],
                     "commercial_scale_signal": "none", "outcomes_signal": "moderate",
                 })
@@ -539,7 +588,7 @@ def test_reset_ripples_into_scaleup_borderline_p1_vs_p2():
     base = dict(
         company_maturity_read="scale-up", stage_timing_fit="borderline", likely_agency_level="high",
         thesis_fit_score=80, pmf_scale_score=75, evidence_confidence_score=58,
-        katelynd_role_fit_score=80, operator_timing_score=80,
+        katelynd_role_fit_score=80, katelynd_capability_fit_score=80, operator_timing_score=80,
         commercial_scale_signal="strong", institutional_distribution_signal="strong", outcomes_signal="moderate",
     )
     with_reset = {**base, "reset_or_restructure_signal": "1.0"}
