@@ -910,14 +910,46 @@ def test_fit_brief_commercial_nudge_points_at_provenance_and_trend():
     assert "it does not move where these are judged" in prompt
 
 
-def test_fit_brief_does_not_add_capability_scoring_yet():
-    """Scope boundary: Slice 3.7 gathers operating-characteristics evidence but does NOT
-    score capability A1/A2/A3 — those fields arrive in Slice 4."""
-    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
-    for field in (
-        '"capability_a1_score"',
-        '"capability_a2_score"',
-        '"capability_a3_score"',
-        '"katelynd_capability_fit_score"',
-    ):
-        assert field not in prompt
+# ---------------------------------------------------------------------------
+# Slice 4 (Commit 1) — capability-fit rubric (prompt block + JSON schema).
+# Replaces Slice 3.7's "no capability scoring yet" boundary guard: Slice 4 now adds it.
+# ---------------------------------------------------------------------------
+
+
+def test_fit_brief_capability_block_and_schema():
+    """Lock the capability-fit wording: three company-shape attributes, the A2
+    strain-not-complexity reframe + counterintuitive flag + don't-mirror-reset, the bands,
+    the null-vs-0 policy, the softened pointers, and the capability_evidence JSON object."""
+    prompt = rr.build_fit_brief_prompt("Acme Health", "FINDINGS", "TAX")
+
+    # three attributes + company-shape framing (not skills / not mandate)
+    assert "Capability-fit — score THREE company-SHAPE attributes" in prompt
+    assert "those are scored elsewhere; do not import them" in prompt
+    assert "a1_score — PRODUCT-ENGAGEMENT STRUCTURE" in prompt
+    assert "a2_score — OPERATIONAL STRAIN" in prompt
+    assert "a3_score — DIGITAL CONSUMER HABITUAL-ENGAGEMENT PRODUCT" in prompt
+    assert "data-driven by necessity" in prompt
+
+    # A2 reframe: counterintuitive direction, strain-not-complexity, don't mirror reset
+    assert "COUNTERINTUITIVE BUT INTENDED:" in prompt
+    assert "strain is the opportunity, so MORE strain scores HIGHER" in prompt
+    assert "complexity does not discriminate and must NOT drive this" in prompt
+    assert "a reorg is only ONE possible strain signal among many" in prompt
+
+    # bands
+    assert "Strong 85-100" in prompt
+    assert "Absent 0-29" in prompt
+
+    # null vs 0 (the missing-attribute contract Commit 2 depends on)
+    assert "Emit null for an attribute ONLY when the evidence does not let you assess it at all." in prompt
+    assert "Emit 0 (Absent band) when you CAN assess the attribute" in prompt
+    assert "null is for missing EVIDENCE, not for a hard judgment call" in prompt
+
+    # softened, empty-section-tolerant pointers
+    assert "where available" in prompt
+
+    # JSON schema object + keys + the a2 gloss
+    assert '"capability_evidence": {' in prompt
+    for key in ('"a1_score"', '"a1_basis"', '"a2_score"', '"a2_basis"', '"a3_score"', '"a3_basis"'):
+        assert key in prompt
+    assert "HIGH = strained / high opportunity, LOW = smoothly-scaling" in prompt

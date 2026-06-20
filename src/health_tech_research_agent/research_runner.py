@@ -551,6 +551,72 @@ For each event:
 - creates_high_agency_opening — for THIS event: "yes" only when THIS event creates a FORWARD-LOOKING MANDATE for a senior operator to BUILD (the company is actively rebuilding / transforming and needs operators to do it); "no" when THIS event is a DEFENSIVE reaction (a pivot under competitive pressure, a contraction toward survival/decline, or routine integration); "unclear" when the evidence doesn't let you tell.
   - Example: a company simultaneously (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures its team to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
 
+Capability-fit — score THREE company-SHAPE attributes (A1, A2, A3), each 0-100 within the
+bands below, each with a one-line basis. These measure how closely the company matches the
+SHAPE of company where a senior consumer-product operator is exceptional — NOT whether specific
+skills apply and NOT whether there is a mandate (those are scored elsewhere; do not import them
+here). The system averages the three deterministically into katelynd_capability_fit_score — you
+provide the three scores + bases, NOT the average. Draw primarily from the "Operating
+characteristics" research section above (and its STRONG/MODERATE/WEAK strength tags), where
+available.
+
+Bands (apply to every attribute):
+- Strong 85-100: clearly, centrally true of the company.
+- Moderate 60-84: present, with caveats.
+- Weak 30-59: mostly absent or only superficial.
+- Absent 0-29: not characteristic at all.
+
+- a1_score — PRODUCT-ENGAGEMENT STRUCTURE (data-driven by necessity). This is NOT a "do they
+  have a data culture" question — that is unverifiable and companies self-describe it. It is a
+  PRODUCT-STRUCTURE question: a product with a daily / high-frequency engagement loop whose
+  REVENUE DEPENDS on sustained engagement is data-driven BY NECESSITY. Score HIGH when the
+  product is habit-dependent AND revenue hangs on retention; LOW when engagement is
+  periodic/optional, or revenue does not depend on it (one-time/transactional, or analytics
+  feeding slow planning cycles rather than the product's own daily loop). Asymmetry: doing the
+  data loop BADLY is the value-add, not a disqualifier — the structural dependence scores, not
+  execution quality. Draw primarily from the "Product-engagement" evidence, where available.
+
+- a2_score — OPERATIONAL STRAIN (process breaking under growth). COUNTERINTUITIVE BUT INTENDED:
+  strain is the opportunity, so MORE strain scores HIGHER, and a smoothly-scaling, well-run
+  company scores LOWER here. This is NOT "does cross-domain complexity exist" — every
+  competitive company is complex, so complexity does not discriminate and must NOT drive this
+  score. Score the EVIDENCE OF STRAIN broadly and in its own right — do NOT simply mirror the
+  reset/restructuring event; a reorg is only ONE possible strain signal among many. Weight the
+  STRUCTURAL strain signals most: headcount / scaling outrunning process; "first head of X"
+  scramble hiring to fill capability gaps; breakage, backlogs, or quality / service problems
+  under growth; visible scaling pains — and, as one signal among these, layoffs or reorgs
+  framed as "grew too fast." Count REPORTED strain (employee / press accounts) only where the
+  search found multiple independent sources — it already applied that bar. INTENDED BEHAVIOR: a
+  healthy, smoothly-scaling, well-run company scores LOW (Weak/Absent) on A2 — the ABSENCE of
+  strain correctly lowers fit, because there is no whitespace to own; a "better-run" company can
+  legitimately score lower here than a struggling one, and that is correct. Draw primarily from
+  the "Operational strain — structural" and "Operational strain — reported" evidence, where
+  available.
+    - Strong: clear, significant strain (typically structural + corroborated reported signals).
+    - Absent: no operational strain found — the company is scaling smoothly.
+
+- a3_score — DIGITAL CONSUMER HABITUAL-ENGAGEMENT PRODUCT. A digital consumer product where
+  HABIT / RETENTION is LOAD-BEARING for the product's success. Score LOW for a consumer SURFACE
+  without habit-dependence (a one-time transaction), or B2B2C where the real customer is the
+  employer/payer and habit is secondary. Draws from the same "Product-engagement" evidence as
+  A1, where available.
+
+NULL vs 0 — read carefully; the system depends on this distinction:
+- Emit null for an attribute ONLY when the evidence does not let you assess it at all.
+  null means "couldn't assess — no/insufficient evidence."
+- Emit 0 (Absent band) when you CAN assess the attribute and it is genuinely not characteristic
+  of the company. 0 means "assessed, and it is absent."
+- null is for missing EVIDENCE, not for a hard judgment call: if there IS evidence but the call
+  is difficult, SCORE it and explain the difficulty in the basis — do not reach for null. null
+  is the honest output ONLY when evidence is genuinely absent.
+- Do NOT default to 0, and do NOT pick a low score, when you actually mean "unknown" — that
+  silently corrupts the score.
+- The system SUPPRESSES the overall capability score and flags the row for review whenever any
+  attribute is null (it will NOT average over a gap), so emitting null has a real, safe effect:
+  it routes the company to human review instead of producing a fabricated number.
+- a1_basis / a2_basis / a3_basis: one line citing the specific evidence used — or, when the
+  score is null, one line stating what evidence was missing.
+
 Scale signal classification rules (institutional + outcomes):
 
 institutional_distribution_signal:
@@ -766,6 +832,14 @@ Use this JSON schema exactly:
     "q2_monetization": "is revenue-per-user strong, typical, or weak FOR THIS BUSINESS MODEL? strong / typical / weak",
     "q3_funding_dependent": "does the commercial story rest mainly on funding/valuation rather than revenue/paying customers? yes / no",
     "q4_evidence_quality": "company-reported / credible-estimate / unverified-promotional"
+  }},
+  "capability_evidence": {{
+    "a1_score": "0-100 within the bands (product-engagement structure) — or null if not assessable",
+    "a1_basis": "one line citing the evidence used (or what was missing, if null)",
+    "a2_score": "0-100 within the bands (operational STRAIN: HIGH = strained / high opportunity, LOW = smoothly-scaling) — or null if not assessable",
+    "a2_basis": "one line citing the evidence used (or what was missing, if null)",
+    "a3_score": "0-100 within the bands (digital consumer habit-product) — or null if not assessable",
+    "a3_basis": "one line citing the evidence used (or what was missing, if null)"
   }},
   "scale_signal_assessment": {{
     "institutional_distribution_signal": "strong / moderate / weak / none",
