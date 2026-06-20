@@ -526,6 +526,7 @@ Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the sys
 Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
 - Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
 - funding_evidence is context ONLY. Funding raised and valuation are NOT commercial traction and are structurally excluded from the signal — do not let them influence q1/q2.
+- The commercial research section now tags each figure with a SOURCE TYPE (company-reported / third-party estimate / promotional) and, where available, a TREND/history; read q4_evidence_quality off those SOURCE TYPE tags and read q1_acquisition off the TREND. Still answer q1-q4 here as defined below — the search only supplies richer evidence, it does not move where these are judged.
 - q1_acquisition: direction of the PAYING base (growing / flat / declining).
 - q2_monetization: revenue-per-user vs. what is normal FOR THIS business model (strong / typical / weak).
 - q3_funding_dependent: "yes" if, setting the funding/valuation story aside, the real commercial evidence (revenue + paying customers) would be thin. (Explicit funding-as-commercial catch.)
@@ -536,6 +537,7 @@ Commercial evidence — gather FACTS and answer the four red-flag questions. Do 
 
 Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
 A company may be doing SEVERAL of these at once (e.g. pivoting its business model AND restructuring its team). List EACH distinct event as its own object in reset_events, and answer the opening question PER EVENT, on that event's own terms. Do NOT let one event's nature determine another's — a strategic pivot does not make a coexisting restructuring an opening, and a loud pivot must NOT hide a restructuring that IS an opening. If you find no reset/restructure events, return an empty list [].
+The events, their types, and their per-event high-agency-opening reads come from the dedicated "Recent org / leadership events" section of the research findings above. Transcribe them into reset_events — emit one object per event and carry each event's event_type and opening read through; do NOT re-derive or override the opening here. The per-event definitions below are the shared criteria that search applied (use them only for consistent classification and citation); the deterministic rule downstream decides what fires.
 For each event:
 - event_type:
   - leadership-change — new CEO / senior exec layer brought in to build or turn the company around.
@@ -875,12 +877,18 @@ def _is_nonblank(value) -> bool:
 
 
 def _row_is_complete(row) -> bool:
-    """A checkpoint row is complete iff all seven research columns are non-blank."""
+    """A checkpoint row is complete iff all nine research columns are non-blank."""
     return all(_is_nonblank(row.get(col, "")) for col in REQUIRED_RESEARCH_COLUMNS)
 
 
-def _build_latest_status_findings(funding, payer, outcomes, commercial) -> str:
-    """Assemble the four findings into the synthesis input (verbatim STEP 7 layout)."""
+def _build_latest_status_findings(
+    funding, payer, outcomes, commercial, org_events, operating_characteristics
+) -> str:
+    """Assemble the six research findings into the synthesis input.
+
+    The four original STEP 7 sections plus the two Slice 3.7 operator sections
+    (org events -> reset; operating characteristics -> capability-fit, scored in Slice 4).
+    """
     return f"""
 Funding:
 {funding}
@@ -893,6 +901,12 @@ Outcomes:
 
 Commercial scale / revenue quality:
 {commercial}
+
+Recent org / leadership events (last ~12-18 months):
+{org_events}
+
+Operating characteristics (product-engagement + operational strain):
+{operating_characteristics}
 """
 
 
@@ -916,8 +930,9 @@ def run_research_batch(
       "complete"; those companies are skipped (``reused``) and not re-researched.
     * After each successful company the checkpoint is written atomically and
       (optionally) mirrored, so a runtime loss never loses completed work.
-    * The four web searches run with the faithful wait between them (injected
-      ``sleep_fn``), then the fit brief is synthesized.
+    * The six web searches (the four original + the two Slice 3.7 operator
+      searches: org events, operating characteristics) run with the faithful
+      wait between them (injected ``sleep_fn``), then the fit brief is synthesized.
 
     New here (the missing per-company recovery): each company's work is wrapped so
     one failure — an API error, a network error, or (when ``validate_json``) a fit
@@ -964,9 +979,17 @@ def run_research_batch(
             sleep_fn(wait_between_searches)
 
             commercial = search_commercial_scale(research_query, client=client, model=model)
+            sleep_fn(wait_between_searches)
+
+            org_events = search_org_events(research_query, client=client, model=model)
+            sleep_fn(wait_between_searches)
+
+            operating_characteristics = search_operating_characteristics(
+                research_query, client=client, model=model
+            )
 
             latest_status_findings = _build_latest_status_findings(
-                funding, payer, outcomes, commercial
+                funding, payer, outcomes, commercial, org_events, operating_characteristics
             )
 
             fit_brief = run_company_fit_brief(
@@ -989,6 +1012,8 @@ def run_research_batch(
                 "payer_institutional_finding": payer,
                 "outcomes_finding": outcomes,
                 "commercial_scale_finding": commercial,
+                "org_events_finding": org_events,
+                "operating_characteristics_finding": operating_characteristics,
                 "fit_brief_json": fit_brief,
             }
 

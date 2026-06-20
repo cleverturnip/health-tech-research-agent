@@ -637,8 +637,8 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         sleep_fn=sleeps.append,
     )
 
-    # per successful company: 3 waits between the 4 searches + 1 trailing wait
-    assert sleeps == [7] * 8
+    # per successful company: 5 waits between the 6 searches + 1 trailing wait
+    assert sleeps == [7] * 12
 
 
 # --- KeyboardInterrupt / SystemExit propagate (not caught as Exception) ------
@@ -827,3 +827,97 @@ def test_search_commercial_scale_gathers_provenance_and_trend():
     assert "SOURCE TYPE" in prompt          # provenance per figure -> q4 evidence quality
     assert "company-reported" in prompt
     assert "TREND" in prompt                # trend / history -> q1 acquisition trend
+
+
+# ---------------------------------------------------------------------------
+# Slice 3.7 (Commit 3) — wire 4 -> 6 findings (assembly, completeness, persistence, nudges)
+# ---------------------------------------------------------------------------
+
+
+def test_required_columns_grew_by_two_operator_findings_in_order():
+    """REQUIRED_RESEARCH_COLUMNS gains exactly the two operator findings, grouped with the
+    other *_finding columns and before fit_brief_json (so the checkpoint column order holds)."""
+    assert "org_events_finding" in REQUIRED_RESEARCH_COLUMNS
+    assert "operating_characteristics_finding" in REQUIRED_RESEARCH_COLUMNS
+    idx = REQUIRED_RESEARCH_COLUMNS.index
+    assert (
+        idx("commercial_scale_finding")
+        < idx("org_events_finding")
+        < idx("operating_characteristics_finding")
+        < idx("fit_brief_json")
+    )
+
+
+def test_row_is_complete_only_with_both_operator_findings():
+    """The resume/completeness gate reads ALL nine columns: a pre-3.7 row (the seven old
+    columns filled) is NOT complete -> re-researched; complete needs BOTH new findings."""
+    row = {
+        col: "x"
+        for col in REQUIRED_RESEARCH_COLUMNS
+        if col not in ("org_events_finding", "operating_characteristics_finding")
+    }
+    assert rr._row_is_complete(row) is False                 # pre-3.7 row -> re-research
+    row["org_events_finding"] = "x"
+    assert rr._row_is_complete(row) is False                 # one still missing
+    row["operating_characteristics_finding"] = "x"
+    assert rr._row_is_complete(row) is True                  # complete only with BOTH
+
+
+def test_build_latest_status_findings_has_six_labeled_sections():
+    out = rr._build_latest_status_findings("F", "P", "O", "C", "OE", "OC")
+    for label in (
+        "Funding:",
+        "Payer / institutional signal:",
+        "Outcomes:",
+        "Commercial scale / revenue quality:",
+        "Recent org / leadership events",
+        "Operating characteristics",
+    ):
+        assert label in out
+    assert "OE" in out and "OC" in out                       # the two new findings are carried
+
+
+def test_batch_runs_six_searches_and_persists_operator_findings(tmp_path):
+    """The loop calls all six searches per company and persists the two new finding columns."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+    search_calls = [c for c in client.calls if "tools" in c]
+    assert len(search_calls) == 6                            # 4 original + 2 operator
+    df = pd.read_csv(ckpt)
+    for col in ("org_events_finding", "operating_characteristics_finding"):
+        assert col in df.columns
+        assert str(df.iloc[0][col]).strip() != ""
+
+
+def test_fit_brief_reset_nudge_points_at_org_events_and_does_not_rejudge():
+    """Reset nudge: synthesis is pointed at the org-events section and emits the canonical
+    reset_events, carrying through the search's reads WITHOUT re-judging the opening."""
+    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
+    assert "Recent org / leadership events" in prompt
+    assert "carry each event's event_type and opening read through" in prompt
+    assert "do NOT re-derive or override the opening here" in prompt
+
+
+def test_fit_brief_commercial_nudge_points_at_provenance_and_trend():
+    """Commercial nudge: synthesis reads q4 off SOURCE TYPE and q1 off TREND; the q1-q4
+    judgments stay in the synthesis (A-refined)."""
+    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
+    assert (
+        "read q4_evidence_quality off those SOURCE TYPE tags and read q1_acquisition off the TREND"
+        in prompt
+    )
+    assert "it does not move where these are judged" in prompt
+
+
+def test_fit_brief_does_not_add_capability_scoring_yet():
+    """Scope boundary: Slice 3.7 gathers operating-characteristics evidence but does NOT
+    score capability A1/A2/A3 — those fields arrive in Slice 4."""
+    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
+    for field in (
+        '"capability_a1_score"',
+        '"capability_a2_score"',
+        '"capability_a3_score"',
+        '"katelynd_capability_fit_score"',
+    ):
+        assert field not in prompt
