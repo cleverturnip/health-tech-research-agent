@@ -39,26 +39,30 @@ lost. **Read this before running any full research refresh.**
    louder pivot buried the restructuring and reset wrongly came back False — that live finding is
    what motivated 3.5. Also scan for `reset_needs_review == TRUE` rows (unrecognized event types
    surfaced for review).
-   - **Update (Slice 3.5 live run):** ZOE returned an EMPTY events list — neither event surfaced,
-     because reset was synthesized only from the four market/financial searches. So the live
-     multi-event FIRE could not be reproduced under 3.5 alone. **Slice 3.7's `search_org_events`
-     is the fix** — re-run this verification AFTER 3.7, when ZOE's org events should actually
-     surface. (The per-event firing logic itself is already proven by the offline red→green test.)
+   - **Update (Slice 3.7 merged, PR #36):** under 3.5 alone ZOE returned an EMPTY events list —
+     neither event surfaced, because reset was synthesized only from the four market/financial
+     searches. Slice 3.7 added the dedicated **`search_org_events`** (recency-bounded, multi-item),
+     so this verification now runs on the six-search pipeline: EXPECT ZOE to surface BOTH events
+     (strategic-pivot AND restructuring-toward-expansion) and `reset_or_restructure_signal` to fire
+     on the restructuring. This is the **headline live check for Slice 3.7** (still pending — it
+     runs here, at the regeneration / next Colab run; the per-event firing logic is already proven
+     by the offline red→green test, so this confirms the live research now surfaces the events).
 
 ## The full data regeneration is RUN-ONCE — wait for Slices 2–4
 
-Do **not** run the full master regeneration until Slices 2, 3, 3.5, **3.7**, and 4 are all
-merged. The interim pipeline still has the known audit gaps:
+Do **not** run the full master regeneration until Slices 2, 3, 3.5, 3.7, and 4 are all merged.
+Slices 2 – 3.7 are merged; **Slice 4 (capability-fit) is the last one remaining.** The interim
+pipeline still has the known audit gaps:
 
 - maturity mislabel (Function Health read "late-stage" despite Series-B / hypergrowth) — fixed by **Slice 2**
 - funding scored as commercial strength (Solace) — fixed by **Slice 2**
 - reset signal is a dead input (no automated producer; manual-only) — fixed by **Slice 3** (+ **Slice 3.5**: multi-event, so a coexisting restructuring isn't buried by a louder pivot)
-- **operator/organizational evidence has NO search behind it** — reset fires only on incidental mentions in the four market/financial searches (ZOE's restructuring never surfaced → it returned an empty events list), and capability-fit A1/A2 likewise have no targeting search; the high-demand searches are also evidence-starved by the stale one-bullet constraint — all fixed by **Slice 3.7** (search-layer redesign: `search_org_events` + `search_operating_characteristics` + commercial/funding re-budget)
+- **operator/organizational evidence had NO search behind it** — reset fired only on incidental mentions in the four market/financial searches (ZOE's restructuring never surfaced → it returned an empty events list), and capability-fit A1/A2 likewise had no targeting search; the high-demand searches were also evidence-starved by the stale one-bullet constraint — **fixed by Slice 3.7** (merged, PR #36: `search_org_events` + `search_operating_characteristics` + commercial/funding re-budget; the live ZOE-surfacing confirmation is the pending check in item 4 above)
 - capability-fit is the interim `role_fit` bridge — fixed by **Slice 4** (which consumes Slice 3.7's `search_operating_characteristics`)
 
 Regenerating on the interim pipeline would bake those gaps into the "trusted" data and force a
-second expensive full refresh. Regenerate **once**, after all three slices land. (Tracked as a
-held item under Phase 3 → Candidate Priority Engine in `PROJECT_TRACKER.md`.)
+second expensive full refresh. Regenerate **once**, after Slice 4 lands (Slices 2 – 3.7 done).
+(Tracked as a held item under Phase 3 → Candidate Priority Engine in `PROJECT_TRACKER.md`.)
 
 ## Deferred / optional (not scheduled)
 
