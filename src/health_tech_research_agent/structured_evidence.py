@@ -347,3 +347,84 @@ def flatten_reset_fields(parsed) -> dict:
         "reset_events_json": json.dumps(events, ensure_ascii=False),
         "reset_event_types": types,
     }
+
+
+# ---------------------------------------------------------------------------
+# Capability-fit (Slice 4) — deterministic average of the three LLM-scored
+# attributes, with the missing-attribute (null) policy. The LLM emits per-attribute
+# scores (0-100) or null off the operating-characteristics evidence (Slice 3.7); this
+# layer averages them and decides suppression. The engine repoint + the gate-time A1/A3
+# recompute are SEPARATE commits — this is the averaging/flatten layer only.
+# ---------------------------------------------------------------------------
+
+CAPABILITY_FIELDS = [
+    "capability_a1_score",
+    "capability_a1_basis",
+    "capability_a2_score",
+    "capability_a2_basis",
+    "capability_a3_score",
+    "capability_a3_basis",
+]
+
+_SCORE_NULL_SENTINELS = {"", "null", "none", "n/a", "na", "nan", "unknown", "unscorable"}
+
+
+def _score_or_none(value):
+    """Parse a capability attribute score to a float, or None when unscorable.
+
+    None / '' / 'null' / 'n/a' / non-numeric / NaN -> None ("couldn't assess").
+    A real number -> float. CRITICAL: 0 is a real value (Absent band), NOT missing —
+    only the null sentinels map to None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None  # bool is an int subclass but is never a valid score
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and math.isnan(value):
+            return None
+        return float(value)
+    text = _norm(value)
+    if text in _SCORE_NULL_SENTINELS:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def derive_capability_fit_score(a1, a2, a3) -> tuple[int | None, bool]:
+    """Average the three capability attributes -> (katelynd_capability_fit_score, needs_review).
+
+    Each input parses to a number or None ("couldn't assess"). If ANY is None ->
+    ``(None, True)``: the overall score is SUPPRESSED and the row flagged for review — do NOT
+    average the non-null remainder over a gap (Slice 4 policy). Otherwise ->
+    ``(round(mean) clamped 0-100, False)``. CRITICAL: 0 is a real value and averages normally;
+    ONLY None suppresses. The three components persist separately (flatten_capability_fields),
+    so a flagged row stays re-judgable without re-research.
+    """
+    scores = [_score_or_none(a1), _score_or_none(a2), _score_or_none(a3)]
+    if any(s is None for s in scores):
+        return None, True
+    avg = sum(scores) / 3.0
+    return round(max(0.0, min(100.0, avg))), False
+
+
+def flatten_capability_fields(parsed) -> dict:
+    """Flatten capability_evidence into persisted columns (capability_a{1,2,3}_score/_basis).
+
+    The three components persist REGARDLESS of the suppression outcome, so a row whose overall
+    score is suppressed/flagged stays re-judgable without re-research. A null / unscorable score
+    stores as None (re-reads as None via _score_or_none); a real 0 (Absent) is preserved as 0.0.
+    Tolerant of a missing / non-dict block.
+    """
+    cap = parsed.get("capability_evidence") if isinstance(parsed, dict) else None
+    cap = cap if isinstance(cap, dict) else {}
+    return {
+        "capability_a1_score": _score_or_none(cap.get("a1_score")),
+        "capability_a1_basis": _safe_text(cap.get("a1_basis", "")),
+        "capability_a2_score": _score_or_none(cap.get("a2_score")),
+        "capability_a2_basis": _safe_text(cap.get("a2_basis", "")),
+        "capability_a3_score": _score_or_none(cap.get("a3_score")),
+        "capability_a3_basis": _safe_text(cap.get("a3_basis", "")),
+    }
