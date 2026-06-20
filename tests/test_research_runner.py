@@ -178,10 +178,10 @@ def test_call_openai_respects_max_retries_argument(monkeypatch):
 @pytest.mark.parametrize(
     "func, max_tokens, anchor, none_line",
     [
-        (rr.search_funding, 300, "latest credible funding, valuation, stage", "No strong public funding evidence found."),
+        (rr.search_funding, 400, "latest credible funding, valuation, stage", "No strong public funding evidence found."),
         (rr.search_payer_signal, 350, "institutional distribution traction", "No strong public institutional signal found."),
         (rr.search_outcomes, 350, "credible outcomes, clinical, behavioral", "No strong public outcomes evidence found."),
-        (rr.search_commercial_scale, 450, "commercial scale, revenue quality", "No strong public commercial scale evidence found."),
+        (rr.search_commercial_scale, 700, "commercial scale, revenue quality", "No strong public commercial scale evidence found."),
     ],
 )
 def test_search_functions_request_shape_and_interpolation(func, max_tokens, anchor, none_line):
@@ -637,8 +637,8 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         sleep_fn=sleeps.append,
     )
 
-    # per successful company: 3 waits between the 4 searches + 1 trailing wait
-    assert sleeps == [7] * 8
+    # per successful company: 5 waits between the 6 searches + 1 trailing wait
+    assert sleeps == [7] * 12
 
 
 # --- KeyboardInterrupt / SystemExit propagate (not caught as Exception) ------
@@ -684,3 +684,240 @@ def test_batch_returns_research_batch_result_type(tmp_path):
         ["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
     )
     assert isinstance(result, rr.ResearchBatchResult)
+
+
+# ---------------------------------------------------------------------------
+# Slice 3.7 — new operator/organizational searches
+# (search_org_events feeds reset; search_operating_characteristics feeds capability-fit)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "func", [rr.search_org_events, rr.search_operating_characteristics]
+)
+def test_operator_searches_request_shape_and_interpolation(func):
+    """Both new searches route to call_openai with web search ON, the lifted 800-token
+    ceiling, the model passed through, and the research_query interpolated."""
+    client = RecordingClient()
+    func("ACME (acme.example)", client=client, model="m")
+    kwargs = client.calls[0]
+    assert kwargs["model"] == "m"
+    assert kwargs["max_output_tokens"] == 800            # lifted ceiling (~600-900) per Slice 3.7
+    assert kwargs["tools"] == [{"type": "web_search"}]   # current-events / behavioral -> web ON
+    assert "ACME (acme.example)" in kwargs["input"]      # research_query interpolated
+
+
+def test_search_org_events_structure():
+    """The two anti-burying guards (recency bound + multi-item list), the full Slice 3.5
+    event vocabulary, the per-event opening judgment, and the explicit none-sentinel."""
+    client = RecordingClient()
+    rr.search_org_events("X", client=client)
+    prompt = client.calls[0]["input"]
+
+    # recency bound — keeps reset a present-moment opening (stale events excluded)
+    assert "FOCUS ON THE LAST 12" in prompt
+
+    # multi-item list — the anti-burying guard (ZOE: pivot AND restructuring)
+    assert "List EACH distinct event SEPARATELY" in prompt
+    assert "Return a LIST" in prompt
+
+    # full Slice 3.5 event-type vocabulary, so the synthesis can map to reset_events
+    for event_type in (
+        "leadership-change",
+        "founder-transition",
+        "declared-transformation",
+        "post-failure-rebuild",
+        "restructuring-layoffs",
+        "strategic-pivot",
+        "ma-integration",
+    ):
+        assert event_type in prompt
+
+    # per-event high-agency-opening judgment (feeds reset_evidence)
+    assert "high-agency opening (yes / no / unclear)" in prompt
+
+    # weight costly/revealed actions over PR framing — arms the soft event types
+    # (declared-transformation / post-failure-rebuild) against marketing copy as a false opening
+    assert "Weight COSTLY, REVEALED actions" in prompt
+    assert 'branding a routine change as a "transformation" or "new chapter" is weak evidence' in prompt
+
+    # explicit empty-result sentinel (the legitimate "no events" outcome)
+    assert "No qualifying recent org/leadership events found." in prompt
+
+
+def test_search_operating_characteristics_structure():
+    """The approved wording's load-bearing parts: the two lenses, the engagement-vs-
+    revenue evidence-weighting split, hybrid revenue handling, the structural/reported
+    strain split with its strict bar, the absence-is-a-finding default, and the
+    strength-tagged three-heading output."""
+    client = RecordingClient()
+    rr.search_operating_characteristics("X", client=client)
+    prompt = client.calls[0]["input"]
+
+    # the two lenses
+    assert "(A) PRODUCT-ENGAGEMENT STRUCTURE" in prompt
+    assert "(B) OPERATIONAL STRAIN" in prompt
+
+    # "reveal, not claim" for engagement — but revenue structure is treated as reliable
+    assert "company marketing only CLAIMS it." in prompt
+    assert "ARE reliable" in prompt
+    assert "verifiable structural fact" in prompt
+
+    # hybrid revenue must not collapse to "has a subscription"
+    assert "HYBRID" in prompt
+    assert 'Do not collapse a hybrid model into "has a subscription"' in prompt
+
+    # strain: structural vs reported, with the strict bar on soft signals
+    assert "(B1) STRUCTURAL / FACTUAL signals" in prompt
+    assert "(B2) REPORTED / EXPERIENTIAL signals" in prompt
+    assert "MULTIPLE INDEPENDENT sources describe the SAME specific" in prompt
+
+    # absence-is-a-finding default (the anti-noise guard)
+    assert "No notable operational strain found." in prompt
+    assert "Do NOT manufacture strain." in prompt
+
+    # strength-tagged, three-heading structured output
+    assert "Product-engagement:" in prompt
+    assert "Operational strain — structural:" in prompt
+    assert "Operational strain — reported:" in prompt
+    for strength in ("STRONG", "MODERATE", "WEAK"):
+        assert strength in prompt
+
+
+# ---------------------------------------------------------------------------
+# Slice 3.7 — re-budget of the four existing searches (drop one-bullet; richer evidence)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "func",
+    [rr.search_funding, rr.search_payer_signal, rr.search_outcomes, rr.search_commercial_scale],
+)
+def test_existing_searches_dropped_one_bullet_constraint(func):
+    """The stale one-bullet / word-cap constraint is removed from all four searches."""
+    client = RecordingClient()
+    func("X", client=client)
+    prompt = client.calls[0]["input"]
+    assert "exactly 1 bullet" not in prompt
+    assert "Keep under" not in prompt
+
+
+def test_search_funding_gathers_fact_list_with_founding_year():
+    """Funding now asks for an explicit sourced fact list including founding year
+    (the coverage-audit gap), at the lifted 400-token ceiling."""
+    client = RecordingClient()
+    rr.search_funding("X", client=client, model="m")
+    kwargs = client.calls[0]
+    prompt = kwargs["input"]
+    assert kwargs["max_output_tokens"] == 400
+    assert "founding year" in prompt                          # added field (was uncovered)
+    assert "FACT LIST" in prompt
+    assert "Tag each fact with its source name and date." in prompt
+
+
+def test_search_commercial_scale_gathers_provenance_and_trend():
+    """Commercial (the stress case) now gathers per-figure provenance (-> q4 evidence
+    quality) and trend/history (-> q1 acquisition trend), at the lifted 700-token ceiling.
+    The q1-q4 judgments themselves stay in the fit-brief synthesis (A-refined)."""
+    client = RecordingClient()
+    rr.search_commercial_scale("X", client=client, model="m")
+    kwargs = client.calls[0]
+    prompt = kwargs["input"]
+    assert kwargs["max_output_tokens"] == 700
+    assert "SOURCE TYPE" in prompt          # provenance per figure -> q4 evidence quality
+    assert "company-reported" in prompt
+    assert "TREND" in prompt                # trend / history -> q1 acquisition trend
+
+
+# ---------------------------------------------------------------------------
+# Slice 3.7 (Commit 3) — wire 4 -> 6 findings (assembly, completeness, persistence, nudges)
+# ---------------------------------------------------------------------------
+
+
+def test_required_columns_grew_by_two_operator_findings_in_order():
+    """REQUIRED_RESEARCH_COLUMNS gains exactly the two operator findings, grouped with the
+    other *_finding columns and before fit_brief_json (so the checkpoint column order holds)."""
+    assert "org_events_finding" in REQUIRED_RESEARCH_COLUMNS
+    assert "operating_characteristics_finding" in REQUIRED_RESEARCH_COLUMNS
+    idx = REQUIRED_RESEARCH_COLUMNS.index
+    assert (
+        idx("commercial_scale_finding")
+        < idx("org_events_finding")
+        < idx("operating_characteristics_finding")
+        < idx("fit_brief_json")
+    )
+
+
+def test_row_is_complete_only_with_both_operator_findings():
+    """The resume/completeness gate reads ALL nine columns: a pre-3.7 row (the seven old
+    columns filled) is NOT complete -> re-researched; complete needs BOTH new findings."""
+    row = {
+        col: "x"
+        for col in REQUIRED_RESEARCH_COLUMNS
+        if col not in ("org_events_finding", "operating_characteristics_finding")
+    }
+    assert rr._row_is_complete(row) is False                 # pre-3.7 row -> re-research
+    row["org_events_finding"] = "x"
+    assert rr._row_is_complete(row) is False                 # one still missing
+    row["operating_characteristics_finding"] = "x"
+    assert rr._row_is_complete(row) is True                  # complete only with BOTH
+
+
+def test_build_latest_status_findings_has_six_labeled_sections():
+    out = rr._build_latest_status_findings("F", "P", "O", "C", "OE", "OC")
+    for label in (
+        "Funding:",
+        "Payer / institutional signal:",
+        "Outcomes:",
+        "Commercial scale / revenue quality:",
+        "Recent org / leadership events",
+        "Operating characteristics",
+    ):
+        assert label in out
+    assert "OE" in out and "OC" in out                       # the two new findings are carried
+
+
+def test_batch_runs_six_searches_and_persists_operator_findings(tmp_path):
+    """The loop calls all six searches per company and persists the two new finding columns."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+    search_calls = [c for c in client.calls if "tools" in c]
+    assert len(search_calls) == 6                            # 4 original + 2 operator
+    df = pd.read_csv(ckpt)
+    for col in ("org_events_finding", "operating_characteristics_finding"):
+        assert col in df.columns
+        assert str(df.iloc[0][col]).strip() != ""
+
+
+def test_fit_brief_reset_nudge_points_at_org_events_and_does_not_rejudge():
+    """Reset nudge: synthesis is pointed at the org-events section and emits the canonical
+    reset_events, carrying through the search's reads WITHOUT re-judging the opening."""
+    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
+    assert "Recent org / leadership events" in prompt
+    assert "carry each event's event_type and opening read through" in prompt
+    assert "do NOT re-derive or override the opening here" in prompt
+
+
+def test_fit_brief_commercial_nudge_points_at_provenance_and_trend():
+    """Commercial nudge: synthesis reads q4 off SOURCE TYPE and q1 off TREND; the q1-q4
+    judgments stay in the synthesis (A-refined)."""
+    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
+    assert (
+        "read q4_evidence_quality off those SOURCE TYPE tags and read q1_acquisition off the TREND"
+        in prompt
+    )
+    assert "it does not move where these are judged" in prompt
+
+
+def test_fit_brief_does_not_add_capability_scoring_yet():
+    """Scope boundary: Slice 3.7 gathers operating-characteristics evidence but does NOT
+    score capability A1/A2/A3 — those fields arrive in Slice 4."""
+    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
+    for field in (
+        '"capability_a1_score"',
+        '"capability_a2_score"',
+        '"capability_a3_score"',
+        '"katelynd_capability_fit_score"',
+    ):
+        assert field not in prompt

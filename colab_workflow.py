@@ -115,7 +115,7 @@ def call_openai(prompt, use_web_search=False, max_output_tokens=500):
 # - call_openai(prompt, use_web_search=True, max_output_tokens=...)
 
 def search_funding(research_query):
-    """Notebook shim -> package search_funding (web search ON, 300 tokens)."""
+    """Notebook shim -> package search_funding (web search ON, 400 tokens)."""
     return _research_runner.search_funding(research_query, client=client, model=MODEL)
 
 
@@ -130,8 +130,24 @@ def search_outcomes(research_query):
 
 
 def search_commercial_scale(research_query):
-    """Notebook shim -> package search_commercial_scale (web search ON, 450 tokens)."""
+    """Notebook shim -> package search_commercial_scale (web search ON, 700 tokens)."""
     return _research_runner.search_commercial_scale(research_query, client=client, model=MODEL)
+
+
+def search_org_events(research_query):
+    """Notebook shim -> package search_org_events (web search ON, 800 tokens; Slice 3.7).
+
+    Recency-bounded org / leadership events -> reset_evidence.
+    """
+    return _research_runner.search_org_events(research_query, client=client, model=MODEL)
+
+
+def search_operating_characteristics(research_query):
+    """Notebook shim -> package search_operating_characteristics (web search ON, 800 tokens; Slice 3.7).
+
+    Product-engagement + operational-strain evidence -> capability-fit (scored in Slice 4).
+    """
+    return _research_runner.search_operating_characteristics(research_query, client=client, model=MODEL)
 
 # =============================================================================
 
@@ -319,6 +335,8 @@ required_current_schema_cols = [
     "payer_institutional_finding",
     "outcomes_finding",
     "commercial_scale_finding",
+    "org_events_finding",
+    "operating_characteristics_finding",
     "fit_brief_json"
 ]
 
@@ -641,6 +659,8 @@ required_current_schema_cols = [
     "payer_institutional_finding",
     "outcomes_finding",
     "commercial_scale_finding",
+    "org_events_finding",
+    "operating_characteristics_finding",
     "fit_brief_json"
 ]
 
@@ -806,6 +826,8 @@ required_raw_cols = [
     "payer_institutional_finding",
     "outcomes_finding",
     "commercial_scale_finding",
+    "org_events_finding",
+    "operating_characteristics_finding",
     "fit_brief_json"
 ]
 
@@ -1902,6 +1924,39 @@ else:
 #    reset_or_restructure_signal, reset_or_restructure_basis, reset_needs_review.
 # =============================================================================
 
+# =============================================================================
+# COLAB VERIFICATION CHECKLIST - Slice 3.7 (search-layer redesign) notebook wiring
+# =============================================================================
+# After pulling this branch, run ONE real company through STEP 7 (fresh research),
+# then STEP 10, then a STEP 26 rescore. Check, in order:
+#
+# 1. STEP 4 exposes the two new operator search shims:
+#    EXPECT callable(search_org_events) and callable(search_operating_characteristics) -> True.
+#
+# 2. STEP 7 runs SIX web searches/company and persists a NINE-column checkpoint:
+#    EXPECT the checkpoint columns ==
+#      ["company","date_researched","funding_finding","payer_institutional_finding",
+#       "outcomes_finding","commercial_scale_finding","org_events_finding",
+#       "operating_characteristics_finding","fit_brief_json"]   (schema + order),
+#    and org_events_finding / operating_characteristics_finding are POPULATED (non-blank)
+#    for the researched company -- the two new searches returned evidence. (A genuine
+#    "No qualifying recent org/leadership events found." is itself a valid populated result.)
+#
+# 3. Multi-event reset now SURFACES on ZOE (the Slice 3.5 finding that motivated 3.7):
+#    Research ZOE (a strategic-pivot AND a restructuring-toward-expansion). EXPECT
+#    org_events_finding lists BOTH events, and after STEP 10 reset_or_restructure_signal
+#    == True (fires on the restructuring's opening even alongside the pivot). Under pre-3.7
+#    research ZOE returned an EMPTY events list. Also scan reset_needs_review == TRUE rows.
+#
+# 4. STEP 26 rescore uses the new evidence:
+#    Run STEP 26 (DRY_RUN) on a company with archived org/operating findings. EXPECT
+#    step26_build_status_findings includes the "Recent org / leadership events" and
+#    "Operating characteristics" sections, and the rescore completes with no NameError.
+#
+# 5. Capability A1/A2/A3 are NOT scored yet (that is Slice 4): the fit brief gathers the
+#    operating-characteristics evidence but emits no capability_a*_score fields.
+# =============================================================================
+
 # STEP 10A - Deterministic priority adjudication
 
 # =============================================================================
@@ -1956,6 +2011,8 @@ required_current_schema_cols = [
     "payer_institutional_finding",
     "outcomes_finding",
     "commercial_scale_finding",
+    "org_events_finding",
+    "operating_characteristics_finding",
     "fit_brief_json"
 ]
 
@@ -9597,6 +9654,8 @@ def step26_load_existing_evidence(companies):
         "payer_institutional_finding",
         "outcomes_finding",
         "commercial_scale_finding",
+        "org_events_finding",
+        "operating_characteristics_finding",
         "fit_brief_json",
     ]
 
@@ -9629,6 +9688,8 @@ def step26_load_existing_evidence(companies):
         "payer_institutional_finding",
         "outcomes_finding",
         "commercial_scale_finding",
+        "org_events_finding",
+        "operating_characteristics_finding",
     ]
 
     for col in evidence_cols:
@@ -9801,6 +9862,12 @@ Outcomes / engagement / product-value evidence:
 
 Commercial scale / revenue-quality evidence:
 {step26_safe_text(row.get("commercial_scale_finding", ""))}
+
+Recent org / leadership events (last ~12-18 months):
+{step26_safe_text(row.get("org_events_finding", ""))}
+
+Operating characteristics (product-engagement + operational strain):
+{step26_safe_text(row.get("operating_characteristics_finding", ""))}
 
 Prior batch/source metadata, for traceability only:
 - prior_batch_name: {step26_safe_text(row.get("batch_name", ""))}

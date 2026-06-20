@@ -123,6 +123,7 @@ Look specifically for:
 - valuation
 - named investors
 - company stage
+- founding year (when the company was founded)
 - major acquisitions or strategic investments
 - IPO/S-1/public company status if applicable
 - evidence that funding supports growth versus survival
@@ -132,13 +133,15 @@ Important:
 - Do not overstate uncertain funding information.
 - If source quality is weak, say so.
 
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public funding evidence found."
-Keep under 100 words.
+Return a concise, sourced FACT LIST covering, where available: funding stage; IPO / public
+status (with the filing or IPO date if any); the date and amount of the latest raise; total
+funding to date; valuation; and founding year. Tag each fact with its source name and date.
+If a particular fact is not found, say so rather than guessing.
+If no credible public funding evidence exists at all, say "No strong public funding evidence found."
+Do not invent figures.
 """
     return call_openai(
-        prompt, client=client, model=model, use_web_search=True, max_output_tokens=300
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=400
     )
 
 
@@ -166,10 +169,9 @@ Important:
 - If the company is mostly D2C/cash-pay, say that clearly.
 - If there is no payer/employer/provider signal, say so.
 
-Return exactly 1 bullet.
+Return a concise, sourced summary of the institutional-distribution signal.
 Include source name and date when available.
 If none found, say "No strong public institutional signal found."
-Keep under 120 words.
 """
     return call_openai(
         prompt, client=client, model=model, use_web_search=True, max_output_tokens=350
@@ -199,10 +201,9 @@ Important:
 - Small pilots, testimonials, and company-only claims should be treated as weak evidence unless supported by specific metrics.
 - If evidence is limited, say so.
 
-Return exactly 1 bullet.
+Return a concise, sourced summary of the outcomes signal.
 Include source name and date when available.
 If none found, say "No strong public outcomes evidence found."
-Keep under 120 words.
 """
     return call_openai(
         prompt, client=client, model=model, use_web_search=True, max_output_tokens=350
@@ -236,13 +237,173 @@ Important:
 - If revenue is inferred from customer count × pricing, say it is implied/inferred and explain the caveat.
 - If evidence is only marketing language or traffic estimates, say evidence is weak.
 
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public commercial scale evidence found."
-Keep under 150 words.
+Return a structured list of the commercial-scale facts you find. For EACH figure include:
+- the value, with the date or period it refers to
+- the SOURCE TYPE: company-reported / third-party estimate (name the source and its method, e.g. Sacra) / promotional or unattributed
+- where available, the TREND or history (e.g. "200k subscribers, up from ~50k in 2023"), not just a point-in-time snapshot
+Cover, where available: revenue / ARR / run-rate; paid users / subscribers / members; pricing and the implied revenue-per-user (state the inputs); year-over-year growth; the business model (consumer subscription / enterprise / payer-reimbursed / other); and any funding context.
+If a dimension is not found, say so. If no credible commercial-scale evidence exists at all, say "No strong public commercial scale evidence found."
+Do not invent figures.
 """
     return call_openai(
-        prompt, client=client, model=model, use_web_search=True, max_output_tokens=450
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=700
+    )
+
+
+# =============================================================================
+# STEP 4b - Operator / organizational searches (Slice 3.7; web search enabled)
+# =============================================================================
+
+
+def search_org_events(research_query, *, client, model: str = DEFAULT_MODEL) -> str:
+    """Slice 3.7: recency-bounded current-events search for reset / restructuring events.
+
+    Feeds ``reset_evidence.reset_events``. The fit-brief synthesis still emits the
+    canonical structured field; this search supplies the multi-event *evidence*. Web
+    search ON; larger token budget for a multi-item list so a quiet restructuring is
+    not buried by a louder pivot (the ZOE finding that motivated Slice 3.5).
+    """
+    prompt = f"""
+Use live web search to find RECENT leadership, restructuring, and transformation events for the
+company below — signals that it may be at a high-agency inflection point where a senior operator
+could step in and shape direction:
+
+{research_query}
+
+FOCUS ON THE LAST 12–18 MONTHS. A reset is a present-moment opening; a change from several years
+ago is not a current opening and should be excluded unless it is still actively unfolding now.
+
+Look for each DISTINCT event of these types:
+- leadership-change — new CEO / C-suite / senior exec hired or departed
+- founder-transition — founder stepping back or handing off to professional management
+- declared-transformation — a publicly stated turnaround, "new chapter," strategic reset, or re-foundation
+- post-failure-rebuild — rebuilding after a setback, near-miss, failed launch, or down round
+- restructuring-layoffs — reorganization, layoffs, or restructuring (especially framed as refocusing or building toward a next phase)
+- strategic-pivot — a material change in business model, market, or product direction
+- ma-integration — a merger, acquisition, or post-deal integration
+
+Important:
+- List EACH distinct event SEPARATELY. A company can be doing several at once — e.g. a loud
+  product pivot AND a quieter restructuring. Do NOT collapse them into one event, and do NOT let
+  a prominent event hide a co-occurring one.
+- For each event, judge whether it creates a HIGH-AGENCY OPENING: a forward-build mandate where a
+  new operator could own meaningful direction (yes), versus a purely defensive, cost-cutting, or
+  already-settled change (no), or genuinely unclear (unclear).
+- Weight COSTLY, REVEALED actions (an actual CEO/exec change, a real reorg or layoff,
+  a completed acquisition) OVER the company's own FRAMING of itself. A press release
+  branding a routine change as a "transformation" or "new chapter" is weak evidence;
+  a structural event that actually happened is strong. Do not log PR language as an
+  opening unless a real underlying event backs it.
+- Recency is decisive — give the date and prefer events within ~18 months.
+- Distinguish a real, sourced event from rumor or routine corporate news.
+
+Return a LIST — one item per distinct qualifying event. For EACH event give:
+- event_type (one of the types above)
+- what happened, with date and source name
+- one sentence on whether it creates a high-agency opening (yes / no / unclear) and why
+If there are no qualifying recent events, say exactly: "No qualifying recent org/leadership events found."
+Do not invent events.
+"""
+    return call_openai(
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=800
+    )
+
+
+def search_operating_characteristics(research_query, *, client, model: str = DEFAULT_MODEL) -> str:
+    """Slice 3.7: gathers product-engagement + operational-strain evidence.
+
+    Feeds capability-fit A1/A2/A3, which are *scored* in Slice 4 — this slice only
+    gathers and persists the evidence and adds no capability output fields. Web search
+    ON; larger token budget for the structured, multi-item, strength-tagged output.
+    """
+    prompt = f"""
+Use live web search to assess TWO things about how the company below actually operates:
+(A) whether its product depends on habitual, high-frequency user engagement, and
+(B) whether it shows signs of OPERATIONAL STRAIN from scaling.
+{research_query}
+
+These are evidence-from-behavior questions. What people DO and what the company
+STRUCTURALLY does reveal the truth; company marketing only CLAIMS it.
+
+────────────────────────────────────────────────────────
+(A) PRODUCT-ENGAGEMENT STRUCTURE
+For ENGAGEMENT evidence (frequency, user habit), weight independent signals
+(app-store reviews, user discussion, third-party usage data) OVER the company's
+self-description — how engaged users actually are is something they reveal, not
+something the company can credibly claim.
+For REVENUE-STRUCTURE evidence, the company's own disclosures (pricing pages,
+business model, plan tiers, earnings) ARE reliable — revenue structure is a
+verifiable structural fact, not a self-flattering claim.
+Look for:
+- FREQUENCY: Is the product used daily / at high frequency (a genuine habit loop),
+  or periodically / occasionally? Cite behavioral evidence, not marketing.
+- USER HABIT: Do users report habitual reliance — retention figures, repeat-usage
+  patterns, reviews describing daily use or withdrawal when they stop?
+- REVENUE DEPENDENCE: Map the FULL revenue structure, including BOTH one-time and
+  recurring components if both exist. Distinguish:
+    • recurring revenue that COLLAPSES without sustained engagement (e.g. a monthly
+      or annual subscription that is the user's whole spend), versus
+    • one-time or transactional revenue that is captured up front and does NOT depend
+      on the user staying engaged (e.g. a hardware purchase, a one-off fee).
+  Many companies are HYBRID — e.g. a one-time device purchase PLUS an ongoing
+  membership. When so, report BOTH components and, if findable, the rough split or
+  relative size of each. Do not collapse a hybrid model into "has a subscription";
+  the one-time portion dilutes retention-dependence and that distinction matters.
+If engagement is clearly periodic/optional, or revenue does not depend on it, say so
+plainly — that is a valid, informative finding.
+
+────────────────────────────────────────────────────────
+(B) OPERATIONAL STRAIN
+The signal is strain — things BREAKING under growth — NOT the mere existence of
+complexity. Every competitive company is complex; that is not a signal. Look for two
+DIFFERENT kinds of evidence and keep them distinct:
+
+  (B1) STRUCTURAL / FACTUAL signals — these are objective and carry weight on their own:
+  - SPEED OF SCALE: headcount growth rate (e.g. ~100 → ~500 employees in ~6 months),
+    rapid office/market expansion. Report the numbers and dates; fast scaling is itself
+    a strong strain signal.
+  - layoffs, restructuring, or reorganizations — especially framed as "grew too fast"
+    or a correction to over-hiring
+  - hiring scrambles for senior operators or "first head of X" roles, which signal a
+    capability gap the company is racing to fill
+
+  (B2) REPORTED / EXPERIENTIAL signals — softer; apply a STRICT bar:
+  - Count these ONLY when MULTIPLE INDEPENDENT sources describe the SAME specific
+    breakdown (e.g. several people independently citing broken onboarding, missed
+    launches, fulfillment failures, leadership churn).
+  - Prefer candid discussion venues (Reddit, industry forums, independent reporting)
+    over reviews that are easily gamed or one-off.
+  - Do NOT count routine individual griping (one bad manager, low pay, generic
+    "disorganized") — that exists at every company and is NOT a strain signal.
+
+Important:
+- Distinguish the company's STRUCTURAL ACTIONS (layoffs, reorgs, senior hires — strong,
+  because they are costly and revealed) from the company's CHARACTERIZATIONS of itself
+  ("we're scaling smoothly" — weak).
+- ABSENCE of strain is itself a finding. Default to reporting LOW / no strain unless
+  strain is clearly demonstrated by the bar above. A smoothly-scaling company should be
+  reported as "No notable operational strain found." Do NOT manufacture strain.
+
+────────────────────────────────────────────────────────
+OUTPUT FORMAT
+Return a structured list of evidence items, grouped under three headings. For EACH item give:
+  - claim: one sentence stating the specific fact or finding
+  - source: source name + date
+  - strength: STRONG (structural/factual, or multiple independent sources) /
+    MODERATE (one solid source) / WEAK (single soft mention)
+
+"Product-engagement:"
+  [evidence items for A — or "Engagement is periodic/optional: <why>" if that's the finding]
+"Operational strain — structural:"
+  [B1 items — or "None found." ]
+"Operational strain — reported:"
+  [B2 items meeting the strict bar — or "None meeting the bar found." ]
+
+Cite a source and date for every item. Distinguish independent evidence from company
+claims. Do not invent figures or events.
+"""
+    return call_openai(
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=800
     )
 
 
@@ -365,6 +526,7 @@ Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the sys
 Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
 - Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
 - funding_evidence is context ONLY. Funding raised and valuation are NOT commercial traction and are structurally excluded from the signal — do not let them influence q1/q2.
+- The commercial research section now tags each figure with a SOURCE TYPE (company-reported / third-party estimate / promotional) and, where available, a TREND/history; read q4_evidence_quality off those SOURCE TYPE tags and read q1_acquisition off the TREND. Still answer q1-q4 here as defined below — the search only supplies richer evidence, it does not move where these are judged.
 - q1_acquisition: direction of the PAYING base (growing / flat / declining).
 - q2_monetization: revenue-per-user vs. what is normal FOR THIS business model (strong / typical / weak).
 - q3_funding_dependent: "yes" if, setting the funding/valuation story aside, the real commercial evidence (revenue + paying customers) would be thin. (Explicit funding-as-commercial catch.)
@@ -375,6 +537,7 @@ Commercial evidence — gather FACTS and answer the four red-flag questions. Do 
 
 Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
 A company may be doing SEVERAL of these at once (e.g. pivoting its business model AND restructuring its team). List EACH distinct event as its own object in reset_events, and answer the opening question PER EVENT, on that event's own terms. Do NOT let one event's nature determine another's — a strategic pivot does not make a coexisting restructuring an opening, and a loud pivot must NOT hide a restructuring that IS an opening. If you find no reset/restructure events, return an empty list [].
+The events, their types, and their per-event high-agency-opening reads come from the dedicated "Recent org / leadership events" section of the research findings above. Transcribe them into reset_events — emit one object per event and carry each event's event_type and opening read through; do NOT re-derive or override the opening here. The per-event definitions below are the shared criteria that search applied (use them only for consistent classification and citation); the deterministic rule downstream decides what fires.
 For each event:
 - event_type:
   - leadership-change — new CEO / senior exec layer brought in to build or turn the company around.
@@ -714,12 +877,18 @@ def _is_nonblank(value) -> bool:
 
 
 def _row_is_complete(row) -> bool:
-    """A checkpoint row is complete iff all seven research columns are non-blank."""
+    """A checkpoint row is complete iff all nine research columns are non-blank."""
     return all(_is_nonblank(row.get(col, "")) for col in REQUIRED_RESEARCH_COLUMNS)
 
 
-def _build_latest_status_findings(funding, payer, outcomes, commercial) -> str:
-    """Assemble the four findings into the synthesis input (verbatim STEP 7 layout)."""
+def _build_latest_status_findings(
+    funding, payer, outcomes, commercial, org_events, operating_characteristics
+) -> str:
+    """Assemble the six research findings into the synthesis input.
+
+    The four original STEP 7 sections plus the two Slice 3.7 operator sections
+    (org events -> reset; operating characteristics -> capability-fit, scored in Slice 4).
+    """
     return f"""
 Funding:
 {funding}
@@ -732,6 +901,12 @@ Outcomes:
 
 Commercial scale / revenue quality:
 {commercial}
+
+Recent org / leadership events (last ~12-18 months):
+{org_events}
+
+Operating characteristics (product-engagement + operational strain):
+{operating_characteristics}
 """
 
 
@@ -755,8 +930,9 @@ def run_research_batch(
       "complete"; those companies are skipped (``reused``) and not re-researched.
     * After each successful company the checkpoint is written atomically and
       (optionally) mirrored, so a runtime loss never loses completed work.
-    * The four web searches run with the faithful wait between them (injected
-      ``sleep_fn``), then the fit brief is synthesized.
+    * The six web searches (the four original + the two Slice 3.7 operator
+      searches: org events, operating characteristics) run with the faithful
+      wait between them (injected ``sleep_fn``), then the fit brief is synthesized.
 
     New here (the missing per-company recovery): each company's work is wrapped so
     one failure — an API error, a network error, or (when ``validate_json``) a fit
@@ -803,9 +979,17 @@ def run_research_batch(
             sleep_fn(wait_between_searches)
 
             commercial = search_commercial_scale(research_query, client=client, model=model)
+            sleep_fn(wait_between_searches)
+
+            org_events = search_org_events(research_query, client=client, model=model)
+            sleep_fn(wait_between_searches)
+
+            operating_characteristics = search_operating_characteristics(
+                research_query, client=client, model=model
+            )
 
             latest_status_findings = _build_latest_status_findings(
-                funding, payer, outcomes, commercial
+                funding, payer, outcomes, commercial, org_events, operating_characteristics
             )
 
             fit_brief = run_company_fit_brief(
@@ -828,6 +1012,8 @@ def run_research_batch(
                 "payer_institutional_finding": payer,
                 "outcomes_finding": outcomes,
                 "commercial_scale_finding": commercial,
+                "org_events_finding": org_events,
+                "operating_characteristics_finding": operating_characteristics,
                 "fit_brief_json": fit_brief,
             }
 
