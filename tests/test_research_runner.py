@@ -684,3 +684,101 @@ def test_batch_returns_research_batch_result_type(tmp_path):
         ["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep
     )
     assert isinstance(result, rr.ResearchBatchResult)
+
+
+# ---------------------------------------------------------------------------
+# Slice 3.7 — new operator/organizational searches
+# (search_org_events feeds reset; search_operating_characteristics feeds capability-fit)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "func", [rr.search_org_events, rr.search_operating_characteristics]
+)
+def test_operator_searches_request_shape_and_interpolation(func):
+    """Both new searches route to call_openai with web search ON, the lifted 800-token
+    ceiling, the model passed through, and the research_query interpolated."""
+    client = RecordingClient()
+    func("ACME (acme.example)", client=client, model="m")
+    kwargs = client.calls[0]
+    assert kwargs["model"] == "m"
+    assert kwargs["max_output_tokens"] == 800            # lifted ceiling (~600-900) per Slice 3.7
+    assert kwargs["tools"] == [{"type": "web_search"}]   # current-events / behavioral -> web ON
+    assert "ACME (acme.example)" in kwargs["input"]      # research_query interpolated
+
+
+def test_search_org_events_structure():
+    """The two anti-burying guards (recency bound + multi-item list), the full Slice 3.5
+    event vocabulary, the per-event opening judgment, and the explicit none-sentinel."""
+    client = RecordingClient()
+    rr.search_org_events("X", client=client)
+    prompt = client.calls[0]["input"]
+
+    # recency bound — keeps reset a present-moment opening (stale events excluded)
+    assert "FOCUS ON THE LAST 12" in prompt
+
+    # multi-item list — the anti-burying guard (ZOE: pivot AND restructuring)
+    assert "List EACH distinct event SEPARATELY" in prompt
+    assert "Return a LIST" in prompt
+
+    # full Slice 3.5 event-type vocabulary, so the synthesis can map to reset_events
+    for event_type in (
+        "leadership-change",
+        "founder-transition",
+        "declared-transformation",
+        "post-failure-rebuild",
+        "restructuring-layoffs",
+        "strategic-pivot",
+        "ma-integration",
+    ):
+        assert event_type in prompt
+
+    # per-event high-agency-opening judgment (feeds reset_evidence)
+    assert "high-agency opening (yes / no / unclear)" in prompt
+
+    # weight costly/revealed actions over PR framing — arms the soft event types
+    # (declared-transformation / post-failure-rebuild) against marketing copy as a false opening
+    assert "Weight COSTLY, REVEALED actions" in prompt
+    assert 'branding a routine change as a "transformation" or "new chapter" is weak evidence' in prompt
+
+    # explicit empty-result sentinel (the legitimate "no events" outcome)
+    assert "No qualifying recent org/leadership events found." in prompt
+
+
+def test_search_operating_characteristics_structure():
+    """The approved wording's load-bearing parts: the two lenses, the engagement-vs-
+    revenue evidence-weighting split, hybrid revenue handling, the structural/reported
+    strain split with its strict bar, the absence-is-a-finding default, and the
+    strength-tagged three-heading output."""
+    client = RecordingClient()
+    rr.search_operating_characteristics("X", client=client)
+    prompt = client.calls[0]["input"]
+
+    # the two lenses
+    assert "(A) PRODUCT-ENGAGEMENT STRUCTURE" in prompt
+    assert "(B) OPERATIONAL STRAIN" in prompt
+
+    # "reveal, not claim" for engagement — but revenue structure is treated as reliable
+    assert "company marketing only CLAIMS it." in prompt
+    assert "ARE reliable" in prompt
+    assert "verifiable structural fact" in prompt
+
+    # hybrid revenue must not collapse to "has a subscription"
+    assert "HYBRID" in prompt
+    assert 'Do not collapse a hybrid model into "has a subscription"' in prompt
+
+    # strain: structural vs reported, with the strict bar on soft signals
+    assert "(B1) STRUCTURAL / FACTUAL signals" in prompt
+    assert "(B2) REPORTED / EXPERIENTIAL signals" in prompt
+    assert "MULTIPLE INDEPENDENT sources describe the SAME specific" in prompt
+
+    # absence-is-a-finding default (the anti-noise guard)
+    assert "No notable operational strain found." in prompt
+    assert "Do NOT manufacture strain." in prompt
+
+    # strength-tagged, three-heading structured output
+    assert "Product-engagement:" in prompt
+    assert "Operational strain — structural:" in prompt
+    assert "Operational strain — reported:" in prompt
+    for strength in ("STRONG", "MODERATE", "WEAK"):
+        assert strength in prompt

@@ -247,6 +247,163 @@ Keep under 150 words.
 
 
 # =============================================================================
+# STEP 4b - Operator / organizational searches (Slice 3.7; web search enabled)
+# =============================================================================
+
+
+def search_org_events(research_query, *, client, model: str = DEFAULT_MODEL) -> str:
+    """Slice 3.7: recency-bounded current-events search for reset / restructuring events.
+
+    Feeds ``reset_evidence.reset_events``. The fit-brief synthesis still emits the
+    canonical structured field; this search supplies the multi-event *evidence*. Web
+    search ON; larger token budget for a multi-item list so a quiet restructuring is
+    not buried by a louder pivot (the ZOE finding that motivated Slice 3.5).
+    """
+    prompt = f"""
+Use live web search to find RECENT leadership, restructuring, and transformation events for the
+company below — signals that it may be at a high-agency inflection point where a senior operator
+could step in and shape direction:
+
+{research_query}
+
+FOCUS ON THE LAST 12–18 MONTHS. A reset is a present-moment opening; a change from several years
+ago is not a current opening and should be excluded unless it is still actively unfolding now.
+
+Look for each DISTINCT event of these types:
+- leadership-change — new CEO / C-suite / senior exec hired or departed
+- founder-transition — founder stepping back or handing off to professional management
+- declared-transformation — a publicly stated turnaround, "new chapter," strategic reset, or re-foundation
+- post-failure-rebuild — rebuilding after a setback, near-miss, failed launch, or down round
+- restructuring-layoffs — reorganization, layoffs, or restructuring (especially framed as refocusing or building toward a next phase)
+- strategic-pivot — a material change in business model, market, or product direction
+- ma-integration — a merger, acquisition, or post-deal integration
+
+Important:
+- List EACH distinct event SEPARATELY. A company can be doing several at once — e.g. a loud
+  product pivot AND a quieter restructuring. Do NOT collapse them into one event, and do NOT let
+  a prominent event hide a co-occurring one.
+- For each event, judge whether it creates a HIGH-AGENCY OPENING: a forward-build mandate where a
+  new operator could own meaningful direction (yes), versus a purely defensive, cost-cutting, or
+  already-settled change (no), or genuinely unclear (unclear).
+- Weight COSTLY, REVEALED actions (an actual CEO/exec change, a real reorg or layoff,
+  a completed acquisition) OVER the company's own FRAMING of itself. A press release
+  branding a routine change as a "transformation" or "new chapter" is weak evidence;
+  a structural event that actually happened is strong. Do not log PR language as an
+  opening unless a real underlying event backs it.
+- Recency is decisive — give the date and prefer events within ~18 months.
+- Distinguish a real, sourced event from rumor or routine corporate news.
+
+Return a LIST — one item per distinct qualifying event. For EACH event give:
+- event_type (one of the types above)
+- what happened, with date and source name
+- one sentence on whether it creates a high-agency opening (yes / no / unclear) and why
+If there are no qualifying recent events, say exactly: "No qualifying recent org/leadership events found."
+Do not invent events.
+"""
+    return call_openai(
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=800
+    )
+
+
+def search_operating_characteristics(research_query, *, client, model: str = DEFAULT_MODEL) -> str:
+    """Slice 3.7: gathers product-engagement + operational-strain evidence.
+
+    Feeds capability-fit A1/A2/A3, which are *scored* in Slice 4 — this slice only
+    gathers and persists the evidence and adds no capability output fields. Web search
+    ON; larger token budget for the structured, multi-item, strength-tagged output.
+    """
+    prompt = f"""
+Use live web search to assess TWO things about how the company below actually operates:
+(A) whether its product depends on habitual, high-frequency user engagement, and
+(B) whether it shows signs of OPERATIONAL STRAIN from scaling.
+{research_query}
+
+These are evidence-from-behavior questions. What people DO and what the company
+STRUCTURALLY does reveal the truth; company marketing only CLAIMS it.
+
+────────────────────────────────────────────────────────
+(A) PRODUCT-ENGAGEMENT STRUCTURE
+For ENGAGEMENT evidence (frequency, user habit), weight independent signals
+(app-store reviews, user discussion, third-party usage data) OVER the company's
+self-description — how engaged users actually are is something they reveal, not
+something the company can credibly claim.
+For REVENUE-STRUCTURE evidence, the company's own disclosures (pricing pages,
+business model, plan tiers, earnings) ARE reliable — revenue structure is a
+verifiable structural fact, not a self-flattering claim.
+Look for:
+- FREQUENCY: Is the product used daily / at high frequency (a genuine habit loop),
+  or periodically / occasionally? Cite behavioral evidence, not marketing.
+- USER HABIT: Do users report habitual reliance — retention figures, repeat-usage
+  patterns, reviews describing daily use or withdrawal when they stop?
+- REVENUE DEPENDENCE: Map the FULL revenue structure, including BOTH one-time and
+  recurring components if both exist. Distinguish:
+    • recurring revenue that COLLAPSES without sustained engagement (e.g. a monthly
+      or annual subscription that is the user's whole spend), versus
+    • one-time or transactional revenue that is captured up front and does NOT depend
+      on the user staying engaged (e.g. a hardware purchase, a one-off fee).
+  Many companies are HYBRID — e.g. a one-time device purchase PLUS an ongoing
+  membership. When so, report BOTH components and, if findable, the rough split or
+  relative size of each. Do not collapse a hybrid model into "has a subscription";
+  the one-time portion dilutes retention-dependence and that distinction matters.
+If engagement is clearly periodic/optional, or revenue does not depend on it, say so
+plainly — that is a valid, informative finding.
+
+────────────────────────────────────────────────────────
+(B) OPERATIONAL STRAIN
+The signal is strain — things BREAKING under growth — NOT the mere existence of
+complexity. Every competitive company is complex; that is not a signal. Look for two
+DIFFERENT kinds of evidence and keep them distinct:
+
+  (B1) STRUCTURAL / FACTUAL signals — these are objective and carry weight on their own:
+  - SPEED OF SCALE: headcount growth rate (e.g. ~100 → ~500 employees in ~6 months),
+    rapid office/market expansion. Report the numbers and dates; fast scaling is itself
+    a strong strain signal.
+  - layoffs, restructuring, or reorganizations — especially framed as "grew too fast"
+    or a correction to over-hiring
+  - hiring scrambles for senior operators or "first head of X" roles, which signal a
+    capability gap the company is racing to fill
+
+  (B2) REPORTED / EXPERIENTIAL signals — softer; apply a STRICT bar:
+  - Count these ONLY when MULTIPLE INDEPENDENT sources describe the SAME specific
+    breakdown (e.g. several people independently citing broken onboarding, missed
+    launches, fulfillment failures, leadership churn).
+  - Prefer candid discussion venues (Reddit, industry forums, independent reporting)
+    over reviews that are easily gamed or one-off.
+  - Do NOT count routine individual griping (one bad manager, low pay, generic
+    "disorganized") — that exists at every company and is NOT a strain signal.
+
+Important:
+- Distinguish the company's STRUCTURAL ACTIONS (layoffs, reorgs, senior hires — strong,
+  because they are costly and revealed) from the company's CHARACTERIZATIONS of itself
+  ("we're scaling smoothly" — weak).
+- ABSENCE of strain is itself a finding. Default to reporting LOW / no strain unless
+  strain is clearly demonstrated by the bar above. A smoothly-scaling company should be
+  reported as "No notable operational strain found." Do NOT manufacture strain.
+
+────────────────────────────────────────────────────────
+OUTPUT FORMAT
+Return a structured list of evidence items, grouped under three headings. For EACH item give:
+  - claim: one sentence stating the specific fact or finding
+  - source: source name + date
+  - strength: STRONG (structural/factual, or multiple independent sources) /
+    MODERATE (one solid source) / WEAK (single soft mention)
+
+"Product-engagement:"
+  [evidence items for A — or "Engagement is periodic/optional: <why>" if that's the finding]
+"Operational strain — structural:"
+  [B1 items — or "None found." ]
+"Operational strain — reported:"
+  [B2 items meeting the strict bar — or "None meeting the bar found." ]
+
+Cite a source and date for every item. Distinguish independent evidence from company
+claims. Do not invent figures or events.
+"""
+    return call_openai(
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=800
+    )
+
+
+# =============================================================================
 # STEP 5 - Company fit synthesis prompt
 # =============================================================================
 
