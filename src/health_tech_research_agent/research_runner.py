@@ -123,6 +123,7 @@ Look specifically for:
 - valuation
 - named investors
 - company stage
+- founding year (when the company was founded)
 - major acquisitions or strategic investments
 - IPO/S-1/public company status if applicable
 - evidence that funding supports growth versus survival
@@ -132,13 +133,15 @@ Important:
 - Do not overstate uncertain funding information.
 - If source quality is weak, say so.
 
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public funding evidence found."
-Keep under 100 words.
+Return a concise, sourced FACT LIST covering, where available: funding stage; IPO / public
+status (with the filing or IPO date if any); the date and amount of the latest raise; total
+funding to date; valuation; and founding year. Tag each fact with its source name and date.
+If a particular fact is not found, say so rather than guessing.
+If no credible public funding evidence exists at all, say "No strong public funding evidence found."
+Do not invent figures.
 """
     return call_openai(
-        prompt, client=client, model=model, use_web_search=True, max_output_tokens=300
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=400
     )
 
 
@@ -166,10 +169,9 @@ Important:
 - If the company is mostly D2C/cash-pay, say that clearly.
 - If there is no payer/employer/provider signal, say so.
 
-Return exactly 1 bullet.
+Return a concise, sourced summary of the institutional-distribution signal.
 Include source name and date when available.
 If none found, say "No strong public institutional signal found."
-Keep under 120 words.
 """
     return call_openai(
         prompt, client=client, model=model, use_web_search=True, max_output_tokens=350
@@ -199,10 +201,9 @@ Important:
 - Small pilots, testimonials, and company-only claims should be treated as weak evidence unless supported by specific metrics.
 - If evidence is limited, say so.
 
-Return exactly 1 bullet.
+Return a concise, sourced summary of the outcomes signal.
 Include source name and date when available.
 If none found, say "No strong public outcomes evidence found."
-Keep under 120 words.
 """
     return call_openai(
         prompt, client=client, model=model, use_web_search=True, max_output_tokens=350
@@ -236,13 +237,16 @@ Important:
 - If revenue is inferred from customer count × pricing, say it is implied/inferred and explain the caveat.
 - If evidence is only marketing language or traffic estimates, say evidence is weak.
 
-Return exactly 1 bullet.
-Include source name and date when available.
-If none found, say "No strong public commercial scale evidence found."
-Keep under 150 words.
+Return a structured list of the commercial-scale facts you find. For EACH figure include:
+- the value, with the date or period it refers to
+- the SOURCE TYPE: company-reported / third-party estimate (name the source and its method, e.g. Sacra) / promotional or unattributed
+- where available, the TREND or history (e.g. "200k subscribers, up from ~50k in 2023"), not just a point-in-time snapshot
+Cover, where available: revenue / ARR / run-rate; paid users / subscribers / members; pricing and the implied revenue-per-user (state the inputs); year-over-year growth; the business model (consumer subscription / enterprise / payer-reimbursed / other); and any funding context.
+If a dimension is not found, say so. If no credible commercial-scale evidence exists at all, say "No strong public commercial scale evidence found."
+Do not invent figures.
 """
     return call_openai(
-        prompt, client=client, model=model, use_web_search=True, max_output_tokens=450
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=700
     )
 
 

@@ -178,10 +178,10 @@ def test_call_openai_respects_max_retries_argument(monkeypatch):
 @pytest.mark.parametrize(
     "func, max_tokens, anchor, none_line",
     [
-        (rr.search_funding, 300, "latest credible funding, valuation, stage", "No strong public funding evidence found."),
+        (rr.search_funding, 400, "latest credible funding, valuation, stage", "No strong public funding evidence found."),
         (rr.search_payer_signal, 350, "institutional distribution traction", "No strong public institutional signal found."),
         (rr.search_outcomes, 350, "credible outcomes, clinical, behavioral", "No strong public outcomes evidence found."),
-        (rr.search_commercial_scale, 450, "commercial scale, revenue quality", "No strong public commercial scale evidence found."),
+        (rr.search_commercial_scale, 700, "commercial scale, revenue quality", "No strong public commercial scale evidence found."),
     ],
 )
 def test_search_functions_request_shape_and_interpolation(func, max_tokens, anchor, none_line):
@@ -782,3 +782,48 @@ def test_search_operating_characteristics_structure():
     assert "Operational strain — reported:" in prompt
     for strength in ("STRONG", "MODERATE", "WEAK"):
         assert strength in prompt
+
+
+# ---------------------------------------------------------------------------
+# Slice 3.7 — re-budget of the four existing searches (drop one-bullet; richer evidence)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "func",
+    [rr.search_funding, rr.search_payer_signal, rr.search_outcomes, rr.search_commercial_scale],
+)
+def test_existing_searches_dropped_one_bullet_constraint(func):
+    """The stale one-bullet / word-cap constraint is removed from all four searches."""
+    client = RecordingClient()
+    func("X", client=client)
+    prompt = client.calls[0]["input"]
+    assert "exactly 1 bullet" not in prompt
+    assert "Keep under" not in prompt
+
+
+def test_search_funding_gathers_fact_list_with_founding_year():
+    """Funding now asks for an explicit sourced fact list including founding year
+    (the coverage-audit gap), at the lifted 400-token ceiling."""
+    client = RecordingClient()
+    rr.search_funding("X", client=client, model="m")
+    kwargs = client.calls[0]
+    prompt = kwargs["input"]
+    assert kwargs["max_output_tokens"] == 400
+    assert "founding year" in prompt                          # added field (was uncovered)
+    assert "FACT LIST" in prompt
+    assert "Tag each fact with its source name and date." in prompt
+
+
+def test_search_commercial_scale_gathers_provenance_and_trend():
+    """Commercial (the stress case) now gathers per-figure provenance (-> q4 evidence
+    quality) and trend/history (-> q1 acquisition trend), at the lifted 700-token ceiling.
+    The q1-q4 judgments themselves stay in the fit-brief synthesis (A-refined)."""
+    client = RecordingClient()
+    rr.search_commercial_scale("X", client=client, model="m")
+    kwargs = client.calls[0]
+    prompt = kwargs["input"]
+    assert kwargs["max_output_tokens"] == 700
+    assert "SOURCE TYPE" in prompt          # provenance per figure -> q4 evidence quality
+    assert "company-reported" in prompt
+    assert "TREND" in prompt                # trend / history -> q1 acquisition trend
