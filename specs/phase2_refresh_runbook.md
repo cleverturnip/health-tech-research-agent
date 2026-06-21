@@ -105,11 +105,10 @@ lost. **Read this before running any full research refresh.**
      budget would silently punch an evidence hole into the master with no one watching. A
      CORRECTNESS item for the regen, not just a quality nicety.
 
-## The full data regeneration is RUN-ONCE — wait for Slices 2–4
+## The full data regeneration is RUN-ONCE — clear the gate first
 
-Do **not** run the full master regeneration until Slices 2, 3, 3.5, 3.7, and 4 are all merged.
-Slices 2 – 3.7 are merged; **Slice 4 (capability-fit) is the last one remaining.** The interim
-pipeline still has the known audit gaps:
+Do **not** run the full master regeneration until the gate below is fully clear. The slice gaps
+that motivated waiting are all now fixed in the package:
 
 - maturity mislabel (Function Health read "late-stage" despite Series-B / hypergrowth) — fixed by **Slice 2**
 - funding scored as commercial strength (Solace) — fixed by **Slice 2**
@@ -117,8 +116,24 @@ pipeline still has the known audit gaps:
 - **operator/organizational evidence had NO search behind it** — reset fired only on incidental mentions in the four market/financial searches (ZOE's restructuring never surfaced → it returned an empty events list), and capability-fit A1/A2 likewise had no targeting search; the high-demand searches were also evidence-starved by the stale one-bullet constraint — **fixed by Slice 3.7** (merged, PR #36: `search_org_events` + `search_operating_characteristics` + commercial/funding re-budget; the live ZOE-surfacing confirmation is the pending check in item 4 above)
 - capability-fit is the interim `role_fit` bridge — fixed by **Slice 4** (which consumes Slice 3.7's `search_operating_characteristics`)
 
-Regenerating on the interim pipeline would bake those gaps into the "trusted" data and force a
-second expensive full refresh. Regenerate **once**, after Slice 4 lands (Slices 2 – 3.7 done).
+**Slice 4 is COMPLETE and Colab-verified on `slice4-capability-fit`** — so "wait for Slice 4 to be
+built" is no longer the gate. The real remaining gate is the explicit checklist below; regenerate
+**only when ALL of these are clear:**
+
+1. **Flag A resolved** — ✅ CONFIRMED: WAIT=120 gave 11/12 rich findings; the earlier thinness was
+   rate-limiting. (One narrow holdout, ZOE `outcomes_finding` empty, is covered by item 8.)
+2. **STEP 10/12 master-landing reconciled + dry-run verified** to a THROWAWAY master before any
+   real-master write (item 5). ⏳ IN PROGRESS — the dry-run surfaced a real landing bug (new slice
+   values are not overwriting existing master rows; reads `summary_df` but the saved master keeps
+   the old audit values). NOT yet passing.
+3. **Outcomes/payer empty-output fix done** (item 8 — budget raise + empty-output guard).
+4. **`slice4-capability-fit` merged to main.**
+5. **Standing run-once reminders still hold** (items 1–4 at the top of this runbook):
+   WAIT_BETWEEN_WEB_SEARCHES=120 restored, throwaway test checkpoints deleted, STEP 26 rescore
+   spot-check, multi-event reset verified (✅ Function Health gave the live multi-event fire).
+
+Regenerating before the gate is clear would bake gaps into the "trusted" data and force a second
+expensive full refresh. Regenerate **once**, only when every checklist item above is green.
 (Tracked as a held item under Phase 3 → Candidate Priority Engine in `PROJECT_TRACKER.md`.)
 
 ## Deferred / optional (not scheduled)
