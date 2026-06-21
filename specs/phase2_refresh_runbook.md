@@ -66,15 +66,11 @@ lost. **Read this before running any full research refresh.**
    the run-once is the one cheap moment to make the durable master engine-ready. **Closed by the
    "pre-regen master-completeness" commit.**
 
-6. **STEP 21 / STEP 23 scope — are these live regen paths?** ⬜ OPEN — needs Katelynd's decision.
-   STEP 21 (supervised LLM research batch runner) and STEP 23 (Google Sheet research queue
-   launcher) each validate a `required_runtime_items` list naming the FOUR original search shims;
-   neither runs an inline 4-search loop, so Slice 3.7 left them at four. If either is a path the
-   run-once regeneration actually uses, its validation list (and any research it drives) must move
-   to the SIX-search schema (add `search_org_events` + `search_operating_characteristics`) so a
-   regen through that path gathers the operator/organizational evidence reset + capability-fit
-   depend on. If neither is used at regen (STEP 7 is the regen research path), leave them. Decide
-   before the run-once.
+6. **STEP 21 / STEP 23 scope.** ✅ RESOLVED — STEP 21/23 are the old-flow Google-Sheet-queue path,
+   NOT the regen path. The regeneration runs on the inline-list → `run_research_batch` path (STEP 7),
+   confirmed from Katelynd's notebook; the sheet queue is superseded by that path and ultimately by
+   the future front end. Decision: not live for the regen — do NOT revive them or move their
+   `required_runtime_items` validation lists 4→6; they fall to the post-migration cleanup pass.
 
 ## The full data regeneration is RUN-ONCE — wait for Slices 2–4
 
