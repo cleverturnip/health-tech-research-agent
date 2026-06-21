@@ -79,45 +79,48 @@ normal and anticipated — investigate, don't assume the notebook matches the pa
 **Done / merged to main:**
 - Phase 1 dashboard rebuild (live-validated).
 - Candidate-priority engine — logic complete and correct (reset reads a researched field; P0
-  accepts strong commercial OR institutional; thresholds pinned; vocabulary reconciled).
-  Currently INTERIM (capability-fit = role_fit bridge) and INERT (does not yet write
-  final_priority_level — Commit 5 is held).
+  accepts strong commercial OR institutional; thresholds pinned; vocabulary reconciled). On main
+  this is still the INTERIM capability bridge (`CANDIDATE_FRAMEWORK_VERSION = "V4.2-interim"`,
+  capability-fit == katelynd_role_fit_score) and INERT (does not write final_priority_level —
+  Commit 5 held). **Slice 4 (below) makes it real.**
 - Slice 1: research runner extracted into the package (faithful + per-company error
   recovery), Colab-verified.
 - Slice 2: structured maturity + commercial evidence (deterministic derivation; the Function
   maturity-mislabel fix and the Solace funding-as-commercial fix), Colab-verified.
 - Slice 3 + 3.5: reset as a researched field, multi-event (per-event opening evaluation so a
   pivot can't bury a coexisting restructuring), Colab-verified.
+- Slice 3.7: search-layer redesign — two operator searches (`search_org_events`,
+  `search_operating_characteristics`) + commercial/funding re-budget + REQUIRED_RESEARCH_COLUMNS
+  7→9. Merged via PR #36.
+
+**Complete + Colab-verified — on branch `slice4-capability-fit`, NOT yet merged to main**
+(merge gated on the pre-regen STEP 10/12 master-landing reconciliation — see *Immediate next
+action*):
+- Slice 4 — real capability-fit: three-attribute A1/A2/A3 rubric replacing the role_fit bridge,
+  built on Slice 3.7's operating-characteristics search; gate-time A1/A3 no-double-count recompute
+  for reset-lifted scale-ups; engine repoint to REAL (`CANDIDATE_FRAMEWORK_VERSION = "V4.2"`,
+  `capability_fit_score` → `katelynd_capability_fit_score`) + suppression guard. Six commits,
+  Colab-verified (ZOE 83 / Function Health 32; live multi-event reset fire on Function Health).
+- Pre-regen master-completeness — engine-input signals (reset, scale signals, Slice 2 components,
+  capability) carried to the master via `optional_model_cols`, so the regenerated master is
+  engine-ready.
+- Net engine state: REAL (V4.2) on this branch; **Commit 5** (write `final_priority_level`) is now
+  **UNBLOCKED** but not yet built — so the engine remains INERT until Commit 5 lands.
 
 **Specced, not yet built (in build order):**
-1. **Search-layer redesign (slice 3.7)** — `slice3_7_search_layer_redesign_spec.md`. Fixes two
-   audit findings: (a) coverage — the four existing searches are all market/financial; the
-   operator/organizational axis had NO search (why reset/ZOE came back empty); (b) quality — a
-   stale "one-bullet" constraint starved the high-demand searches. Adds two new searches
-   (search_org_events → reset; search_operating_characteristics → capability-fit), re-budgets
-   commercial (A-refined: search gathers provenance+trend evidence, synthesis answers q1–q4)
-   and funding (+founding_year), retires the one-bullet cap, raises token ceilings. **This spec
-   also AMENDS Slice 4's A1/A2 definitions:** A1 reframed = product-engagement structure
-   (habit-dependent + revenue-dependent → data-driven by necessity); A2 reframed = operational
-   STRAIN (process breaking under growth), NOT "complexity exists" (which is always true → no
-   signal). A healthy coping company correctly scores LOW on A2.
-   **STATUS: this is the task in flight.** Claude Code was asked to commit the spec (+ amend
-   the Slice 4 spec), then plan the build (plan-first, no code), stopping for my review of the
-   two new search prompts' wording.
-2. **Slice 4** — real capability-fit (three-attribute rubric, reframed A1/A2 per above),
-   replacing the role_fit bridge, built against the new operating-characteristics search.
-   Completing it flips the engine interim→real and unblocks Commit 5.
-3. **Full data regeneration** — run-once, only after Slices 3.7 + 4. Runbook reminders:
-   restore WAIT_BETWEEN_WEB_SEARCHES=120 (dropped to 5 for testing); delete throwaway test
-   checkpoints (Clair/Oura); STEP 26 rescore spot-check; verify multi-event reset fires on a
-   known-reset company (ZOE).
-4. **Commit 5** — wire candidate→final_priority_level authority + fix false "Human Reviewed"
-   labeling + sticky reviewed_priority_level auto-seed. Held until real capability-fit exists.
-5. **Commit 6 / master remediation**, then **calibration** (judge too-strict/too-loose only
+1. **Full data regeneration** — run-once. GATED on the two pre-regen items in *Immediate next
+   action*: the STEP 10/12 master-landing reconciliation (TOP) and the Flag A WAIT=120 re-run.
+   Other runbook reminders: restore WAIT_BETWEEN_WEB_SEARCHES=120 (dropped to 5/30 for testing);
+   delete throwaway test checkpoints (Clair/Oura); STEP 26 rescore spot-check.
+2. **Commit 5** — wire candidate→final_priority_level authority + fix false "Human Reviewed"
+   labeling + sticky reviewed_priority_level auto-seed. **Unblocked** (real capability-fit now
+   exists); not yet built.
+3. **Commit 6 / master remediation**, then **calibration** (judge too-strict/too-loose only
    against trusted regenerated data — NOT before).
-6. **Post-migration cleanup pass** on colab_workflow.py (prune superseded steps/dead code;
-   tag residual reset-flavored text-scans like `_rt_has_high_agency_exception`). Deferred
-   until the back-half migration completes.
+4. **Post-migration cleanup pass** — colab_workflow.py AND the notebook old-flow cells (prune
+   superseded steps/dead code incl. the sheet-queue STEP 21–25; tag residual reset-flavored
+   text-scans like `_rt_has_high_agency_exception`). Deferred until the back-half migration
+   completes.
 
 **Per-slice Colab reconciliation (standing step):** After a slice's package work merges, mirror
 its changes into the live-region notebook (the inline-list → run_research_batch path; NOT the
