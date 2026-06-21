@@ -16,6 +16,26 @@ specs/prompts to Claude Code** (which has live repo access) to execute. I run li
 a **Colab notebook** and keep master data in Google Drive. Please keep this division: Claude
 helps me think, design, and review; Claude Code builds.
 
+## North Star — the end-state flow (every decision moves toward this)
+The destination is a research agent that runs as a mostly-autonomous flow bounded by exactly
+TWO human-in-the-loop gates:
+
+1. User defines the parameters for the kinds of companies to research → LLM offers candidate
+   suggestions → **[GATE 1]** user approves/edits the suggestions.
+2. From that approval, a FULLY AUTONOMOUS segment runs with NO user input: it researches,
+   outputs documentation, reviews its own documentation, and produces recommended adjustments →
+   **[GATE 2]** user reviews the recommendations and edits/approves.
+3. From that approval, a second FULLY AUTONOMOUS segment runs with NO user input: it outputs the
+   dashboard.
+
+**The load-bearing design fact: between GATE 1 and GATE 2, and between GATE 2 and the dashboard,
+there is ZERO user input.** Those segments must be architected to run unattended end-to-end — a
+problem inside a segment cannot rely on a human noticing it mid-flow. It must be handled
+autonomously or surfaced AT THE NEXT GATE for review. When architecting any change that lives
+inside an autonomous segment, design for "no one is watching this run" — the flag-for-review
+pattern (e.g. capability_needs_review routing a row to human attention) is how an autonomous
+segment defers a judgment to a gate instead of stalling or guessing.
+
 **Disciplines to maintain:**
 - Investigate (read-only) → plan (no code) → implement red→green, in small reviewable commits.
 - Never weaken a validation gate to make something pass.
@@ -27,6 +47,10 @@ helps me think, design, and review; Claude Code builds.
   before Claude Code builds it.
 - Architecture principle ("Rule 7"): the LLM gathers EVIDENCE; deterministic rules DECIDE.
   Persist evidence components as columns so labels/signals are recomputable without re-research.
+- Every temporary measure is built toward the North Star end state. Testing scaffolding and
+  partial builds (e.g. temporary Colab cells to define a batch before the front end exists) must
+  minimize friction for the eventual autonomous flow — solve the immediate step in the shape the
+  end state will reuse, not in a throwaway shape that has to be undone later.
 
 ## Source-of-truth files (in the repo — I can paste these into chat, or hand them to Claude Code)
 1. `PROJECT_TRACKER.md` — current state, done, next.
@@ -43,6 +67,14 @@ If a new chat needs full detail, I'll paste the relevant spec.
 The **back-half rebuild** is in progress. Flow goal: research → score → prioritize →
 dashboard, all in the package, on trustworthy regenerated data. (The front-half — LLM company
 discovery, dedup, triage, first approval gate, UI — is a separate, later, unstarted track.)
+
+**How this project got here (why old-flow cells are stale):** This began as a legacy Colab flow
+built with ChatGPT, where the real logic lived only in the ChatGPT conversation and in many
+(often temporary) Colab cells — causing version-control problems and large inefficiencies. The
+move to Git + Claude Code is the cleanup of that working flow. We have fixed a lot of it, but
+EXPECT TO KEEP FINDING old-flow issues as each step touches a new part of the notebook (e.g. an
+old-flow cell still at a pre-slice state that never received later wiring). Finding such gaps is
+normal and anticipated — investigate, don't assume the notebook matches the package.
 
 **Done / merged to main:**
 - Phase 1 dashboard rebuild (live-validated).
@@ -87,63 +119,52 @@ discovery, dedup, triage, first approval gate, UI — is a separate, later, unst
    tag residual reset-flavored text-scans like `_rt_has_high_agency_exception`). Deferred
    until the back-half migration completes.
 
+**Per-slice Colab reconciliation (standing step):** After a slice's package work merges, mirror
+its changes into the live-region notebook (the inline-list → run_research_batch path; NOT the
+old-flow sheet-queue cells, which are superseded) and Colab-verify before the slice counts as
+complete. Scope reconciliation to the live region; old-flow cells are touched only where the live
+path actually depends on them (e.g. the shared STEP 10/12 master-landing pipeline).
+
 ## Verification pattern
 Code logic is proven offline (red→green unit tests). Notebook wiring and real-LLM-output
 behavior can only be proven by a live Colab run — so each pipeline slice has a "diff looks
 right here, Colab is the real proof" step, and I run the Colab checklist before merging.
+
+**A slice is not "done" at package-green.** "Done" = package logic green (red→green unit tests)
+PLUS the package changes mirrored into the live-region notebook cells (reconciliation) PLUS a
+live Colab run proving the notebook wiring (the "Colab is the real proof" step). All three.
+Package-green alone is necessary, not sufficient — the notebook can be a full slice or more
+behind the package, and that gap is invisible until reconciliation + a live run surface it.
+
 **ZOE** is the canonical reset test case; **Function Health** is the canonical
 maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
-**Slice 3.7 (search-layer redesign) is COMPLETE** — Commits 1-4 built, reviewed, and pushed on
-branch `slice3.7-search-layer`, merging to main as a full slice (this doc + the hook spec are
-committed into that same merge). Summary of the four commits:
-- Commit 1 — two new operator searches (search_org_events, search_operating_characteristics) +
-  structure tests. Wording for BOTH locked (see Decisions below).
-- Commit 2 — re-budget the four existing searches (funding fact-list + founding_year + ceiling
-  300->400; commercial provenance/trend + ceiling 450->700; drop one-bullet language from
-  payer/outcomes).
-- Commit 3 — wire 4 searches -> 6: run_research_batch calls both new searches (with inter-search
-  sleeps), _build_latest_status_findings emits SIX labeled sections, REQUIRED_RESEARCH_COLUMNS
-  grew 7->9 (org_events_finding + operating_characteristics_finding), synthesis got light nudges
-  (reset points at org-events section + emits canonical reset_events without re-judging;
-  commercial reads SOURCE TYPE->q4, TREND->q1). 214 green.
-- Commit 4 — notebook mirror: STEP 7 delegates to the package (6-search sequence inherited); the
-  notebook work was making its own machinery 9-column-consistent. **Key bug caught: STEP 10
-  re-saves the checkpoint by selecting required_current_schema_cols (~line 2491); at 7 columns it
-  would have STRIPPED the two new findings STEP 7 just wrote.** Widened all three
-  required_current_schema_cols defs (STEP 6B/7/10) + STEP 8A required_raw_cols to 9 (KeyError-safe
-  via prepare_source_df). Added STEP 4 shims, STEP 26 six-section findings rebuild, embedded Colab
-  checklist. compile OK (magics stripped), 214 green.
+**Slice 4 (real capability-fit) is COMPLETE and Colab-verified** — six commits on
+`slice4-capability-fit` (rubric → averaging/null policy → gate double-count fix → engine repoint
+to V4.2 → notebook mirror → reference spec §4), plus a separate pre-regen master-completeness
+commit (engine-input signals carried to the master via optional_model_cols). The live Colab run
+passed: the capability rubric discriminates correctly (ZOE 83 / Function Health 32 on the A1
+daily-habit-vs-episodic reframe), and Function Health gave the live multi-event reset fire (the
+fireable leadership-change fires, the never-fire M&A correctly doesn't, engine reset_signal
+matches). The engine is now **V4.2 — real, no longer the role_fit interim**.
 
-**NEXT: Slice 4 — real capability-fit.** Three-attribute rubric scoring A1/A2/A3 off the
-operating-characteristics evidence that Slice 3.7 now gathers, replacing the role_fit bridge.
-Completing it flips the engine interim->real and unblocks Commit 5. The A1/A2 definitions are
-ALREADY reframed in specs/slice4_capability_fit_spec.md (per the 3.7 amendment): A1 =
-product-engagement structure (habit-dependent + revenue-dependent -> data-driven by necessity);
-A2 = operational STRAIN (process breaking under growth), NOT "complexity exists"; a healthy
-company scores LOW on A2. A3 unchanged, now shares product-engagement evidence with A1.
+**Remaining before the run-once regeneration:**
+- **Flag A — thin-findings re-run.** The first Colab run had several findings come back empty
+  (likely WAIT=30 + six searches → variance / rate-limiting). Re-run at WAIT=120 with a tightened
+  V6 check (nan / len < ~10 counts as EMPTY) to confirm rich findings before trusting the regen.
+- **STEP 10/12 master-landing reconciliation (TOP pre-regen item).** The inline path writes the
+  real master through old-flow STEP 10→10A→12, which are at PRE-Slice-2 state and would silently
+  land NONE of the slice columns (a regen would succeed with no error while dropping every slice
+  column). Reconcile in place from the package mirror (option a), then DRY-RUN to a throwaway
+  master to confirm every slice column lands before any real-master write — the run-once must not
+  be the first real-master write.
+- **Then:** full data regeneration (run-once) → Commit 5 (final_priority_level authority; held
+  until capability-fit was real — now unblocked) → Commit 6 / master remediation → calibration →
+  colab_workflow.py cleanup.
 
-After Slice 4: **full data regeneration** (run-once; runbook reminders: restore
-WAIT_BETWEEN_WEB_SEARCHES=120 [it was dropped to 5 for testing], delete throwaway test
-checkpoints [Clair/Oura], STEP 26 rescore spot-check, verify multi-event reset fires on ZOE) ->
-**Commit 5** (wire candidate->final_priority_level; fix false "Human Reviewed" labeling; sticky
-reviewed_priority_level auto-seed) -> Commit 6 / master remediation -> calibration ->
-colab_workflow.py cleanup.
-
-### TWO items to handle BEFORE the run-once regeneration (from the Commit 4 review)
-1. **Verify on FRESH research, not an old checkpoint.** Because REQUIRED grew to 9, the STEP
-   8A / STEP 10 missing-column gates now require the 9-column schema (STEP 8A error literally says
-   "rerun under the new Step 7 schema"). A pre-3.7 checkpoint pushed through those steps will
-   correctly STOP. So the Colab verification run must research a company FRESH via STEP 7 — not
-   resume an old checkpoint. (This is the columns-grew-by-2 decision working as intended.)
-2. **STEP 21 / STEP 23 scope check (OPEN).** These are other research entry points (supervised
-   runner / sheet queue). Commit 4 left them alone (correctly, per the STEP 7 + STEP 26 scope) —
-   they carry no inline 4-search loop, only a "required globals exist" validation list still
-   naming four searches. DECISION NEEDED: are STEP 21/23 live paths I'll use in the regeneration?
-   If yes, have Claude Code move their validation lists (+ any research logic) to six BEFORE the
-   run-once regen. If they're dead paths, leave them. (Cheap insurance either way; not a blocker
-   for the 3.7 merge.)
+Runbook cross-reference: **STEP 21/23 are RESOLVED as not-live** — old-flow sheet queue, superseded
+by the inline-list → run_research_batch path; deferred to the post-migration cleanup pass.
 
 ### Decisions locked during the Slice 3.7 work (carry these forward)
 - **Both new search prompts are WORDING-LOCKED** (highest-stakes review, done jointly in chat):
