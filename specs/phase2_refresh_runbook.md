@@ -62,6 +62,21 @@ lost. **Read this before running any full research refresh.**
    never written the real master with slice columns — so the sequence MUST dry-run to a THROWAWAY
    master copy first, confirm every slice column lands with correct ZOE/Function values, and only
    then write the real master. The run-once must not be the first real-master write.**
+   - **Dry-run validation outcome (2026-06-21):** the landing pipeline lands correctly (verified on
+     the exact updated row). The dry run surfaced — and a series of fixes resolved — these: the
+     dry-run isolation had to override ALL of STEP 12's write paths *after* its internal path block
+     (it redefines `local_master_path`/`drive_master_path` itself) and skip its pre-flight
+     `drive_master_path.exists()` check; and STEP 12's per-cell update needed the target columns cast
+     to object so string/empty values persist on old all-NaN float64 columns.
+   - **Master data-integrity (case-variant duplicates) — DONE on the notebook side.** The master had
+     duplicate rows `zoe`/`ZOE` and `function health`/`Function Health`: the verify batch used
+     proper-case names, and STEP 12 matched company names **case-sensitively**, so it *appended* new
+     rows instead of updating the human-reviewed lowercase originals. Fixes: (a) de-duped the master
+     (dropped the proper-case verify appends, kept the human-reviewed originals, backup taken);
+     (b) added case-insensitive matching (`normalize_company_key` → lowercases) + a case-variant
+     duplicate-guard to the notebook's STEP 12. **TODO before regen:** port the same case-insensitive
+     matching into the package mirror's STEP 12 — it canonicalizes aliases via `canonical_company_name`
+     but does NOT lowercase, so it shares the same append-a-duplicate vulnerability.
 
 6. **Regenerated master is engine-ready — engine-input signals carried to the master.** ✅ CLOSED.
    The candidate engine (`compute_candidate_priority`, held Commit 5) reads its inputs off the row
