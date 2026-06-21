@@ -77,6 +77,15 @@ lost. **Read this before running any full research refresh.**
      duplicate-guard to the notebook's STEP 12. **TODO before regen:** port the same case-insensitive
      matching into the package mirror's STEP 12 — it canonicalizes aliases via `canonical_company_name`
      but does NOT lowercase, so it shares the same append-a-duplicate vulnerability.
+   - **✅ DRY-RUN VALIDATED (2026-06-21) — master-landing milestone CLOSED.** With the master de-duped
+     and STEP 12 rebuilt (DRY_RUN write-isolation + read-from-real + object-cast so values persist +
+     case-insensitive matching + key-based validation/count/prints), the dry run lands every slice
+     column on the single human-reviewed row: **ZOE → 1 row** (early-growth / strong / capability 83 /
+     founding 2017), **Function Health → 1 row** (early-growth / moderate / capability 23). Real master
+     untouched (writes went to `/content` throwaways). Remaining before the run-once: (1) port the
+     rebuilt STEP 12 (case-insensitive matching + object-cast) into the package mirror; (2) item 8
+     outcomes/payer empty-output fix; (3) the regeneration itself (the real master write happens then,
+     not from this verify batch).
 
 6. **Regenerated master is engine-ready — engine-input signals carried to the master.** ✅ CLOSED.
    The candidate engine (`compute_candidate_priority`, held Commit 5) reads its inputs off the row
