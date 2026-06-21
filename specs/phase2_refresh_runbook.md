@@ -85,6 +85,26 @@ lost. **Read this before running any full research refresh.**
    the future front end. Decision: not live for the regen — do NOT revive them or move their
    `required_runtime_items` validation lists 4→6; they fall to the post-migration cleanup pass.
 
+## Research-layer robustness (before the run-once)
+
+8. **Empty-output guard + outcomes/payer search budgets.** ⬜ OPEN — do before the run-once
+   regeneration; NOT a blocker for the master-landing dry-run. (Its own small pre-regen mini-slice.)
+   - **Problem:** `call_openai` returns `output_text` with no empty-guard; `search_outcomes` and
+     `search_payer_signal` run at the tightest budget (350 vs commercial/org/operating at 700–800).
+     On evidence-rich topics, a reasoning model can burn the 350-token output budget on web_search
+     + reasoning before emitting summary text → `output_text == ""` → silently stored as a blank
+     finding. Confirmed: consistent across both Colab runs, ZOE-specific (rich outcomes topic —
+     PREDICT, the ZOE METHOD RCT), while thin-topic searches at 350 returned fine.
+   - **Two-part fix:** (1) raise `search_outcomes` + `search_payer_signal` budgets to ~700 (match
+     commercial); (2) add an empty-output guard in `call_openai` — if `output_text` is blank,
+     retry; if still blank, return an explicit FAILURE marker, never a silent `""` and never the
+     false "No strong public … found." sentinel (a silent empty asserts "no evidence" when the
+     search actually FAILED — exactly the unattended-segment silent-failure the North Star
+     principle warns against). Red→green test for the guard.
+   - **Why it matters at scale:** in the unattended run-once, any rich-topic search that blows its
+     budget would silently punch an evidence hole into the master with no one watching. A
+     CORRECTNESS item for the regen, not just a quality nicety.
+
 ## The full data regeneration is RUN-ONCE — wait for Slices 2–4
 
 Do **not** run the full master regeneration until Slices 2, 3, 3.5, 3.7, and 4 are all merged.
@@ -109,3 +129,27 @@ second expensive full refresh. Regenerate **once**, after Slice 4 lands (Slices 
   `InternalServerError`) but **not** 4xx (auth / bad request). Small, separate, reviewable
   commit if/when we want it. Not urgent — the per-company recovery wrapper already prevents a
   single `APIError` from aborting a batch, so this is a refinement, not a fix.
+
+- **Taxonomy audit + generalization for cross-industry use.** ⬜ OPEN / DEFERRED — sequence AFTER
+  the health-tech regeneration + calibration, so the validated health-tech baseline isn't perturbed.
+  *Context:* the scoring layer is already largely domain-agnostic — the commercial-OR-institutional
+  dual path means a strong non-health D2C company passes on the commercial path (empty
+  payer/outcomes findings are a valid state the engine handles), and the capability rubric is
+  calibrated to D2C-with-a-live-business-model, not to health specifically. Katelynd intends to use
+  the researcher for opportunities in other industries. The one identified blocker is the taxonomy:
+  a non-health company matches no segment, which currently flags it for manual review — a halt that
+  breaks the autonomous flow.
+  - **Investigate first (read-only; report before any change):** the taxonomy structure, how
+    keyword matching assigns a segment, and precisely what no-match does in code — a hard
+    halt-for-review or a soft empty-tag-and-continue. This determines the fix shape.
+  - **Likely two-part fix (design after the investigation):** (1) a general catch-all / "other tech
+    startup" category as the no-match FLOOR, so the flow never halts on an unrecognized segment
+    (autonomous-safe — no human is watching mid-segment to clear a manual-review flag); (2)
+    optionally expand the taxonomy with the specific cross-industry segments Katelynd expects to
+    evaluate, so categorization stays meaningful rather than dumping everything into "other."
+  - **Constraints:** the taxonomy was deliberately kept narrow (market-segment keyword matching;
+    org/operating evidence kept OUT to avoid noise) — expanding it must not reintroduce that noise;
+    and the no-match-safety change should affect ONLY companies that currently miss (health-tech
+    already matches, so the regen baseline stays untouched). **Priority half:** the no-match path
+    must CONTINUE (tagged catch-all), not HALT — that's the actual blocker; added segments are
+    enrichment.
