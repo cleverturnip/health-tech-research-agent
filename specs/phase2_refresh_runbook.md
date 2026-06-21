@@ -48,9 +48,22 @@ lost. **Read this before running any full research refresh.**
      runs here, at the regeneration / next Colab run; the per-event firing logic is already proven
      by the offline red→green test, so this confirms the live research now surfaces the events).
 
-## Regen-path wiring — both are "is a regen path wired right?" items
+## Regen-path wiring — "is a regen path wired right?" items
 
-5. **Regenerated master is engine-ready — engine-input signals carried to the master.** ✅ CLOSED.
+5. **Inline-path master-landing (STEP 10/12) reconciled to the package + dry-run verified.** ⛔ TOP
+   — CORRECTNESS, not quality. The regen researches on the inline-list → `run_research_batch` path
+   (STEP 7), but its master-landing is the old-flow STEP 10 → 10A → 12 (fed by the shared `df`
+   global), which is at PRE-Slice-2 state: STEP 10 derives no maturity/commercial/reset/capability
+   (STEP 10A still uses an old inline commercial signal), and STEP 12's `optional_model_cols` does
+   not carry them. A regen today would write the master with NO error while dropping every
+   Slice 2/3/3.5/3.7/4 column — silently voiding the run-once. Fix (option a): add a STEP 10C derive
+   block calling the tested `structured_evidence` functions → `summary_df`, and widen STEP 12
+   `optional_model_cols` to carry the slice + engine-input columns. **The reconciled STEP 10/12 have
+   never written the real master with slice columns — so the sequence MUST dry-run to a THROWAWAY
+   master copy first, confirm every slice column lands with correct ZOE/Function values, and only
+   then write the real master. The run-once must not be the first real-master write.**
+
+6. **Regenerated master is engine-ready — engine-input signals carried to the master.** ✅ CLOSED.
    The candidate engine (`compute_candidate_priority`, held Commit 5) reads its inputs off the row
    it scores; wired against the regenerated master it needs the derived SIGNALS on the master, not
    just the labels. STEP 12 only persists `model_cols_to_update` (← `optional_model_cols`), so the
@@ -66,7 +79,7 @@ lost. **Read this before running any full research refresh.**
    the run-once is the one cheap moment to make the durable master engine-ready. **Closed by the
    "pre-regen master-completeness" commit.**
 
-6. **STEP 21 / STEP 23 scope.** ✅ RESOLVED — STEP 21/23 are the old-flow Google-Sheet-queue path,
+7. **STEP 21 / STEP 23 scope.** ✅ RESOLVED — STEP 21/23 are the old-flow Google-Sheet-queue path,
    NOT the regen path. The regeneration runs on the inline-list → `run_research_batch` path (STEP 7),
    confirmed from Katelynd's notebook; the sheet queue is superseded by that path and ultimately by
    the future front end. Decision: not live for the regen — do NOT revive them or move their
