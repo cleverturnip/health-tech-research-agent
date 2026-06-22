@@ -179,8 +179,8 @@ def test_call_openai_respects_max_retries_argument(monkeypatch):
     "func, max_tokens, anchor, none_line",
     [
         (rr.search_funding, 400, "latest credible funding, valuation, stage", "No strong public funding evidence found."),
-        (rr.search_payer_signal, 350, "institutional distribution traction", "No strong public institutional signal found."),
-        (rr.search_outcomes, 350, "credible outcomes, clinical, behavioral", "No strong public outcomes evidence found."),
+        (rr.search_payer_signal, 700, "institutional distribution traction", "No strong public institutional signal found."),
+        (rr.search_outcomes, 700, "credible outcomes, clinical, behavioral", "No strong public outcomes evidence found."),
         (rr.search_commercial_scale, 700, "commercial scale, revenue quality", "No strong public commercial scale evidence found."),
     ],
 )

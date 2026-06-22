@@ -174,7 +174,7 @@ Include source name and date when available.
 If none found, say "No strong public institutional signal found."
 """
     return call_openai(
-        prompt, client=client, model=model, use_web_search=True, max_output_tokens=350
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=700
     )
 
 
@@ -206,7 +206,7 @@ Include source name and date when available.
 If none found, say "No strong public outcomes evidence found."
 """
     return call_openai(
-        prompt, client=client, model=model, use_web_search=True, max_output_tokens=350
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=700
     )
 
 
