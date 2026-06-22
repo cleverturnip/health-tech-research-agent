@@ -116,9 +116,9 @@ lost. **Read this before running any full research refresh.**
 
 ## Research-layer robustness (before the run-once)
 
-8. **Empty-output guard + outcomes/payer search budgets.** 🔴 OPEN — **CORRECTNESS PREREQUISITE for
-   the run-once / hard pre-regen gate**, NOT findings-quality polish. (Not a blocker for the
-   master-landing dry-run, but MUST land before the run-once.)
+8. **Empty-output guard + outcomes/payer/funding search budgets.** 🟢 CODE COMPLETE (budgets + guard
+   + tests, suite green) — was the **CORRECTNESS PREREQUISITE for the run-once**. Verification riders
+   below run AT the regen.
    - **Problem:** `call_openai` returns `output_text` with no empty-guard; `search_outcomes` and
      `search_payer_signal` run at the tightest budget (350 vs commercial/org/operating at 700–800).
      On evidence-rich topics, a reasoning model can burn the 350-token output budget on web_search
@@ -132,18 +132,35 @@ lost. **Read this before running any full research refresh.**
      empty-output is therefore NOT confined to ZOE's outcomes or to one search — it can silently hit
      ANY finding type (funding / payer / outcomes / any rich-topic search) for ANY company on ANY
      run, unpredictably.
-   - **Two-part fix:** (1) raise `search_outcomes` + `search_payer_signal` budgets to ~700 (match
-     commercial); (2) add an empty-output guard in `call_openai` — if `output_text` is blank,
-     retry; if still blank, return an explicit FAILURE marker, never a silent `""` and never the
-     false "No strong public … found." sentinel (a silent empty asserts "no evidence" when the
-     search actually FAILED — exactly the unattended-segment silent-failure the North Star
-     principle warns against). Red→green test for the guard.
+   - **Two-part fix — DONE:** (1) raised `search_outcomes` + `search_payer_signal` + `search_funding`
+     budgets to 700 (ALL rich-topic searches now 700; org/operating at 800 — no tight budget remains).
+     (2) Empty-output guard in `call_openai`: if `output_text` is blank (empty/whitespace), retry ONCE
+     at a bumped budget (×1.5, to counter the budget-exhaustion cause, not re-roll); if STILL blank,
+     return `SEARCH_FAILED_MARKER` — never a silent `""`, never the false "No strong public … found."
+     sentinel. `_row_is_complete` treats a marker as INCOMPLETE (a holed finding is re-researched on
+     resume, not baked in as complete) and `is_search_failure()` makes it detectable downstream.
+     Red→green tests cover all of it (budgets all-700, retry/marker, marker ≠ sentinel ≠ blank,
+     marker-row-incomplete).
    - **Why this is a CORRECTNESS PREREQUISITE (not polish):** in the unattended run-once, a
      rich-topic search that blows its budget silently produces an empty finding for that company —
      degrading its scores in data that is expensive to regenerate, with NO ONE WATCHING (the North
      Star silent-failure mode). The empty-output guard converts a silent evidence hole into a
      VISIBLE FAILURE marker, so the gap is caught and re-run rather than baked into the "trusted"
      master. Without it, the run-once can ship silently-degraded rows. **Hard pre-regen gate.**
+   - **Verification riders — run AT the regen (the code is in; these confirm the seams):**
+     1. **Synthesis must not read a marker as absence.** The marker's inline "evidence UNAVAILABLE,
+        not absent" wording steers the fit-brief LLM, but that's the one consumer where silent
+        absence-inference could still happen via the LLM, not code. On the regen run, confirm a
+        marker-bearing finding does NOT make the synthesis score a company as if the evidence were
+        absent (spot-check a company that got a marker); add a one-line synthesis-prompt note only if
+        it does.
+     2. **Bigger findings don't starve the synthesis.** ✅ Confirmed by inspection: findings are
+        f-string-assembled (`_build_latest_status_findings`, no truncation) and the fit brief's 6500
+        is its OUTPUT budget, independent of input size; worst-case findings (6 × ~1050 after a bumped
+        retry ≈ 6k tokens) + the rubric stay well within the model context.
+     - **V6 notebook tweak (before the regen verification):** the findings-present check must treat
+       `is_search_failure(...)` as a FAILURE, not "populated" — else it re-hides the hole. (Updated
+       cell handed to Katelynd; imports `is_search_failure` from the package.)
 
 ## The full data regeneration is RUN-ONCE — clear the gate first
 
@@ -169,8 +186,9 @@ built" is no longer the gate. The real remaining gate is the explicit checklist 
    object-cast land) + `colab_workflow.py` STEP 12 ported to key-based matching + `astype(object)`,
    closing the mirror's case-sensitivity gap. (Remaining fidelity sliver, not a correctness gate:
    port the DRY_RUN write-isolation toggle into the mirror's STEP 12 too — the notebook has it.)
-4. **Outcomes/payer empty-output fix done** (item 8 — budget raise + empty-output guard) — ⬜ OPEN,
-   **CORRECTNESS PREREQUISITE** (silent empty findings would degrade scores in the run-once data; see item 8).
+4. **Outcomes/payer/funding empty-output fix** (item 8) — ✅ CODE DONE (budgets→700, guard + marker +
+   marker-aware `_row_is_complete`, suite green). **Verification riders run AT the regen** (synthesis-
+   not-absence spot-check; V6 treats markers as a failure). Was the CORRECTNESS PREREQUISITE.
 5. **`slice4-capability-fit` merged to main** — ⬜ OPEN.
 6. **Standing run-once reminders still hold** (items 1–4 at the top of this runbook):
    WAIT_BETWEEN_WEB_SEARCHES=120 restored, throwaway test checkpoints deleted, STEP 26 rescore

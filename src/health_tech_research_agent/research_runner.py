@@ -55,6 +55,18 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_WAIT_BETWEEN_SEARCHES = 120  # seconds
 
 
+SEARCH_FAILED_MARKER = (
+    "[SEARCH_FAILED: empty model output after retry — evidence UNAVAILABLE, not absent]"
+)
+
+
+def is_search_failure(value) -> bool:
+    """True if a finding is the empty-output failure marker — a FAILED search (evidence
+    UNAVAILABLE), NOT a real finding and NOT 'no evidence'. Lets downstream treat a holed
+    finding as a failure (re-research / flag) instead of as apparent absence."""
+    return str(value).strip().startswith("[SEARCH_FAILED")
+
+
 def call_openai(
     prompt,
     *,
@@ -67,43 +79,70 @@ def call_openai(
 ) -> str:
     """Send a prompt to OpenAI, optionally with the web-search tool.
 
-    Faithful port of the notebook ``call_openai`` (STEP 3): same request shape,
-    same retry behavior (retry only on ``RateLimitError`` with ``90 * attempt``
-    second waits; ``APIError`` re-raises immediately; ``RuntimeError`` after the
-    retries are exhausted). ``client``/``model``/``sleep_fn`` are injected.
+    Faithful port of the notebook ``call_openai`` (STEP 3): same request shape and
+    rate-limit retry behavior (retry only on ``RateLimitError`` with ``90 * attempt``
+    second waits; ``APIError`` re-raises immediately; ``RuntimeError`` once retries are
+    exhausted). ``client`` / ``model`` / ``sleep_fn`` are injected.
+
+    Empty-output guard (item 8): a reasoning model on a rich topic can burn its output
+    budget on web_search + reasoning and emit NO summary text -> ``output_text == ""``.
+    Left silent, that blank is stored as an apparent "no evidence" finding. Instead: if the
+    output is blank (empty or whitespace-only), retry ONCE at a bumped budget (×1.5 — to
+    counter the budget-exhaustion *cause*, not re-roll identically); if STILL blank, return
+    an explicit ``SEARCH_FAILED_MARKER`` — never a silent "" and never the false "none
+    found" sentinel. Failure must not collapse into apparent absence.
     """
-    for attempt in range(1, max_retries + 1):
-        try:
-            kwargs = {
-                "model": model,
-                "input": prompt,
-                "max_output_tokens": max_output_tokens,
-            }
 
-            if use_web_search:
-                kwargs["tools"] = [{"type": "web_search"}]
-                kwargs["tool_choice"] = "auto"
+    def _attempt(tokens: int) -> str:
+        for attempt in range(1, max_retries + 1):
+            try:
+                kwargs = {
+                    "model": model,
+                    "input": prompt,
+                    "max_output_tokens": tokens,
+                }
 
-            response = client.responses.create(**kwargs)
-            return response.output_text
+                if use_web_search:
+                    kwargs["tools"] = [{"type": "web_search"}]
+                    kwargs["tool_choice"] = "auto"
 
-        except RateLimitError:
-            wait_time = 90 * attempt
-            logger.warning(
-                "Rate limit hit. Waiting %s seconds before retry %s/%s...",
-                wait_time,
-                attempt,
-                max_retries,
-            )
-            sleep_fn(wait_time)
+                response = client.responses.create(**kwargs)
+                return response.output_text
 
-        except APIError as exc:
-            logger.error("API error: %s", exc)
-            raise
+            except RateLimitError:
+                wait_time = 90 * attempt
+                logger.warning(
+                    "Rate limit hit. Waiting %s seconds before retry %s/%s...",
+                    wait_time,
+                    attempt,
+                    max_retries,
+                )
+                sleep_fn(wait_time)
 
-    raise RuntimeError(
-        "Max retries reached. Try again later or reduce the company batch size."
+            except APIError as exc:
+                logger.error("API error: %s", exc)
+                raise
+
+        raise RuntimeError(
+            "Max retries reached. Try again later or reduce the company batch size."
+        )
+
+    text = _attempt(max_output_tokens)
+    if str(text or "").strip():
+        return text
+
+    bumped = int(max_output_tokens * 1.5)
+    logger.warning(
+        "Empty model output at %s tokens; retrying ONCE at bumped budget %s.",
+        max_output_tokens,
+        bumped,
     )
+    text = _attempt(bumped)
+    if str(text or "").strip():
+        return text
+
+    logger.error("Empty model output after bumped retry; returning SEARCH_FAILED_MARKER.")
+    return SEARCH_FAILED_MARKER
 
 
 # =============================================================================
@@ -141,7 +180,7 @@ If no credible public funding evidence exists at all, say "No strong public fund
 Do not invent figures.
 """
     return call_openai(
-        prompt, client=client, model=model, use_web_search=True, max_output_tokens=400
+        prompt, client=client, model=model, use_web_search=True, max_output_tokens=700
     )
 
 
@@ -951,8 +990,14 @@ def _is_nonblank(value) -> bool:
 
 
 def _row_is_complete(row) -> bool:
-    """A checkpoint row is complete iff all nine research columns are non-blank."""
-    return all(_is_nonblank(row.get(col, "")) for col in REQUIRED_RESEARCH_COLUMNS)
+    """A checkpoint row is complete iff all nine research columns are non-blank AND none is
+    a ``SEARCH_FAILED`` marker. A marker is a FAILED search (evidence unavailable), not a
+    real finding — treating it as complete would bake the hole in and skip the company on
+    resume; treating it as incomplete re-researches it (visible AND auto-retried)."""
+    values = [row.get(col, "") for col in REQUIRED_RESEARCH_COLUMNS]
+    if any(is_search_failure(v) for v in values):
+        return False
+    return all(_is_nonblank(v) for v in values)
 
 
 def _build_latest_status_findings(
