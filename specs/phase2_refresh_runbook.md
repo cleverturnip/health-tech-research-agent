@@ -82,10 +82,15 @@ lost. **Read this before running any full research refresh.**
      case-insensitive matching + key-based validation/count/prints), the dry run lands every slice
      column on the single human-reviewed row: **ZOE → 1 row** (early-growth / strong / capability 83 /
      founding 2017), **Function Health → 1 row** (early-growth / moderate / capability 23). Real master
-     untouched (writes went to `/content` throwaways). Remaining before the run-once: (1) port the
-     rebuilt STEP 12 (case-insensitive matching + object-cast) into the package mirror; (2) item 8
-     outcomes/payer empty-output fix; (3) the regeneration itself (the real master write happens then,
-     not from this verify batch).
+     untouched (writes went to `/content` throwaways).
+   - **⚠️ DRY_RUN flip safety — read before setting `DRY_RUN=False`.** The real-master write
+     (`DRY_RUN=False`) happens ONLY during the actual run-once regeneration, with rich data and the
+     full company set — **NEVER with the verify batch** (ZOE / Function Health). Function's `23` was a
+     thin-findings artifact (the good WAIT=120 run scored it 32). Do not flip True→False by reflex
+     after a dry run.
+   - **Remaining before the run-once:** (1) ✅ DONE — STEP 12 case-insensitive matching + object-cast
+     ported to the package (`master_update.py` regression tests + `colab_workflow.py` STEP 12);
+     (2) item 8 outcomes/payer empty-output fix; (3) the regeneration itself.
 
 6. **Regenerated master is engine-ready — engine-input signals carried to the master.** ✅ CLOSED.
    The candidate engine (`compute_candidate_priority`, held Commit 5) reads its inputs off the row
@@ -118,7 +123,11 @@ lost. **Read this before running any full research refresh.**
      On evidence-rich topics, a reasoning model can burn the 350-token output budget on web_search
      + reasoning before emitting summary text → `output_text == ""` → silently stored as a blank
      finding. Confirmed: consistent across both Colab runs, ZOE-specific (rich outcomes topic —
-     PREDICT, the ZOE METHOD RCT), while thin-topic searches at 350 returned fine.
+     PREDICT, the ZOE METHOD RCT), while thin-topic searches at 350 returned fine. **WAIT=120 runs
+     were inconsistent — one came back 11/12 rich, a LATER WAIT=120 run came back thin for
+     funding/payer for BOTH companies — proving the thinness is this token-budget / empty-output
+     mechanism (variable per run), NOT rate-limiting (which WAIT=120 would fix consistently). So
+     WAIT=120 alone does not close it; the budget raise + empty-output guard are required.**
    - **Two-part fix:** (1) raise `search_outcomes` + `search_payer_signal` budgets to ~700 (match
      commercial); (2) add an empty-output guard in `call_openai` — if `output_text` is blank,
      retry; if still blank, return an explicit FAILURE marker, never a silent `""` and never the
@@ -144,15 +153,18 @@ that motivated waiting are all now fixed in the package:
 built" is no longer the gate. The real remaining gate is the explicit checklist below; regenerate
 **only when ALL of these are clear:**
 
-1. **Flag A resolved** — ✅ CONFIRMED: WAIT=120 gave 11/12 rich findings; the earlier thinness was
-   rate-limiting. (One narrow holdout, ZOE `outcomes_finding` empty, is covered by item 8.)
-2. **STEP 10/12 master-landing reconciled + dry-run verified** to a THROWAWAY master before any
-   real-master write (item 5). ⏳ IN PROGRESS — the dry-run surfaced a real landing bug (new slice
-   values are not overwriting existing master rows; reads `summary_df` but the saved master keeps
-   the old audit values). NOT yet passing.
-3. **Outcomes/payer empty-output fix done** (item 8 — budget raise + empty-output guard).
-4. **`slice4-capability-fit` merged to main.**
-5. **Standing run-once reminders still hold** (items 1–4 at the top of this runbook):
+1. **Flag A resolved** — ✅ CONFIRMED (WAIT=120 gave 11/12 rich findings; the thinness was
+   rate-limiting; the one holdout — ZOE `outcomes_finding` empty — is the item-8 issue).
+2. **STEP 10/12 master-landing dry-run verified** to a throwaway master — ✅ CONFIRMED (commit
+   709f93e; every slice value landed on the correct human-reviewed rows, 1 row per company).
+3. **STEP 12 corrected logic (case-insensitive matching + object-cast) ported to the package** —
+   ✅ DONE: regression tests in `test_master_update_transaction.py` (case-insensitive match +
+   object-cast land) + `colab_workflow.py` STEP 12 ported to key-based matching + `astype(object)`,
+   closing the mirror's case-sensitivity gap. (Remaining fidelity sliver, not a correctness gate:
+   port the DRY_RUN write-isolation toggle into the mirror's STEP 12 too — the notebook has it.)
+4. **Outcomes/payer empty-output fix done** (item 8 — budget raise + empty-output guard) — ⬜ OPEN.
+5. **`slice4-capability-fit` merged to main** — ⬜ OPEN.
+6. **Standing run-once reminders still hold** (items 1–4 at the top of this runbook):
    WAIT_BETWEEN_WEB_SEARCHES=120 restored, throwaway test checkpoints deleted, STEP 26 rescore
    spot-check, multi-event reset verified (✅ Function Health gave the live multi-event fire).
 

@@ -3464,7 +3464,22 @@ print(backup_drive_path)
 # -----------------------------
 
 master_before = master_df.copy()
-existing_companies = set(master_df["company"].tolist())
+
+# Case-insensitive company matching (so 'ZOE' updates an existing 'zoe' instead of appending a
+# duplicate) + object dtype (so text/empty values persist on columns pandas loaded as all-null
+# float64). Mirrors the package master_update.normalize_company + astype(object) behavior.
+master_df = master_df.astype(object)
+_key_to_idx = {}
+for _i in master_df.index:
+    _k = normalize_company_key(master_df.at[_i, "company"])
+    if _k in _key_to_idx:
+        raise ValueError(
+            "STOP: case-variant duplicate company in master: "
+            f"{master_df.at[_i, 'company']!r} vs {master_df.at[_key_to_idx[_k], 'company']!r}. "
+            "De-duplicate the master first."
+        )
+    _key_to_idx[_k] = _i
+existing_keys = set(_key_to_idx)
 
 change_log = []
 rows_to_append = []
@@ -3483,11 +3498,12 @@ def log_change(company, field, old_value, new_value, change_type):
 
 for _, batch_row in batch_df.iterrows():
     company = batch_row["company"]
+    _ckey = normalize_company_key(company)
 
-    if company in existing_companies:
+    if _ckey in existing_keys:
         # Existing company: update model-generated fields only.
         # Preserve human-reviewed fields unless they are blank.
-        idx = master_df.index[master_df["company"] == company].tolist()[0]
+        idx = _key_to_idx[_ckey]
 
         for col in model_cols_to_update:
             if col in batch_df.columns:
@@ -3589,7 +3605,7 @@ if master_df["company"].duplicated().any():
 
 expected_company_count = master_before["company"].nunique() + len([
     c for c in batch_df["company"].tolist()
-    if c not in existing_companies
+    if normalize_company_key(c) not in existing_keys
 ])
 
 actual_company_count = master_df["company"].nunique()
@@ -3685,8 +3701,8 @@ print(change_log_drive_path)
 # Display outputs
 # -----------------------------
 
-new_companies_added = sorted([c for c in batch_df["company"].tolist() if c not in existing_companies])
-existing_companies_updated = sorted([c for c in batch_df["company"].tolist() if c in existing_companies])
+new_companies_added = sorted([c for c in batch_df["company"].tolist() if normalize_company_key(c) not in existing_keys])
+existing_companies_updated = sorted([c for c in batch_df["company"].tolist() if normalize_company_key(c) in existing_keys])
 
 print("\nNew companies added:")
 print(new_companies_added if new_companies_added else "None")
