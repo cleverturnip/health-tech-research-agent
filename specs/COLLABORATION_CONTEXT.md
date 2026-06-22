@@ -143,28 +143,40 @@ behind the package, and that gap is invisible until reconciliation + a live run 
 maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
-**Slice 4 (real capability-fit) is COMPLETE and Colab-verified** — six commits on
-`slice4-capability-fit` (rubric → averaging/null policy → gate double-count fix → engine repoint
-to V4.2 → notebook mirror → reference spec §4), plus a separate pre-regen master-completeness
-commit (engine-input signals carried to the master via optional_model_cols). The live Colab run
-passed: the capability rubric discriminates correctly (ZOE 83 / Function Health 32 on the A1
-daily-habit-vs-episodic reframe), and Function Health gave the live multi-event reset fire (the
-fireable leadership-change fires, the never-fire M&A correctly doesn't, engine reset_signal
-matches). The engine is now **V4.2 — real, no longer the role_fit interim**.
+**The run-once gate is down to the merge.** Every code/correctness prerequisite is done and
+Colab-verified on `slice4-capability-fit` (not yet merged); the next action is merging that branch
+to main, then the run-once regeneration.
 
-**Remaining before the run-once regeneration:**
-- **Flag A — thin-findings re-run.** The first Colab run had several findings come back empty
-  (likely WAIT=30 + six searches → variance / rate-limiting). Re-run at WAIT=120 with a tightened
-  V6 check (nan / len < ~10 counts as EMPTY) to confirm rich findings before trusting the regen.
-- **STEP 10/12 master-landing reconciliation (TOP pre-regen item).** The inline path writes the
-  real master through old-flow STEP 10→10A→12, which are at PRE-Slice-2 state and would silently
-  land NONE of the slice columns (a regen would succeed with no error while dropping every slice
-  column). Reconcile in place from the package mirror (option a), then DRY-RUN to a throwaway
-  master to confirm every slice column lands before any real-master write — the run-once must not
-  be the first real-master write.
-- **Then:** full data regeneration (run-once) → Commit 5 (final_priority_level authority; held
-  until capability-fit was real — now unblocked) → Commit 6 / master remediation → calibration →
-  colab_workflow.py cleanup.
+Done + verified this stretch (all on `slice4-capability-fit`):
+- **Slice 4 — real capability-fit:** COMPLETE + Colab-verified. Rubric discriminates correctly
+  (ZOE 83 / Function Health 32 on the A1 daily-habit-vs-episodic reframe); Function gave the live
+  multi-event reset fire. Engine is **V4.2 — real, no longer the role_fit interim**.
+- **Master-landing (STEP 10/12):** the inline path was PRE-Slice-2, matched companies
+  case-sensitively, and had a float64 dtype no-op — it would have silently landed none of the slice
+  columns and appended case-variant duplicate rows. Fixed + **dry-run verified** (commit 709f93e:
+  every slice column lands on the de-duped human-reviewed rows, 1 row/company). Case-insensitive
+  matching + object-cast are **ported to the package** (`master_update.py`) with regression tests;
+  the master's duplicate rows were cleaned.
+- **Item 8 — outcomes/payer/funding empty-output:** DONE + **Colab-verified**. Budgets → 700 (all
+  rich-topic searches); `call_openai` empty-output guard (blank → ×1.5 bumped retry →
+  `SEARCH_FAILED_MARKER`, never a silent "" nor the false "none found" sentinel); `_row_is_complete`
+  treats a marker as incomplete. Live run: all findings populate, zero markers; guard fired when forced.
+
+**Run-once gate (regenerate only when ALL clear — full detail in `phase2_refresh_runbook.md`):**
+1. Flag A (rate-limit thinness) — ✅ CONFIRMED.
+2. Master-landing dry-run verified — ✅ CONFIRMED (709f93e).
+3. STEP 12 matching + object-cast ported to the package — ✅ DONE (tests green).
+4. Item 8 empty-output fix — ✅ DONE + Colab-verified.
+5. **Merge `slice4-capability-fit` → main — ⬜ OPEN. ← THE NEXT ACTION.**
+6. Standing run-once reminders (WAIT=120; delete throwaway checkpoints; STEP 26 rescore spot-check;
+   multi-event reset verified) + two regen-time riders: a synthesis-as-absence spot-check (only if a
+   SEARCH_FAILED marker naturally appears) and a glance that bigger findings don't starve the synthesis.
+
+**After the merge:** run-once regeneration → **Commit 5** (wire candidate→final_priority_level
+authority; now unblocked — capability-fit is real) → **Commit 6 / master remediation** → calibration.
+**Deferred ROOT fix (post-regen, load-bearing):** collapse the inline STEP 12 into a call to the
+package `master_update` function so there's ONE implementation — the cure for the duplication behind
+this session's debugging marathon; deferred because it's too invasive right before a run-once.
 
 Runbook cross-reference: **STEP 21/23 are RESOLVED as not-live** — old-flow sheet queue, superseded
 by the inline-list → run_research_batch path; deferred to the post-migration cleanup pass.
