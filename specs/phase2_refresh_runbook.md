@@ -116,8 +116,9 @@ lost. **Read this before running any full research refresh.**
 
 ## Research-layer robustness (before the run-once)
 
-8. **Empty-output guard + outcomes/payer search budgets.** ⬜ OPEN — do before the run-once
-   regeneration; NOT a blocker for the master-landing dry-run. (Its own small pre-regen mini-slice.)
+8. **Empty-output guard + outcomes/payer search budgets.** 🔴 OPEN — **CORRECTNESS PREREQUISITE for
+   the run-once / hard pre-regen gate**, NOT findings-quality polish. (Not a blocker for the
+   master-landing dry-run, but MUST land before the run-once.)
    - **Problem:** `call_openai` returns `output_text` with no empty-guard; `search_outcomes` and
      `search_payer_signal` run at the tightest budget (350 vs commercial/org/operating at 700–800).
      On evidence-rich topics, a reasoning model can burn the 350-token output budget on web_search
@@ -127,16 +128,22 @@ lost. **Read this before running any full research refresh.**
      were inconsistent — one came back 11/12 rich, a LATER WAIT=120 run came back thin for
      funding/payer for BOTH companies — proving the thinness is this token-budget / empty-output
      mechanism (variable per run), NOT rate-limiting (which WAIT=120 would fix consistently). So
-     WAIT=120 alone does not close it; the budget raise + empty-output guard are required.**
+     WAIT=120 alone does not close it; the budget raise + empty-output guard are required.** The
+     empty-output is therefore NOT confined to ZOE's outcomes or to one search — it can silently hit
+     ANY finding type (funding / payer / outcomes / any rich-topic search) for ANY company on ANY
+     run, unpredictably.
    - **Two-part fix:** (1) raise `search_outcomes` + `search_payer_signal` budgets to ~700 (match
      commercial); (2) add an empty-output guard in `call_openai` — if `output_text` is blank,
      retry; if still blank, return an explicit FAILURE marker, never a silent `""` and never the
      false "No strong public … found." sentinel (a silent empty asserts "no evidence" when the
      search actually FAILED — exactly the unattended-segment silent-failure the North Star
      principle warns against). Red→green test for the guard.
-   - **Why it matters at scale:** in the unattended run-once, any rich-topic search that blows its
-     budget would silently punch an evidence hole into the master with no one watching. A
-     CORRECTNESS item for the regen, not just a quality nicety.
+   - **Why this is a CORRECTNESS PREREQUISITE (not polish):** in the unattended run-once, a
+     rich-topic search that blows its budget silently produces an empty finding for that company —
+     degrading its scores in data that is expensive to regenerate, with NO ONE WATCHING (the North
+     Star silent-failure mode). The empty-output guard converts a silent evidence hole into a
+     VISIBLE FAILURE marker, so the gap is caught and re-run rather than baked into the "trusted"
+     master. Without it, the run-once can ship silently-degraded rows. **Hard pre-regen gate.**
 
 ## The full data regeneration is RUN-ONCE — clear the gate first
 
@@ -162,7 +169,8 @@ built" is no longer the gate. The real remaining gate is the explicit checklist 
    object-cast land) + `colab_workflow.py` STEP 12 ported to key-based matching + `astype(object)`,
    closing the mirror's case-sensitivity gap. (Remaining fidelity sliver, not a correctness gate:
    port the DRY_RUN write-isolation toggle into the mirror's STEP 12 too — the notebook has it.)
-4. **Outcomes/payer empty-output fix done** (item 8 — budget raise + empty-output guard) — ⬜ OPEN.
+4. **Outcomes/payer empty-output fix done** (item 8 — budget raise + empty-output guard) — ⬜ OPEN,
+   **CORRECTNESS PREREQUISITE** (silent empty findings would degrade scores in the run-once data; see item 8).
 5. **`slice4-capability-fit` merged to main** — ⬜ OPEN.
 6. **Standing run-once reminders still hold** (items 1–4 at the top of this runbook):
    WAIT_BETWEEN_WEB_SEARCHES=120 restored, throwaway test checkpoints deleted, STEP 26 rescore
@@ -171,6 +179,28 @@ built" is no longer the gate. The real remaining gate is the explicit checklist 
 Regenerating before the gate is clear would bake gaps into the "trusted" data and force a second
 expensive full refresh. Regenerate **once**, only when every checklist item above is green.
 (Tracked as a held item under Phase 3 → Candidate Priority Engine in `PROJECT_TRACKER.md`.)
+
+## ROOT-CAUSE fix — collapse the inline STEP 12 into the package call (deferred, LOAD-BEARING)
+
+⚠️ This is the **cure for the duplication that caused this session's marathon debugging** — record
+it at that weight, NOT as a minor post-regen cleanup.
+
+**What the session established:** the case-sensitivity / dtype-no-op bug was **never in the
+package** — `master_update.py` already had casefold matching (`normalize_company`) + the object-cast,
+with tests. It lived ONLY in the **inline STEP 12** that the notebook and the `colab_workflow.py`
+mirror re-implement as a parallel copy. Commit `985f072` is a **PORT**: it copies the corrected logic
+into the inline path and locks it with regression tests, which makes the run-once SAFE — but it
+**preserves the duplication** (the correct logic now lives in TWO places, kept in sync by tests
+rather than by a single source).
+
+**The root fix:** have STEP 12 *call* the package (`master_update.build_proposed_master` /
+`execute_master_update_transaction`) so there is ONE implementation. This is the thing that prevents
+this class of drift bug from recurring — load-bearing, not cleanup. (Architecture Rule 1: production
+behavior as importable package functions, not re-implemented in cells.)
+
+**Deliberately deferred until AFTER the run-once.** The port + regression tests make the regen safe;
+collapsing the inline cell into the package call is too invasive to do safely right before a
+run-once. Do it first in the post-regen cleanup pass.
 
 ## Deferred / optional (not scheduled)
 
