@@ -116,9 +116,16 @@ lost. **Read this before running any full research refresh.**
 
 ## Research-layer robustness (before the run-once)
 
-8. **Empty-output guard + outcomes/payer/funding search budgets.** 🟢 CODE COMPLETE (budgets + guard
-   + tests, suite green) — was the **CORRECTNESS PREREQUISITE for the run-once**. Verification riders
-   below run AT the regen.
+8. **Empty-output guard + outcomes/payer/funding search budgets.** ✅ DONE — code + **Colab-verified
+   (2026-06-22)**. Was the **CORRECTNESS PREREQUISITE for the run-once**.
+   - **Colab validation (2026-06-22):** fresh WAIT=120 ZOE/Function re-run → all SIX findings
+     POPULATED for both, **zero SEARCH_FAILED markers** — the budget raise fills the holes that were
+     empty/thin before (ZOE outcomes, ZOE/Function funding+payer). Guard live-proved (Tier A): a
+     direct `call_openai` at a 16-token budget blanked → bumped retry (24) → still blank →
+     `SEARCH_FAILED_MARKER` (logs confirmed the path; `is_search_failure` True). Failure≠absence held
+     live: Function's outcomes came back as the "No strong public outcomes evidence" SENTINEL (a
+     POPULATED real result), correctly NOT a marker. **One rider deferred:** the synthesis-as-absence
+     check (Tier B skipped) → regen-time spot-check when a marker naturally appears.
    - **Problem:** `call_openai` returns `output_text` with no empty-guard; `search_outcomes` and
      `search_payer_signal` run at the tightest budget (350 vs commercial/org/operating at 700–800).
      On evidence-rich topics, a reasoning model can burn the 350-token output budget on web_search
@@ -186,9 +193,9 @@ built" is no longer the gate. The real remaining gate is the explicit checklist 
    object-cast land) + `colab_workflow.py` STEP 12 ported to key-based matching + `astype(object)`,
    closing the mirror's case-sensitivity gap. (Remaining fidelity sliver, not a correctness gate:
    port the DRY_RUN write-isolation toggle into the mirror's STEP 12 too — the notebook has it.)
-4. **Outcomes/payer/funding empty-output fix** (item 8) — ✅ CODE DONE (budgets→700, guard + marker +
-   marker-aware `_row_is_complete`, suite green). **Verification riders run AT the regen** (synthesis-
-   not-absence spot-check; V6 treats markers as a failure). Was the CORRECTNESS PREREQUISITE.
+4. **Outcomes/payer/funding empty-output fix** (item 8) — ✅ DONE + **Colab-verified** (2026-06-22:
+   fresh WAIT=120 run → all findings populated, zero markers; guard live-fired via Tier A). One
+   deferred rider: synthesis-as-absence regen-time spot-check (Tier B skipped). Was the CORRECTNESS PREREQUISITE.
 5. **`slice4-capability-fit` merged to main** — ⬜ OPEN.
 6. **Standing run-once reminders still hold** (items 1–4 at the top of this runbook):
    WAIT_BETWEEN_WEB_SEARCHES=120 restored, throwaway test checkpoints deleted, STEP 26 rescore
