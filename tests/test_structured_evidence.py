@@ -409,3 +409,62 @@ def test_flatten_reset_fields_missing_or_nondict():
         assert set(flat) == set(se.RESET_PERSIST_FIELDS)
         assert flat["reset_event_types"] == ""
         assert flat["reset_events_json"] == "[]"
+
+
+# ---------------------------------------------------------------------------
+# Slice 4 (Commit 2) — capability-fit averaging + missing-attribute (null) policy
+# ---------------------------------------------------------------------------
+
+
+def test_capability_average_rounds_and_clamps():
+    assert se.derive_capability_fit_score(80, 70, 90) == (80, False)
+    assert se.derive_capability_fit_score(74, 75, 76) == (75, False)
+    assert se.derive_capability_fit_score(100, 100, 100) == (100, False)
+
+
+def test_capability_null_suppresses_and_flags():
+    # any None -> (None, True); must NOT average the two non-nulls (which would be 85)
+    assert se.derive_capability_fit_score(80, None, 90) == (None, True)
+    # string null sentinels behave the same as a real None
+    assert se.derive_capability_fit_score("null", 70, 90) == (None, True)
+    assert se.derive_capability_fit_score(80, 70, "") == (None, True)
+
+
+def test_capability_zero_is_real_not_missing():
+    # 0 is a genuine Absent finding -> averages normally, NOT suppressed/flagged
+    assert se.derive_capability_fit_score(0, 0, 0) == (0, False)
+    # and 0 pulls the average down rather than dropping out of it
+    assert se.derive_capability_fit_score(0, 90, 90) == (60, False)
+
+
+def test_capability_on_shape_high_off_shape_low():
+    score_on, flag_on = se.derive_capability_fit_score(90, 88, 92)    # all strong
+    assert flag_on is False and score_on >= 85
+    score_off, flag_off = se.derive_capability_fit_score(40, 35, 30)  # B2B2C / periodic / bureaucratic
+    assert flag_off is False and score_off <= 40
+
+
+def test_flatten_capability_fields_six_columns_incl_null():
+    parsed = {"capability_evidence": {
+        "a1_score": 90, "a1_basis": "daily-use habit loop; subscription revenue",
+        "a2_score": 0, "a2_basis": "no strain found; scaling smoothly",
+        "a3_score": None, "a3_basis": "no consumer-habit evidence in the findings",
+    }}
+    out = se.flatten_capability_fields(parsed)
+    for col in se.CAPABILITY_FIELDS:
+        assert col in out
+    assert out["capability_a3_score"] is None        # null carried (couldn't assess)
+    assert out["capability_a3_basis"] == "no consumer-habit evidence in the findings"
+    assert out["capability_a2_score"] == 0.0         # 0 is a real Absent, preserved (not None)
+    assert out["capability_a1_score"] == 90.0
+    # round-trip: re-deriving from the stored components reproduces the suppression
+    assert se.derive_capability_fit_score(
+        out["capability_a1_score"], out["capability_a2_score"], out["capability_a3_score"]
+    ) == (None, True)
+
+
+def test_flatten_capability_tolerates_missing_block():
+    for parsed in ({}, {"capability_evidence": None}, "not-a-dict"):
+        out = se.flatten_capability_fields(parsed)
+        assert set(out) == set(se.CAPABILITY_FIELDS)
+        assert out["capability_a1_score"] is None and out["capability_a1_basis"] == ""

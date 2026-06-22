@@ -1813,9 +1813,12 @@ from health_tech_research_agent.structured_evidence import (
     reset_basis_for,
     reset_needs_review,
     flatten_reset_fields,
+    derive_capability_fit_score,
+    flatten_capability_fields,
     MATURITY_EVIDENCE_FIELDS,
     COMMERCIAL_EVIDENCE_FIELDS,
     RESET_PERSIST_FIELDS,
+    CAPABILITY_FIELDS,
 )
 
 if (
@@ -1831,6 +1834,8 @@ if (
         + ["commercial_scale_signal", "commercial_scale_signal_inferred"]
         + list(RESET_PERSIST_FIELDS)
         + ["reset_or_restructure_signal", "reset_or_restructure_basis", "reset_needs_review"]
+        + list(CAPABILITY_FIELDS)
+        + ["katelynd_capability_fit_score", "capability_needs_review"]
     )
     for _col in _slice2_cols:
         if _col not in summary_df.columns:
@@ -1860,6 +1865,17 @@ if (
         _flat["reset_or_restructure_signal"] = derive_reset_signal(_reset_evidence)
         _flat["reset_or_restructure_basis"] = reset_basis_for(_reset_evidence)
         _flat["reset_needs_review"] = reset_needs_review(_reset_evidence)
+        # Slice 4: capability-fit — flatten the three components (a1/a2/a3 score + basis) and
+        # derive the average + suppression flag. Any null attribute -> score suppressed (blank) +
+        # capability_needs_review True (the engine routes such rows to P3 for human review).
+        _flat.update(flatten_capability_fields(_parsed_s2))
+        _cap_score, _cap_needs_review = derive_capability_fit_score(
+            _flat.get("capability_a1_score"),
+            _flat.get("capability_a2_score"),
+            _flat.get("capability_a3_score"),
+        )
+        _flat["katelynd_capability_fit_score"] = "" if _cap_score is None else _cap_score
+        _flat["capability_needs_review"] = _cap_needs_review
         _slice2_lookup[_company] = _flat
 
     for _idx, _summary_row in summary_df.iterrows():
@@ -1869,7 +1885,7 @@ if (
         for _col, _value in _slice2_lookup[_company].items():
             summary_df.at[_idx, _col] = _value  # authoritative derived values
 
-    print("PASS: Slice 2/3 structured-evidence flatten + commercial-signal + reset derivation applied.")
+    print("PASS: Slice 2/3/4 structured-evidence flatten + commercial-signal + reset + capability derivation applied.")
 else:
     print("WARNING: Slice 2 structured-evidence block skipped; summary_df/df/fit_brief_json unavailable.")
 
@@ -1955,6 +1971,27 @@ else:
 #
 # 5. Capability A1/A2/A3 are NOT scored yet (that is Slice 4): the fit brief gathers the
 #    operating-characteristics evidence but emits no capability_a*_score fields.
+# =============================================================================
+
+# =============================================================================
+# COLAB VERIFICATION CHECKLIST - Slice 4 (real capability-fit) notebook wiring
+# =============================================================================
+# After researching ONE real company through STEP 7 -> 10, check, in order:
+# 1. STEP 10 persists the capability columns into summary_df:
+#    EXPECT capability_a1_score/_basis, capability_a2_score/_basis, capability_a3_score/_basis,
+#    katelynd_capability_fit_score, capability_needs_review. EXPECT katelynd_capability_fit_score
+#    == round(mean(a1,a2,a3)), or BLANK when any attribute is null -> capability_needs_review True.
+# 2. A2 = operational STRAIN, not complexity: a smoothly-scaling company scores LOW on
+#    capability_a2_score; a strained one scores HIGH (the reframe is live in the rubric).
+# 3. The engine reads the REAL score (V4.2, not the role_fit bridge):
+#    from health_tech_research_agent.candidate_priority import compute_candidate_priority
+#    EXPECT candidate_priority_framework_version == "V4.2"; a suppressed row (any null attribute)
+#    -> candidate_priority_code "P3" + capability_needs_review True (never P0/P1/P2).
+# 4. Columns land on the master via STEP 12:
+#    After the master update, EXPECT the master CSV carries all six capability_a* columns +
+#    katelynd_capability_fit_score + capability_needs_review (optional_model_cols carries them).
+# 5. Transitional state: pre-Slice-4 master rows (no capability components) resolve to P3 +
+#    capability_needs_review until the run-once regeneration produces real scores. Expected.
 # =============================================================================
 
 # STEP 10A - Deterministic priority adjudication
@@ -3288,8 +3325,57 @@ optional_model_cols = [
     "timing_penalty_applied",
     "operator_timing_score_raw",
     "operator_timing_score_cap",
-    "operator_timing_calibration_flag"
+    "operator_timing_calibration_flag",
+    # Slice 4 capability-fit: carry the components + average + suppression flag to the master so
+    # the score is recomputable without re-research and capability_needs_review reaches the
+    # human-review packet at regen. (STEP 12 only persists columns listed here -> see also the
+    # FLAGGED gap for the reset / Slice 2 component columns, which are NOT yet carried.)
+    "capability_a1_score",
+    "capability_a1_basis",
+    "capability_a2_score",
+    "capability_a2_basis",
+    "capability_a3_score",
+    "capability_a3_basis",
+    "katelynd_capability_fit_score",
+    "capability_needs_review",
 ]
+
+# ---------------------------------------------------------------------------
+# Pre-regen master-completeness (Slice 2/3.5 carry gap, surfaced while wiring Slice 4).
+# The candidate engine (held Commit 5) reads these DERIVED SIGNALS off the row it scores. STEP 12
+# only persists columns in model_cols_to_update (<- optional_model_cols), so without this the
+# regenerated master would lack the engine inputs: reset companies would lose their cap-lift and
+# the commercial/institutional/outcomes signals would collapse to 0 -> broad mis-tiering when the
+# engine is wired against the master. All are produced into summary_df by STEP 10 (carried only if
+# present). The Slice 2 components are also recoverable from archived fit_brief_json, but a
+# complete master beats a master + a recovery step. NOT an engine bug today (the engine is not
+# wired into any notebook path) - this makes the durable master engine-ready before the run-once.
+# ---------------------------------------------------------------------------
+from health_tech_research_agent.structured_evidence import (
+    MATURITY_EVIDENCE_FIELDS as _MASTER_MATURITY_FIELDS,
+    COMMERCIAL_EVIDENCE_FIELDS as _MASTER_COMMERCIAL_FIELDS,
+    RESET_PERSIST_FIELDS as _MASTER_RESET_PERSIST_FIELDS,
+)
+_master_completeness_cols = (
+    # Slice 3/3.5 reset: the signal engine.reset_signal() reads, + basis + the multi-event audit
+    ["reset_or_restructure_signal", "reset_or_restructure_basis", "reset_needs_review"]
+    + list(_MASTER_RESET_PERSIST_FIELDS)   # reset_events_json, reset_event_types
+    # Scale signals: engine.infer_signals() reads the text signals; scale_path_quality() the path
+    + [
+        "commercial_scale_signal",
+        "commercial_scale_signal_inferred",
+        "institutional_distribution_signal",
+        "outcomes_signal",
+        "plausible_near_term_scale_path",
+    ]
+    # Slice 2 components (recoverable from fit_brief_json; carried for a complete master)
+    + ["maturity_needs_review"]
+    + list(_MASTER_MATURITY_FIELDS)
+    + list(_MASTER_COMMERCIAL_FIELDS)
+)
+for _mc in _master_completeness_cols:
+    if _mc not in optional_model_cols:
+        optional_model_cols.append(_mc)
 
 for col in taxonomy_model_cols:
     if col in summary_df.columns and col not in model_cols_to_update:
@@ -3378,7 +3464,22 @@ print(backup_drive_path)
 # -----------------------------
 
 master_before = master_df.copy()
-existing_companies = set(master_df["company"].tolist())
+
+# Case-insensitive company matching (so 'ZOE' updates an existing 'zoe' instead of appending a
+# duplicate) + object dtype (so text/empty values persist on columns pandas loaded as all-null
+# float64). Mirrors the package master_update.normalize_company + astype(object) behavior.
+master_df = master_df.astype(object)
+_key_to_idx = {}
+for _i in master_df.index:
+    _k = normalize_company_key(master_df.at[_i, "company"])
+    if _k in _key_to_idx:
+        raise ValueError(
+            "STOP: case-variant duplicate company in master: "
+            f"{master_df.at[_i, 'company']!r} vs {master_df.at[_key_to_idx[_k], 'company']!r}. "
+            "De-duplicate the master first."
+        )
+    _key_to_idx[_k] = _i
+existing_keys = set(_key_to_idx)
 
 change_log = []
 rows_to_append = []
@@ -3397,11 +3498,12 @@ def log_change(company, field, old_value, new_value, change_type):
 
 for _, batch_row in batch_df.iterrows():
     company = batch_row["company"]
+    _ckey = normalize_company_key(company)
 
-    if company in existing_companies:
+    if _ckey in existing_keys:
         # Existing company: update model-generated fields only.
         # Preserve human-reviewed fields unless they are blank.
-        idx = master_df.index[master_df["company"] == company].tolist()[0]
+        idx = _key_to_idx[_ckey]
 
         for col in model_cols_to_update:
             if col in batch_df.columns:
@@ -3503,7 +3605,7 @@ if master_df["company"].duplicated().any():
 
 expected_company_count = master_before["company"].nunique() + len([
     c for c in batch_df["company"].tolist()
-    if c not in existing_companies
+    if normalize_company_key(c) not in existing_keys
 ])
 
 actual_company_count = master_df["company"].nunique()
@@ -3599,8 +3701,8 @@ print(change_log_drive_path)
 # Display outputs
 # -----------------------------
 
-new_companies_added = sorted([c for c in batch_df["company"].tolist() if c not in existing_companies])
-existing_companies_updated = sorted([c for c in batch_df["company"].tolist() if c in existing_companies])
+new_companies_added = sorted([c for c in batch_df["company"].tolist() if normalize_company_key(c) not in existing_keys])
+existing_companies_updated = sorted([c for c in batch_df["company"].tolist() if normalize_company_key(c) in existing_keys])
 
 print("\nNew companies added:")
 print(new_companies_added if new_companies_added else "None")
@@ -6465,6 +6567,7 @@ candidate_default_columns = {
     "target_archetype": "",
     "scale_path_quality": "",
     "katelynd_capability_fit_score": np.nan,
+    "capability_needs_review": "",
     "operator_agency_entry_score": np.nan,
     "reset_or_restructure_signal": "",
     "reset_or_restructure_basis": "",

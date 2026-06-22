@@ -98,6 +98,69 @@ def test_call_openai_default_model_and_tokens():
 
 
 # ---------------------------------------------------------------------------
+# call_openai — empty-output guard (item 8)
+# ---------------------------------------------------------------------------
+
+
+def test_call_openai_empty_output_retries_bumped_then_returns_marker():
+    client = ScriptedClient(["", ""])  # blank twice (original budget + bumped retry)
+    out = rr.call_openai("q", client=client, model="m", max_output_tokens=400)
+    assert out == rr.SEARCH_FAILED_MARKER
+    assert out != ""                                    # never a silent empty
+    assert "No strong public" not in out                # never the false 'none found' sentinel
+    assert len(client.calls) == 2                        # exactly one retry
+    assert client.calls[0]["max_output_tokens"] == 400
+    assert client.calls[1]["max_output_tokens"] == 600   # bumped ×1.5 — counters the cause
+
+
+def test_call_openai_whitespace_only_output_counts_as_blank():
+    client = ScriptedClient(["   \n  ", "  "])           # whitespace-only is blank
+    out = rr.call_openai("q", client=client, model="m", max_output_tokens=400)
+    assert out == rr.SEARCH_FAILED_MARKER
+
+
+def test_call_openai_bumped_retry_recovers():
+    client = ScriptedClient(["", "real summary text"])  # blank, then the bumped retry succeeds
+    out = rr.call_openai("q", client=client, model="m", max_output_tokens=400)
+    assert out == "real summary text"
+    assert len(client.calls) == 2
+    assert client.calls[1]["max_output_tokens"] == 600
+
+
+def test_call_openai_populated_output_does_not_retry():
+    client = ScriptedClient(["hello"])
+    out = rr.call_openai("q", client=client, model="m", max_output_tokens=400)
+    assert out == "hello"
+    assert len(client.calls) == 1                        # no empty-output retry
+
+
+def test_is_search_failure_predicate():
+    assert rr.is_search_failure(rr.SEARCH_FAILED_MARKER) is True
+    assert rr.is_search_failure("No strong public funding evidence found.") is False
+    assert rr.is_search_failure("") is False
+    assert rr.is_search_failure("real evidence text") is False
+
+
+def _complete_research_row():
+    return {col: "x" for col in REQUIRED_RESEARCH_COLUMNS}
+
+
+def test_row_is_complete_basic():
+    assert rr._row_is_complete(_complete_research_row()) is True
+    blank = _complete_research_row()
+    blank["outcomes_finding"] = ""
+    assert rr._row_is_complete(blank) is False
+
+
+def test_row_is_complete_treats_failure_marker_as_incomplete():
+    # A marker is a FAILED search, not a real finding: the row must read INCOMPLETE so resume
+    # re-researches it (visible AND auto-retried — not silently baked in as 'complete').
+    row = _complete_research_row()
+    row["funding_finding"] = rr.SEARCH_FAILED_MARKER
+    assert rr._row_is_complete(row) is False
+
+
+# ---------------------------------------------------------------------------
 # call_openai — retry semantics (faithful: RateLimit retries, APIError raises)
 # ---------------------------------------------------------------------------
 
@@ -178,9 +241,9 @@ def test_call_openai_respects_max_retries_argument(monkeypatch):
 @pytest.mark.parametrize(
     "func, max_tokens, anchor, none_line",
     [
-        (rr.search_funding, 400, "latest credible funding, valuation, stage", "No strong public funding evidence found."),
-        (rr.search_payer_signal, 350, "institutional distribution traction", "No strong public institutional signal found."),
-        (rr.search_outcomes, 350, "credible outcomes, clinical, behavioral", "No strong public outcomes evidence found."),
+        (rr.search_funding, 700, "latest credible funding, valuation, stage", "No strong public funding evidence found."),
+        (rr.search_payer_signal, 700, "institutional distribution traction", "No strong public institutional signal found."),
+        (rr.search_outcomes, 700, "credible outcomes, clinical, behavioral", "No strong public outcomes evidence found."),
         (rr.search_commercial_scale, 700, "commercial scale, revenue quality", "No strong public commercial scale evidence found."),
     ],
 )
@@ -804,12 +867,13 @@ def test_existing_searches_dropped_one_bullet_constraint(func):
 
 def test_search_funding_gathers_fact_list_with_founding_year():
     """Funding now asks for an explicit sourced fact list including founding year
-    (the coverage-audit gap), at the lifted 400-token ceiling."""
+    (the coverage-audit gap), at the 700-token ceiling (raised from 400 for item 8 —
+    funding is a rich-topic search that also hit the empty-output budget exhaustion)."""
     client = RecordingClient()
     rr.search_funding("X", client=client, model="m")
     kwargs = client.calls[0]
     prompt = kwargs["input"]
-    assert kwargs["max_output_tokens"] == 400
+    assert kwargs["max_output_tokens"] == 700
     assert "founding year" in prompt                          # added field (was uncovered)
     assert "FACT LIST" in prompt
     assert "Tag each fact with its source name and date." in prompt
@@ -910,14 +974,46 @@ def test_fit_brief_commercial_nudge_points_at_provenance_and_trend():
     assert "it does not move where these are judged" in prompt
 
 
-def test_fit_brief_does_not_add_capability_scoring_yet():
-    """Scope boundary: Slice 3.7 gathers operating-characteristics evidence but does NOT
-    score capability A1/A2/A3 — those fields arrive in Slice 4."""
-    prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
-    for field in (
-        '"capability_a1_score"',
-        '"capability_a2_score"',
-        '"capability_a3_score"',
-        '"katelynd_capability_fit_score"',
-    ):
-        assert field not in prompt
+# ---------------------------------------------------------------------------
+# Slice 4 (Commit 1) — capability-fit rubric (prompt block + JSON schema).
+# Replaces Slice 3.7's "no capability scoring yet" boundary guard: Slice 4 now adds it.
+# ---------------------------------------------------------------------------
+
+
+def test_fit_brief_capability_block_and_schema():
+    """Lock the capability-fit wording: three company-shape attributes, the A2
+    strain-not-complexity reframe + counterintuitive flag + don't-mirror-reset, the bands,
+    the null-vs-0 policy, the softened pointers, and the capability_evidence JSON object."""
+    prompt = rr.build_fit_brief_prompt("Acme Health", "FINDINGS", "TAX")
+
+    # three attributes + company-shape framing (not skills / not mandate)
+    assert "Capability-fit — score THREE company-SHAPE attributes" in prompt
+    assert "those are scored elsewhere; do not import them" in prompt
+    assert "a1_score — PRODUCT-ENGAGEMENT STRUCTURE" in prompt
+    assert "a2_score — OPERATIONAL STRAIN" in prompt
+    assert "a3_score — DIGITAL CONSUMER HABITUAL-ENGAGEMENT PRODUCT" in prompt
+    assert "data-driven by necessity" in prompt
+
+    # A2 reframe: counterintuitive direction, strain-not-complexity, don't mirror reset
+    assert "COUNTERINTUITIVE BUT INTENDED:" in prompt
+    assert "strain is the opportunity, so MORE strain scores HIGHER" in prompt
+    assert "complexity does not discriminate and must NOT drive this" in prompt
+    assert "a reorg is only ONE possible strain signal among many" in prompt
+
+    # bands
+    assert "Strong 85-100" in prompt
+    assert "Absent 0-29" in prompt
+
+    # null vs 0 (the missing-attribute contract Commit 2 depends on)
+    assert "Emit null for an attribute ONLY when the evidence does not let you assess it at all." in prompt
+    assert "Emit 0 (Absent band) when you CAN assess the attribute" in prompt
+    assert "null is for missing EVIDENCE, not for a hard judgment call" in prompt
+
+    # softened, empty-section-tolerant pointers
+    assert "where available" in prompt
+
+    # JSON schema object + keys + the a2 gloss
+    assert '"capability_evidence": {' in prompt
+    for key in ('"a1_score"', '"a1_basis"', '"a2_score"', '"a2_basis"', '"a3_score"', '"a3_basis"'):
+        assert key in prompt
+    assert "HIGH = strained / high opportunity, LOW = smoothly-scaling" in prompt

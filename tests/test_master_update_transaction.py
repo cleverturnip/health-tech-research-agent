@@ -419,3 +419,81 @@ def test_readback_still_rejects_real_content_mismatch():
             readback_df=readback,
             approved_companies=["Company A"],
         )
+
+
+def test_build_proposed_master_matches_company_case_insensitively():
+    """A batch/approved company in a different case UPDATES the existing master row instead of
+    appending a case-variant duplicate (regression guard for normalize_company's casefold)."""
+    master = pd.DataFrame([{
+        "company": "zoe",
+        "priority_level": "P3: Watch list",
+        "reviewed_priority_level": "P2: Worth deeper diligence",
+        "review_status": "Human reviewed",
+        "review_notes": "x",
+        "priority_review_note": "x",
+        "primary_market_segment_code": "PRIMARY_LONGITUDINAL_CARE",
+        "katelynd_capability_fit_score": 74.0,
+    }])
+    summary = pd.DataFrame([{
+        "company": "ZOE",  # different case than the master row
+        "priority_level": "P2: Worth deeper diligence",
+        "primary_market_segment_code": "PRIMARY_LONGITUDINAL_CARE",
+        "katelynd_capability_fit_score": 83,
+    }])
+    approved = pd.DataFrame([{
+        "company": "ZOE",
+        "reviewed_priority_level": "P2: Worth deeper diligence",
+        "review_status": "Human reviewed",
+        "review_notes": "ok",
+        "priority_review_note": "ok",
+    }])
+
+    proposed, _change_log, counts = build_proposed_master(
+        master_df=master, summary_df=summary, approved_df=approved,
+        batch_id="b", priority_applier=priority_applier,
+    )
+
+    assert counts["inserted_count"] == 0            # matched 'zoe' — did not append 'ZOE'
+    assert counts["updated_count"] == 1
+    assert len(proposed) == 1                        # still a single row for the company
+    assert str(proposed.iloc[0]["katelynd_capability_fit_score"]) == "83"
+
+
+def test_build_proposed_master_object_cast_lands_text_in_all_null_float_column():
+    """Text/number updates must land in columns pandas loaded as all-null float64
+    (regression guard for master_df.copy().astype(object))."""
+    master = pd.DataFrame([{
+        "company": "zoe",
+        "priority_level": "P3: Watch list",
+        "reviewed_priority_level": "P2: Worth deeper diligence",
+        "review_status": "Human reviewed",
+        "review_notes": "x",
+        "priority_review_note": "x",
+        "primary_market_segment_code": "PRIMARY_LONGITUDINAL_CARE",
+        "company_maturity_read": float("nan"),  # all-null -> float64 (mimics a blank CSV column)
+        "founding_year": float("nan"),
+    }])
+    assert master["company_maturity_read"].dtype == "float64"  # confirm the float64 setup
+    summary = pd.DataFrame([{
+        "company": "ZOE",
+        "primary_market_segment_code": "PRIMARY_LONGITUDINAL_CARE",
+        "company_maturity_read": "early-growth",
+        "founding_year": "2017",
+    }])
+    approved = pd.DataFrame([{
+        "company": "ZOE",
+        "reviewed_priority_level": "P2: Worth deeper diligence",
+        "review_status": "Human reviewed",
+        "review_notes": "ok",
+        "priority_review_note": "ok",
+    }])
+
+    proposed, _change_log, counts = build_proposed_master(
+        master_df=master, summary_df=summary, approved_df=approved,
+        batch_id="b", priority_applier=priority_applier,
+    )
+
+    row = proposed.iloc[0]
+    assert row["company_maturity_read"] == "early-growth"   # text landed in a former float64 col
+    assert str(row["founding_year"]) == "2017"
+    assert counts["updated_count"] == 1

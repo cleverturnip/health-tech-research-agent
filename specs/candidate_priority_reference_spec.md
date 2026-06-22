@@ -129,7 +129,9 @@ It is internally consistent. No changes needed beyond de-hardcoding reset.
 
 **This replaces cell 159's `return role_fit_score` stopgap entirely.** Capability-fit is
 now its own LLM-produced score, added to the fit-brief prompt. Section 3D of the original
-write-up is RETIRED; mandate/breadth lives only in agency-entry (no double-count).
+write-up is RETIRED; mandate/breadth lives only in agency-entry (no double-count — and see
+"Engine integration (Slice 4)" below for how the A2/reset overlap is *enforced* at the gate,
+not just asserted).
 
 ### Scoring model
 - Score = **average of three attributes**, each 0–100, **equal thirds**.
@@ -137,24 +139,24 @@ write-up is RETIRED; mandate/breadth lives only in agency-entry (no double-count
 - Bands: **Strong 85–100** (clearly, centrally true) / **Moderate 60–84** (present with
   caveats) / **Weak 30–59** (mostly absent/superficial) / **Absent 0–29** (not characteristic).
 
-### Attribute A1 — Live, continuously-data-driven business
-The company runs a **live-business model** (mobile app / game genre) where **user data is
-generated daily** and the culture **uses that daily data to drive decisions**.
-- **What matters:** the daily-data-driven culture and live-business model EXIST.
-- **Do NOT penalize** an immature or broken optimization *workflow* — fixing that stall is
-  the value-add, not a disqualifier.
-- **False positive (score low):** "data-driven" that actually runs on slow/periodic data —
-  e.g. quarterly surveys informing the roadmap, or analytics feeding planning cycles rather
-  than daily decisions. If the daily-data-loop culture genuinely isn't there, that's the
-  disqualifier.
-- **Asymmetry to encode explicitly:** *no data culture* = low; *data culture but messy/immature
-  optimization process* = high (that's the opportunity).
+### Attribute A1 — Product-engagement structure → data-driven by necessity
+**Reframed by `specs/slice3_7_search_layer_redesign_spec.md` (source of truth).** A1 is NOT a
+"do they have a data culture" inquiry (unverifiable; companies self-describe). It is a
+PRODUCT-STRUCTURE question: a product with a daily / high-frequency engagement loop whose
+REVENUE DEPENDS on sustained engagement is data-driven BY NECESSITY.
+- Score HIGH when habit-dependent AND revenue hangs on retention; LOW when engagement is
+  periodic/optional or revenue doesn't depend on it.
+- Asymmetry preserved: doing the data loop badly is the value-add, not a disqualifier.
+- Evidence (shared with A3): `search_operating_characteristics`, product-engagement lens.
 
-### Attribute A2 — Cross-domain people + product + process complexity
-The company faces complex challenges spanning **people, product, and process**, where teams
-**stall at the seams** and there's **whitespace to own cross-functional execution**.
-- **False positive (score low):** complexity that's just **bigness / bureaucracy**, not the
-  cross-functional-stall kind.
+### Attribute A2 — Operational STRAIN (not "complexity exists")
+**Reframed by `specs/slice3_7_search_layer_redesign_spec.md` (source of truth).** A2 is NOT
+"cross-domain complexity exists" — every competitive company is complex, so it doesn't
+discriminate. It is EVIDENCE OF OPERATIONAL STRAIN: scaling outrunning process, things breaking
+under growth — the signal the company needs this operator's skillset.
+- INTENDED: a healthy, smoothly-scaling company scores LOW on A2 — the strain IS the opportunity,
+  so its absence correctly lowers fit (a "better-run" company can legitimately score lower).
+- Evidence: `search_operating_characteristics`, operational-strain lens.
 
 ### Attribute A3 — Digital consumer habitual-engagement product
 A **digital consumer product** where **habit / retention is load-bearing** for the product's
@@ -162,13 +164,31 @@ success.
 - **False positive (score low):** a consumer *surface* without habit-dependence (one-time
   transaction), or **B2B2C where the real customer is the employer/payer** and habit is
   secondary.
+- Shares the product-engagement evidence with reframed A1 (`search_operating_characteristics`).
 
 ### Output
 `katelynd_capability_fit_score` (0–100, the average) + per-attribute bands and
 justifications for the audit trail.
 
-⚠ REVIEW: this is the one piece requiring a fit-brief PROMPT change (new LLM-scored field),
-so it's the natural standalone commit.
+✅ DONE (Slice 4 Commit 1): the fit-brief PROMPT change (the A1/A2/A3 rubric + `capability_evidence`
+schema) is implemented.
+
+### Engine integration (Slice 4 — implemented)
+- `capability_fit_score` reads the stored `katelynd_capability_fit_score`; the `role_fit` bridge
+  is retired. `CANDIDATE_FRAMEWORK_VERSION` = `"V4.2"` (no longer interim).
+- **Missing-attribute policy:** any attribute unscorable → the average is SUPPRESSED (`None`) and
+  `capability_needs_review` is set; the orchestrator routes the row to **P3** (never P0/P1/P2) for
+  human review. `0` is a real Absent value (averages normally); only `null` suppresses.
+- **Gate-time A1/A3 recompute (no-double-count ENFORCEMENT).** §4's "no double-count" above was
+  asserted, not enforced. The Slice 3.7 A2 reframe makes A2 = operational strain — the SAME
+  "scaled-too-fast → restructured" event the reset signal reads (→ agency floor + maturity
+  cap-lift). One event could otherwise clear two gates: lift the cap (reset) AND raise capability
+  over the threshold (A2). **Enforcement:** in `v41_gate`, when reset is lifting a scale-up (the
+  `has_reset` scale-up P1 paths — `p1_scaleup_reset` and `p1_standard`), the capability THRESHOLD
+  uses the mean of A1 and A3 only — A2 excluded, since its strain was already consumed by the
+  reset lift. The stored `katelynd_capability_fit_score` stays the honest three-attribute average;
+  the A1/A3 mean is a gate-local quantity used only for that threshold. Non-reset rows are scored
+  on all three. (See `tests/test_candidate_priority.py` gate tests.)
 
 ---
 

@@ -257,17 +257,17 @@ def operator_agency_entry_score(row) -> int:
 
 
 # ---------------------------------------------------------------------------
-# §4 — Capability-fit (INTERIM BRIDGE; real LLM-scored version deferred)
+# §4 — Capability-fit (real LLM-scored A1/A2/A3 average; Slice 4)
 # ---------------------------------------------------------------------------
-def capability_fit_score(row) -> float:
-    """INTERIM: capability-fit == katelynd_role_fit_score (cell159 stopgap).
-
-    This is a clearly-labeled placeholder. The real LLM-scored capability-fit
-    (spec §4: three attributes A1/A2/A3) is DEFERRED until the research runner
-    migrates to the package; this bridge keeps the engine runnable meanwhile, and
-    the priorities it yields are interim-quality (not written to master as final).
+def capability_fit_score(row):
+    """Real LLM-scored capability-fit (Slice 4): the stored deterministic average of A1/A2/A3
+    (``katelynd_capability_fit_score``). Returns ``None`` when the score is suppressed (an
+    attribute was unscorable) or absent, so the orchestrator's suppression guard routes the row
+    to human review instead of auto-tiering on a missing/partial capability read. Replaces the
+    interim ``katelynd_role_fit_score`` bridge.
     """
-    return _safe_num(row.get("katelynd_role_fit_score"))
+    value = as_number(row.get("katelynd_capability_fit_score"))
+    return value if (value is not None and value == value) else None
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +354,7 @@ def v41_gate(
     outcomes,
     archetype,
     has_reset,
+    capability_reset_adjusted=None,
 ) -> str:
     """The V4.1 candidate-priority gate (spec §6), ported as-is. Returns P0-P3 only
     (never P4 — Q5). The public/near-IPO cap (§7) is applied separately as an overlay.
@@ -368,6 +369,18 @@ def v41_gate(
     evidence = _safe_num(evidence)
     capability = _safe_num(capability)
     agency = _safe_num(agency)
+
+    # Slice 4 double-count fix: for a reset-LIFTED scale-up, the P1 capability threshold uses the
+    # A1/A3 mean only — A2's strain was already consumed by the reset cap-lift / agency floor, so
+    # counting it again here would let ONE event clear two gates (reset + capability). Applies to
+    # the scale-up reset P1 paths (p1_scaleup_reset AND p1_standard, since a reset-floored
+    # scale-up/good can reach P1 either way). Everything else uses the full capability. Falls back
+    # to the full capability when no adjusted value is supplied (pre-Slice-4 callers/rows), so
+    # behavior is unchanged unless an adjusted value is passed. The stored score is never altered.
+    if has_reset and maturity == "scale-up" and capability_reset_adjusted is not None:
+        gate_capability_for_p1 = _safe_num(capability_reset_adjusted)
+    else:
+        gate_capability_for_p1 = capability
     commercial = int(commercial)
     institutional = int(institutional)
     outcomes = int(outcomes)
@@ -406,7 +419,7 @@ def v41_gate(
         and not weak_noninstitutional_scaleup and not under_proven and not weak_fit
         and stage_ok
         and thesis >= 75 and pmf >= 68 and evidence >= 55
-        and capability >= 74 and agency >= 78
+        and gate_capability_for_p1 >= 74 and agency >= 78
         and has_path and agency_not_low
     )
     p1_early_growth_emerging = (
@@ -418,7 +431,7 @@ def v41_gate(
     p1_scaleup_reset = (
         maturity == "scale-up" and stage_fit in {"good", "borderline"} and has_reset
         and thesis >= 75 and pmf >= 68 and evidence >= 55
-        and capability >= 74 and agency >= 78
+        and gate_capability_for_p1 >= 74 and agency >= 78
         and has_path and agency_not_low
     )
     p1 = p1_standard or p1_early_growth_emerging or p1_scaleup_reset
@@ -452,11 +465,10 @@ def apply_public_near_ipo_cap(priority: str, maturity, has_reset: bool) -> str:
 # ---------------------------------------------------------------------------
 # §8 — Outputs + reason text (V4.1 fixed per-tier strings; 8a)
 # ---------------------------------------------------------------------------
-# Interim because capability-fit is the role_fit bridge (§4 deferred): the
-# version string makes the interim quality explicit so these are not mistaken
-# for final priorities.
-CANDIDATE_FRAMEWORK_VERSION = "V4.2-interim"
-_CANDIDATE_SOURCE = "deterministic engine (interim capability-fit = role_fit bridge)"
+# Capability-fit is now the real LLM-scored A1/A2/A3 average (Slice 4), so the framework is no
+# longer interim — these candidate priorities reflect the production capability scoring model.
+CANDIDATE_FRAMEWORK_VERSION = "V4.2"
+_CANDIDATE_SOURCE = "deterministic engine (real LLM-scored capability-fit)"
 _CANDIDATE_REASONS = {
     "P0": "Active pursuit: clears the V4.2 P0 gate (early-growth, strong fit/timing, real scale channel).",
     "P1": "High-priority diligence: near active-pursuit; one or more P0 conditions unmet.",
@@ -468,7 +480,7 @@ _CANDIDATE_REASONS = {
 def compute_candidate_priority(row, *, now_iso=None) -> dict:
     """Run the full §0 pipeline for one company and emit the candidate fields.
 
-    Order: signals -> scale_path -> agency -> capability(interim) -> archetype ->
+    Order: signals -> scale_path -> agency -> capability -> archetype ->
     gate (§6) -> public/near-IPO cap (§7) -> outputs (§8). Emits P0-P3 only (Q5).
     Read-only: does NOT touch final_priority_level or the master (Commit 5 held).
     """
@@ -486,33 +498,58 @@ def compute_candidate_priority(row, *, now_iso=None) -> dict:
         plausible=parse_plausible(row.get("plausible_near_term_scale_path")),
     )
     agency = operator_agency_entry_score(row)
-    capability = capability_fit_score(row)  # INTERIM bridge
-    archetype = target_archetype(row, capability, agency, scale_path)
+    capability = capability_fit_score(row)  # real A1/A2/A3 average; None when suppressed/absent
     has_reset = reset_signal(row)
+    capability_needs_review = capability is None
 
-    level = v41_gate(
-        maturity=row.get("company_maturity_read"),
-        stage_fit=row.get("stage_timing_fit"),
-        agency_level=row.get("likely_agency_level"),
-        thesis=row.get("thesis_fit_score"),
-        pmf=row.get("pmf_scale_score"),
-        evidence=row.get("evidence_confidence_score"),
-        capability=capability,
-        agency=agency,
-        scale_path=scale_path,
-        commercial=commercial,
-        institutional=institutional,
-        outcomes=outcomes,
-        archetype=archetype,
-        has_reset=has_reset,
-    )
-    level = apply_public_near_ipo_cap(level, row.get("company_maturity_read"), has_reset)
+    # archetype is informational; compute it safely even when capability is unscorable.
+    archetype = target_archetype(row, _safe_num(capability), agency, scale_path)
+
+    if capability_needs_review:
+        # Slice 4 suppression guard: no trustworthy capability score (an attribute was unscorable,
+        # or the row predates capability scoring) -> cannot auto-tier on capability. Route to P3
+        # for human review; the gate and the reset / public overlays cannot promote it.
+        level = "P3"
+        reason = (
+            "P3 (capability-fit unscorable): an attribute could not be assessed, or the row has "
+            "no capability score yet -> routed to human review."
+        )
+    else:
+        # Slice 4 gate double-count fix: the reset-lifted scale-up P1 threshold uses the A1/A3
+        # mean (A2 excluded — already consumed by the reset lift). Both components are present
+        # here (a null one would have suppressed the full score, caught above), so it is defined.
+        _a1 = as_number(row.get("capability_a1_score"))
+        _a3 = as_number(row.get("capability_a3_score"))
+        capability_reset_adjusted = (
+            (_a1 + _a3) / 2.0
+            if (_a1 is not None and _a1 == _a1 and _a3 is not None and _a3 == _a3)
+            else None
+        )
+        level = v41_gate(
+            maturity=row.get("company_maturity_read"),
+            stage_fit=row.get("stage_timing_fit"),
+            agency_level=row.get("likely_agency_level"),
+            thesis=row.get("thesis_fit_score"),
+            pmf=row.get("pmf_scale_score"),
+            evidence=row.get("evidence_confidence_score"),
+            capability=capability,
+            agency=agency,
+            scale_path=scale_path,
+            commercial=commercial,
+            institutional=institutional,
+            outcomes=outcomes,
+            archetype=archetype,
+            has_reset=has_reset,
+            capability_reset_adjusted=capability_reset_adjusted,
+        )
+        level = apply_public_near_ipo_cap(level, row.get("company_maturity_read"), has_reset)
+        reason = _CANDIDATE_REASONS[level]
 
     return {
         "candidate_priority_level": _CANDIDATE_LABELS[level],
         "candidate_priority_code": level,
         "candidate_priority_rank": _CANDIDATE_RANK[level],
-        "candidate_priority_reason": _CANDIDATE_REASONS[level],
+        "candidate_priority_reason": reason,
         "candidate_priority_framework_version": CANDIDATE_FRAMEWORK_VERSION,
         "candidate_priority_source": _CANDIDATE_SOURCE,
         "candidate_priority_updated_at": now_iso or utc_now_iso(),
@@ -521,6 +558,7 @@ def compute_candidate_priority(row, *, now_iso=None) -> dict:
         "scale_path_quality": scale_path,
         "operator_agency_entry_score": agency,
         "katelynd_capability_fit_score": capability,
+        "capability_needs_review": capability_needs_review,
         "commercial_scale_signal_inferred": commercial,
         "institutional_distribution_signal_inferred": institutional,
         "outcomes_signal_inferred": outcomes,
