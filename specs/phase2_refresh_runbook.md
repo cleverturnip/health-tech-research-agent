@@ -3,6 +3,10 @@
 Operational reminders that don't belong in the roadmap (`PROJECT_TRACKER.md`) but must not be
 lost. **Read this before running any full research refresh.**
 
+> **Execution script:** the cell-by-cell Colab runsheet for the run-once clean-slate regeneration
+> lives in `regen_execution_runsheet.md`. This file is the *gate* (what must be true before the
+> run); that file is the *steps* (which cells to run/skip/edit, in order). Keep them in sync.
+
 ## Before ANY full research refresh
 
 1. **Restore the rate-limit wait.** Set `WAIT_BETWEEN_WEB_SEARCHES = 120` in STEP 2 of the
@@ -24,7 +28,9 @@ lost. **Read this before running any full research refresh.**
            os.remove(f); print("removed", f)
    ```
 
-3. **Verify the STEP 26 rescore path with the new derived maturity.** Run ONE STEP 26 rescore
+3. **Verify the STEP 26 rescore path with the new derived maturity.** *(Superseded for the
+   clean-slate regen — see gate item 6: re-research everything via Step 7, so STEP 26 is OFF the
+   regen-critical path. Applies only to a later incremental rescore-from-archive run.)* Run ONE STEP 26 rescore
    (`STEP_26_DRY_RUN = False`) on a single company that has archived evidence; confirm it
    completes and that `cap_info["company_maturity_read"]` equals `derive_maturity(...)` for that
    company. *Why:* Slice 2's Colab run verified the STEP 7 → 10 → 10A path live but **skipped
@@ -169,6 +175,23 @@ lost. **Read this before running any full research refresh.**
        `is_search_failure(...)` as a FAILURE, not "populated" — else it re-hides the hole. (Updated
        cell handed to Katelynd; imports `is_search_failure` from the package.)
 
+## Notebook cell at a pre-slice state — STEP 10A schema drop (CORRECTNESS, fix before the run)
+
+9. **STEP 10A drops the two Slice 3.7 findings + truncates the checkpoint.** ⛔ Fix in the notebook
+   before the run. The `## 10A` cell defines a **stale 7-column** `required_current_schema_cols`
+   (no `org_events_finding`, no `operating_characteristics_finding`) and then does
+   `df = df[required_current_schema_cols]` — which (a) drops those two columns from `df`, so 10C
+   lands them **BLANK** on every regenerated row (scoring is unaffected — capability/reset/maturity
+   derive from `fit_brief_json`, which 10A preserves — but the master loses the Slice 3.7
+   operator-evidence text the master-completeness commit deliberately carried), and (b) overwrites
+   the local + Drive **checkpoints with 7 columns**, so any disconnect after 10A makes
+   `run_research_batch` see "incomplete" rows and **re-research the whole set**. *Why it was hidden:*
+   the item-8 ZOE/Function verification only checked the derived signals, not these two raw columns.
+   **Fix:** update 10A's `required_current_schema_cols` to the 9-column schema (matching Step 7 +
+   `regen_execution_runsheet.md`). The dry-run verification cell also hard-stops on a blank
+   `org_events_finding` as a backstop. *(Classic "old-flow cell never wired for a later slice" —
+   anticipated per COLLABORATION_CONTEXT.)*
+
 ## The full data regeneration is RUN-ONCE — clear the gate first
 
 Do **not** run the full master regeneration until the gate below is fully clear. The slice gaps
@@ -196,10 +219,14 @@ built" is no longer the gate. The real remaining gate is the explicit checklist 
 4. **Outcomes/payer/funding empty-output fix** (item 8) — ✅ DONE + **Colab-verified** (2026-06-22:
    fresh WAIT=120 run → all findings populated, zero markers; guard live-fired via Tier A). One
    deferred rider: synthesis-as-absence regen-time spot-check (Tier B skipped). Was the CORRECTNESS PREREQUISITE.
-5. **`slice4-capability-fit` merged to main** — ⬜ OPEN.
+5. **`slice4-capability-fit` merged to main** — ✅ DONE (merged 2026-06-22).
 6. **Standing run-once reminders still hold** (items 1–4 at the top of this runbook):
-   WAIT_BETWEEN_WEB_SEARCHES=120 restored, throwaway test checkpoints deleted, STEP 26 rescore
-   spot-check, multi-event reset verified (✅ Function Health gave the live multi-event fire).
+   WAIT_BETWEEN_WEB_SEARCHES=120 restored, **ALL** research checkpoints cleared (regen decision:
+   full clear, not just throwaways, so nothing pre-item-8 is reused), STEP 26 off the regen path
+   (decision: re-research all via Step 7), multi-event reset verified (✅ Function Health).
+7. **STEP 10A schema-drop fix applied in the notebook** — ⬜ DO BEFORE THE RUN (see item 9 above):
+   update 10A's `required_current_schema_cols` to the 9-column schema, else the regen lands blank
+   `org_events_finding` / `operating_characteristics_finding` and truncates the checkpoint.
 
 Regenerating before the gate is clear would bake gaps into the "trusted" data and force a second
 expensive full refresh. Regenerate **once**, only when every checklist item above is green.
@@ -226,6 +253,22 @@ behavior as importable package functions, not re-implemented in cells.)
 **Deliberately deferred until AFTER the run-once.** The port + regression tests make the regen safe;
 collapsing the inline cell into the package call is too invasive to do safely right before a
 run-once. Do it first in the post-regen cleanup pass.
+
+## ROOT-CAUSE fix #2 — port the STEP 10A 9-column schema fix to the mirror (deferred, same weight)
+
+⚠️ Same trap-class as the inline STEP 12 above — record at that weight. The Slice 3.7 schema-drop fix
+found this session (STEP 10A's `required_current_schema_cols` raised 7→9 cols, so `org_events_finding`
+/ `operating_characteristics_finding` are no longer dropped from `df` and the checkpoint isn't
+truncated to 7) was applied to the **notebook cell only**. `colab_workflow.py`'s mirror STILL carries
+the stale **7-column** list, so the repo copy is a TRAP: a future session that reads, ports, or runs
+the mirror's 10A would silently reintroduce the column-drop + checkpoint-truncation bug and might not
+catch it until columns came back missing.
+
+**The fix:** port the 9-column `required_current_schema_cols` into `colab_workflow.py`'s STEP 10A
+(exact corrected cell in `specs/snippets/step_10A_fixed.py` — only the two schema lines differ).
+**Deferred to the post-regen cleanup pass**, alongside the inline-STEP-12 collapse above — both are
+"the repo copy is a trap until the notebook/inline fix is ported back." Until ported, do NOT trust
+`colab_workflow.py`'s 10A.
 
 ## Deferred / optional (not scheduled)
 
