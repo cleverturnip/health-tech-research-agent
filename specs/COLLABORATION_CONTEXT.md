@@ -143,40 +143,34 @@ behind the package, and that gap is invisible until reconciliation + a live run 
 maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
-**The run-once gate is down to the merge.** Every code/correctness prerequisite is done and
-Colab-verified on `slice4-capability-fit` (not yet merged); the next action is merging that branch
-to main, then the run-once regeneration.
+**The run-once regeneration is COMPLETE (2026-06-24).** The master is a clean-slate **55-company
+V4.2 regeneration** — landed + read-back verified (55 inserts / 0 updates; every slice + engine-input
+column present; change log all `new_company_added`). Every row is staged **`New batch - needs review`**
+(no human review yet). **`videahealth` is deliberately absent** — a transient fit-brief
+`JSONDecodeError` dropped it; excluded (not a primary target), JSON-retry hardening scheduled (below).
 
-Done + verified this stretch (all on `slice4-capability-fit`):
-- **Slice 4 — real capability-fit:** COMPLETE + Colab-verified. Rubric discriminates correctly
-  (ZOE 83 / Function Health 32 on the A1 daily-habit-vs-episodic reframe); Function gave the live
-  multi-event reset fire. Engine is **V4.2 — real, no longer the role_fit interim**.
-- **Master-landing (STEP 10/12):** the inline path was PRE-Slice-2, matched companies
-  case-sensitively, and had a float64 dtype no-op — it would have silently landed none of the slice
-  columns and appended case-variant duplicate rows. Fixed + **dry-run verified** (commit 709f93e:
-  every slice column lands on the de-duped human-reviewed rows, 1 row/company). Case-insensitive
-  matching + object-cast are **ported to the package** (`master_update.py`) with regression tests;
-  the master's duplicate rows were cleaned.
-- **Item 8 — outcomes/payer/funding empty-output:** DONE + **Colab-verified**. Budgets → 700 (all
-  rich-topic searches); `call_openai` empty-output guard (blank → ×1.5 bumped retry →
-  `SEARCH_FAILED_MARKER`, never a silent "" nor the false "none found" sentinel); `_row_is_complete`
-  treats a marker as incomplete. Live run: all findings populate, zero markers; guard fired when forced.
+How it landed (gate all ✅): `slice4-capability-fit` merged to main (PR #38); the STEP 10A schema-drop
+fixed in the notebook (9-col); research via the inline-list → `run_research_batch` path (WAIT=120 +
+item-8 guard); STEP 12 dry-run HARD GATE passed; one-way `DRY_RUN` flip → single real write →
+read-back. Full play-by-play + every recovery (credits wall, disconnects, the videahealth JSON slip)
+in `regen_execution_runsheet.md`.
 
-**Run-once gate (regenerate only when ALL clear — full detail in `phase2_refresh_runbook.md`):**
-1. Flag A (rate-limit thinness) — ✅ CONFIRMED.
-2. Master-landing dry-run verified — ✅ CONFIRMED (709f93e).
-3. STEP 12 matching + object-cast ported to the package — ✅ DONE (tests green).
-4. Item 8 empty-output fix — ✅ DONE + Colab-verified.
-5. **Merge `slice4-capability-fit` → main — ⬜ OPEN. ← THE NEXT ACTION.**
-6. Standing run-once reminders (WAIT=120; delete throwaway checkpoints; STEP 26 rescore spot-check;
-   multi-event reset verified) + two regen-time riders: a synthesis-as-absence spot-check (only if a
-   SEARCH_FAILED marker naturally appears) and a glance that bigger findings don't starve the synthesis.
+**Immediate next: the engine/calibration track — NOT the dashboard yet.**
+- **Commit 5** — wire the candidate engine → `final_priority_level` (+ fix false "Human Reviewed"
+  labeling + sticky reviewed_priority auto-seed). Unblocked (real capability-fit + trusted data).
+  ⚠️ The landed master has **`final_priority_level` BLANK** — Commit 5 is what populates it.
+- → **Commit 6 / master remediation** → **calibration** (the QA flags that landed with the master are
+  the input — calibrate the logic, do NOT hand-edit the master, per Rule 8).
+- **Dashboard is LAST.** `dashboard.py` is built around `final_priority_level/_code/_rank` (sorts by
+  rank, groups by code) — all blank until Commit 5 + calibration. Building it now = building it twice.
 
-**After the merge:** run-once regeneration → **Commit 5** (wire candidate→final_priority_level
-authority; now unblocked — capability-fit is real) → **Commit 6 / master remediation** → calibration.
-**Deferred ROOT fix (post-regen, load-bearing):** collapse the inline STEP 12 into a call to the
-package `master_update` function so there's ONE implementation — the cure for the duplication behind
-this session's debugging marathon; deferred because it's too invasive right before a run-once.
+**Deferred cleanup — NOW ACTIONABLE (run-once done, so unblocked):**
+- **ROOT fix #1** — collapse the inline STEP 12 into a call to the package `master_update` function
+  (ONE implementation; the cure for the duplication behind this session's debugging marathon).
+- **ROOT fix #2** — port the 10A 9-column schema fix to the `colab_workflow.py` mirror (still
+  notebook-only — the repo copy is a trap until ported).
+- **Fit-brief JSON-retry hardening** — retry/repair the fit brief on `JSONDecodeError` (the
+  videahealth-class failure; cost hinge + videahealth this run). Task chip queued.
 
 Runbook cross-reference: **STEP 21/23 are RESOLVED as not-live** — old-flow sheet queue, superseded
 by the inline-list → run_research_batch path; deferred to the post-migration cleanup pass.

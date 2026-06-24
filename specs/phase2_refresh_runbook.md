@@ -194,6 +194,14 @@ lost. **Read this before running any full research refresh.**
 
 ## The full data regeneration is RUN-ONCE — clear the gate first
 
+> **✅ REGEN COMPLETE (2026-06-24).** The run-once ran: clean-slate **55-company V4.2 master**, landed +
+> read-back verified, all rows `New batch - needs review`, `videahealth` excluded (transient fit-brief
+> JSONDecodeError). The gate below is now **historical** (fully passed). **All "deferred until after
+> the run-once" items are now ACTIONABLE:** ROOT fix #1 (inline STEP 12 → package call), ROOT fix #2
+> (10A 9-col port to the `colab_workflow.py` mirror), and the fit-brief JSON-retry hardening. Next
+> track: Commit 5 → Commit 6 / remediation → calibration → dashboard (LAST — it needs real
+> `final_priority_level`, blank until Commit 5). See `COLLABORATION_CONTEXT.md` → Immediate next action.
+
 Do **not** run the full master regeneration until the gate below is fully clear. The slice gaps
 that motivated waiting are all now fixed in the package:
 
@@ -271,6 +279,16 @@ catch it until columns came back missing.
 `colab_workflow.py`'s 10A.
 
 ## Deferred / optional (not scheduled)
+
+- **Fit-brief JSON-decode retry/repair (research robustness).** ⬜ OPEN / DEFERRED (post-regen).
+  The fit-brief synthesis (`run_company_fit_brief` → `call_openai`, web search off, 6500 tokens)
+  returns raw text parsed strictly by `parse_first_json_object` (no repair). `call_openai` retries
+  only `RateLimitError`, **not `JSONDecodeError`** — so one malformed generation (a trailing comma /
+  unquoted key — NOT truncation; both seen well under budget) fails the whole company, recoverable
+  only by re-researching on a later resume. Cost two companies in the V4.2 regen: `hinge health`
+  (recovered on a re-run) and `videahealth` (stayed missing → excluded from the 55-company master).
+  Fix: retry the fit brief ONCE on `JSONDecodeError` (re-roll), and/or a `json_repair` fallback; add
+  a red→green test. Don't touch the `RateLimitError` retry semantics. (Tracked as a session task.)
 
 - **APIError retry-narrowing.** `call_openai` currently retries only `RateLimitError` and
   re-raises `APIError` immediately (faithful to the original notebook). Optional follow-up:

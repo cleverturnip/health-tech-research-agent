@@ -360,7 +360,9 @@ local_dir = Path("research_batches"); local_dir.mkdir(parents=True, exist_ok=Tru
 (drive_folder / "research_batches").mkdir(parents=True, exist_ok=True)
 batch_checkpoint_path = local_dir / f"{BATCH_NAME}_checkpoint.csv"
 drive_checkpoint_path = drive_folder / "research_batches" / f"{BATCH_NAME}_checkpoint.csv"
-shutil.copy(src, batch_checkpoint_path); shutil.copy(src, drive_checkpoint_path)
+shutil.copy(src, batch_checkpoint_path)              # local — Step 7 resumes from this
+if src != drive_checkpoint_path:                     # skip the no-op self-copy when restoring from the mirror (SameFileError guard)
+    shutil.copy(src, drive_checkpoint_path)
 df = pd.read_csv(batch_checkpoint_path)
 print(f"✅ Restored from {src.name}: {len(df)} rows, {df['company'].nunique()} companies → local + mirror.")
 print("Next: re-run Step 7 (reuses everything), then continue to Step 10.")
@@ -455,6 +457,54 @@ from the dry-run STEP 12. The real master is still empty; nothing is lost.
   restored research; the others are guarded but skip them. Keep `CONFIRM_CLEAR_ALL=False` after the
   initial clear. (With the 10A fix, the checkpoint stays 9-column, so a post-10A disconnect resumes
   instead of re-researching.)
+
+## When research stalls on "rate limit" errors — CHECK BILLING FIRST
+
+A sustained `Rate limit hit … Max retries reached` that does NOT ease over time is **most often OUT
+OF CREDITS, not an actual rate limit.** OpenAI returns HTTP 429 with `insufficient_quota` when the
+account has no credits, and `call_openai` logs it **identically** to a real rate-limit 429 — so the
+symptom is deeply misleading (it cost a multi-hour misdiagnosis once). A long run spends through the
+credit balance and can hit the monthly **auto-recharge cap** (e.g. $20/mo), after which every call
+fails and OpenAI emails about the paused auto-recharge.
+
+**Check billing FIRST:** platform.openai.com → Settings → Billing → credit balance + auto-recharge
+limit. Fix = **manually purchase credits** (not subject to the auto-recharge cap, so it unblocks
+immediately) and/or raise the cap. Telltales it's credits, not rate limits: it 429s on the very FIRST
+request, never eases with time, your Limits page shows TPM/RPM barely used, and there's often a
+billing email. Budget ~$0.55/company.
+
+Only if billing has headroom is it an actual server-side throttle (`gpt-5.4-mini`'s TPM is generous;
+web_search runs as a tool *on* the model, not the 6k-TPM `*-search-preview` models). That case IS
+time-dependent — wait and retry; don't change `MODEL` (consistency) or pacing (not the bottleneck).
+
+**Probe before resuming** — one cheap web_search instead of burning a full company's ~13-min retry cycle:
+```python
+from health_tech_research_agent.research_runner import call_openai
+try:
+    out = call_openai("In one sentence, what is OpenAI?", client=client, model=MODEL,
+                      use_web_search=True, max_output_tokens=50, max_retries=1)
+    print("✅ web_search OK — throttle eased; RESTORE (if disconnected) + resume Step 7.")
+except Exception as e:
+    print("❌ still throttled:", type(e).__name__, "-", str(e)[:160])
+```
+Run it periodically; on ✅ resume Step 7 (a 2–3 company chunk first to confirm). Check
+`status.openai.com` for a web_search/API incident while you wait. Completed companies are saved
+per-company, so waiting costs nothing and the dry-run gate still blocks an incomplete master.
+
+## A company is missing from the batch (failed, not just incomplete)
+
+A company **absent** from the checkpoint (vs. present-but-incomplete) hit an exception during
+research — most often a **`JSONDecodeError`** (the fit-brief model emitted malformed JSON; `call_openai`
+retries only `RateLimitError`, not JSON errors, so one bad generation fails the company). It's usually
+**transient** — a fresh generation parses — so either:
+- **Re-research it:** keep it in the roster and run Step 7 again (resume re-rolls only the missing ones).
+  Seen in the V4.2 regen: `hinge health` recovered this way; `videahealth` did not (bad roll, not re-run).
+- **Exclude it:** remove it from the roster → `companies` drops to N → every downstream count and the
+  dry-run gate (`rows == N`) adjust automatically, so the gate enforces the new total. (videahealth was
+  excluded → 55.)
+
+Hardening to retry/repair the fit-brief JSON in-run is a deferred task — see
+`phase2_refresh_runbook.md` → Deferred.
 
 ## Dashboard
 

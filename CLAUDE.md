@@ -29,6 +29,8 @@ These are non-negotiable. If a requested change would break one of these, stop a
 - **Don't mark anything complete prematurely.** Follow rule 5 above. Reopen and verify artifacts.
 - **Ask when unsure.** If a request is ambiguous or seems to conflict with the locked rules, ask rather than guessing.
 - **Respect the existing safety model.** This project deliberately refuses to advance state against stale or unvalidated artifacts. Preserve that behavior; never weaken a validation gate to make a batch pass.
+- **Keep the runbook in sync — and put fixes in it.** The run-once regeneration runs step-by-step from the written runbook: `specs/regen_execution_runsheet.md` (cell-by-cell Colab steps + recovery/troubleshooting) and `specs/phase2_refresh_runbook.md` (the pre-regen gate). Whenever we change a cell, fix a bug, or learn an operational lesson mid-run, write it into the runbook the *same turn* — never leave a fix living only in chat. A stale runbook is a real hazard on an unforgiving run-once.
+- **OpenAI "rate limit" errors during research usually mean OUT OF CREDITS, not throttling.** A sustained `Rate limit hit … Max retries reached` (429s on the first request, never eases) is almost always `insufficient_quota` — check platform.openai.com billing/credits + the monthly auto-recharge cap before assuming rate limits. See the runbook's "CHECK BILLING FIRST" section.
 
 ## Priority model
 
