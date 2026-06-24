@@ -240,6 +240,31 @@ Regenerating before the gate is clear would bake gaps into the "trusted" data an
 expensive full refresh. Regenerate **once**, only when every checklist item above is green.
 (Tracked as a held item under Phase 3 → Candidate Priority Engine in `PROJECT_TRACKER.md`.)
 
+## Field-landing remediation (post-regen, DONE — PR #41)
+
+⚠️ **A live instance of the inline-vs-mirror trap below.** After the run-once, an audit found the
+regen master had two LLM-JSON clusters **present-but-blank** on all 55 rows — **role/timing**
+(`stage_timing_fit`, `likely_agency_level`, `why_now_or_why_not`) and **taxonomy-LLM**
+(`primary_market_segment`, the four tag columns, `taxonomy_assignment_method/_basis`) — though the
+saved checkpoint's `fit_brief_json` had them populated 55/55. Root cause: the **live notebook's inline
+STEP 10** summary build had been stripped of both clusters' landing (the `colab_workflow.py` mirror
+still has them — exactly the drift ROOT-CAUSE fix #2 warns about), and the regen read-back checked
+column *presence*, not *population*, so it passed.
+
+**Fix (done, the recoverable patch — not the cure):** a standalone, idempotent re-land — `reland.py`
+(`reland_llm_clusters`) — reads the existing master + the saved checkpoint and **blank-only**-fills the
+10 dropped columns, with **no re-research and no STEP 10/12 re-run**. Guards: 1:1 checkpoint↔master
+completeness (fail-loud, write nothing on any unmatched row), per-field read-back vs the checkpoint's
+**own** populated counts (not "column exists" — that's the check that missed this originally), backup +
+rollback. `primary_market_segment_code` deferred to STEP 14 (classifier-owned, Rule 7); the 4
+role/timing siblings + 5 deterministic-taxonomy fields deferred to the dashboard milestone.
+Colab-verified: role/timing 55/55, `subsegment_tags` 54, and `final_priority_level` +
+`primary_market_segment_code` stayed blank. Caller snippet: `specs/snippets/reland_caller_cell.py`.
+
+**The durable cure is still the two ROOT-CAUSE fixes below** — collapse the inline STEP 10/12 into the
+package so a stripped live cell can't silently diverge from the mirror again. Re-landing was the
+recoverable patch; single-source is the prevention.
+
 ## ROOT-CAUSE fix — collapse the inline STEP 12 into the package call (deferred, LOAD-BEARING)
 
 ⚠️ This is the **cure for the duplication that caused this session's marathon debugging** — record

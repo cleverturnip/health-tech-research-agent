@@ -107,14 +107,14 @@ action*):
 - Net engine state: REAL (V4.2) on this branch; **Commit 5** (write `final_priority_level`) is now
   **UNBLOCKED** but not yet built — so the engine remains INERT until Commit 5 lands.
 
-**Specced, not yet built (in build order):**
-1. **Full data regeneration** — run-once. GATED on the two pre-regen items in *Immediate next
-   action*: the STEP 10/12 master-landing reconciliation (TOP) and the Flag A WAIT=120 re-run.
-   Other runbook reminders: restore WAIT_BETWEEN_WEB_SEARCHES=120 (dropped to 5/30 for testing);
-   delete throwaway test checkpoints (Clair/Oura); STEP 26 rescore spot-check.
-2. **Commit 5** — wire candidate→final_priority_level authority + fix false "Human Reviewed"
-   labeling + sticky reviewed_priority_level auto-seed. **Unblocked** (real capability-fit now
-   exists); not yet built.
+**Build order (current):**
+1. ✅ **Full data regeneration** — DONE (run-once, 2026-06-24). Canonical 55-company V4.2 master.
+2. ✅ **Field-landing remediation** — DONE (PR #41). Re-landed the role/timing + taxonomy-LLM clusters
+   the inline STEP 10 build dropped from the summary→master landing (blank-only, completeness +
+   per-field read-back guards, via `reland.py`); cleared the Commit 5 engine-input gate.
+3. **Commit 5** — wire candidate→final_priority_level authority + fix false "Human Reviewed"
+   labeling + sticky reviewed_priority_level auto-seed. **NEXT** (unblocked). Locked design:
+   `candidate_priority_reference_spec.md` §10.
 3. **Commit 6 / master remediation**, then **calibration** (judge too-strict/too-loose only
    against trusted regenerated data — NOT before).
 4. **Post-migration cleanup pass** — colab_workflow.py AND the notebook old-flow cells (prune
@@ -144,8 +144,11 @@ maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
 **The run-once regeneration is COMPLETE (2026-06-24).** The master is a clean-slate **55-company
-V4.2 regeneration** — landed + read-back verified (55 inserts / 0 updates; every slice + engine-input
-column present; change log all `new_company_added`). Every row is staged **`New batch - needs review`**
+V4.2 regeneration** — landed + read-back verified (55 inserts / 0 updates; change log all
+`new_company_added`). ⚠️ A follow-up audit caught that that read-back checked column *presence*, not
+*population* — two LLM-JSON clusters (role/timing + taxonomy-LLM) had landed BLANK; **re-landed
+2026-06-24 via `reland.py` / PR #41** (the read-back now asserts per-field counts vs the checkpoint —
+see the engine track below). Every row is staged **`New batch - needs review`**
 (no human review yet). **`videahealth` is deliberately absent** — a transient fit-brief
 `JSONDecodeError` dropped it; excluded (not a primary target), JSON-retry hardening scheduled (below).
 
@@ -156,8 +159,14 @@ read-back. Full play-by-play + every recovery (credits wall, disconnects, the vi
 in `regen_execution_runsheet.md`.
 
 **Immediate next: the engine/calibration track — NOT the dashboard yet.**
+- ✅ **Field-landing remediation (DONE, 2026-06-24, PR #41)** — the role/timing + taxonomy-LLM clusters
+  that landed blank are re-landed via `reland.py` (blank-only; 1:1 completeness + per-field read-back
+  guards). This **cleared the Commit 5 gate** — the engine reads `stage_timing_fit` +
+  `likely_agency_level`, now 55/55. (The 4 role/timing siblings + 5 deterministic-taxonomy fields +
+  `primary_market_segment_code` are deferred to the dashboard milestone / STEP 14, Rule 7.)
 - **Commit 5** — wire the candidate engine → `final_priority_level` (+ fix false "Human Reviewed"
-  labeling + sticky reviewed_priority auto-seed). Unblocked (real capability-fit + trusted data).
+  labeling + sticky reviewed_priority auto-seed). Unblocked (real capability-fit + trusted data +
+  engine inputs now landed).
   ⚠️ The landed master has **`final_priority_level` BLANK** — Commit 5 is what populates it.
 - → **Commit 6 / master remediation** → **calibration** (the QA flags that landed with the master are
   the input — calibrate the logic, do NOT hand-edit the master, per Rule 8).
