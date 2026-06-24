@@ -295,17 +295,49 @@ reset to a real LLM-researched field (`reset_or_restructure_signal` yes/no/uncle
 
 ---
 
-## 10. Integration with final priority (from earlier decisions)
+## 10. Integration with final priority (Commit 5)
 
-- Candidate priority becomes AUTHORITATIVE for `final_priority_level` unless a genuine human
-  override exists.
-- `priority_source` = "Human Reviewed" ONLY when a human genuinely changed the priority —
-  never on mere approval, never on a seeded-value mismatch (fixes the false-label bug).
-- Fix the sticky auto-seed of `reviewed_priority_level`.
+The three Commit 5 pieces: **(a)** make candidate priority authoritative for `final_priority_level`;
+**(b)** fix the false "Human Reviewed" labeling; **(c)** fix the sticky `reviewed_priority_level`
+auto-seed.
 
-⚠ This is a SEPARATE piece from building the engine — sequence it after the engine works
-and produces correct candidate priorities. (The master remediation of already-contaminated
-rows is separate again.)
+### Locked design rationale (decided in chat 2026-06-24 — settled, not open questions)
+
+> **Supersedes** the earlier "`priority_source` = Human Reviewed ONLY when a human genuinely CHANGED
+> the priority" framing — correct in the abstract but **wrong for this workflow** (see point 2).
+
+1. **Label-truth principle.** "Human Reviewed" is stamped **only when a row passes the human review
+   gate** — never at seed time, never at master-update time. The current bug is *timing*:
+   `decisions.py` stamps `review_status = "Human reviewed"` at the approved-rows build (before review
+   has occurred), and `priority.py:determine_priority_source` then treats that stamp (and mere
+   "approved") as proof of review.
+2. **Affirm equals amend.** Reaching the gate and choosing *not* to change a priority is a genuine,
+   binding decision — as binding as amending. The discriminator is **"did this row pass the human
+   review gate,"** NOT "did the value change." (We explicitly rejected "approval-without-change →
+   Auto Adjudicated.")
+3. **Explicit provenance marker, not inference.** "Human reviewed" must be a durable **explicit
+   marker** that the gate was passed — NOT inferred from `reviewed_priority_level` being non-blank or
+   differing from the model. The seed poisons inference: on the regenerated master
+   `reviewed_priority_level` is non-blank on all 55 rows (pure auto-seed, **zero** genuine overrides).
+   Per Rule 7: the *fact* of review persists as a column; the deterministic precedence rule reads it.
+4. **Stickiness / precedence.** Precedence is **genuine-human-review → engine candidate → model
+   fallback**, and a review-gate-passed row may **not** be overwritten by any future *autonomous*
+   rescore (autonomous segments re-run unattended between gates — the marker is what makes a human
+   call survive the next unattended run).
+5. **Seed role.** The auto-seed populates `reviewed_priority_level` as a **convenience** starting point
+   and makes **no** claim that review happened. Seed = convenience; marker = truth. Keeping them
+   separate is the core fix.
+6. **Single-writer discipline.** The review-gate marker has **exactly one** legitimate writer — the
+   human review gate path. No other code path may write it, or the fabrication surface returns.
+
+### Sequencing
+⚠ Commit 5 runs after the engine produces correct candidate priorities. Master remediation of
+already-contaminated rows is **Commit 6**, separate again.
+
+✅ **Field-landing gate CLEARED (2026-06-24, PR #41).** The engine reads `stage_timing_fit` +
+`likely_agency_level`; these (and the taxonomy-LLM cluster) had landed blank in the regen and were
+re-landed by `reland.py` (blank-only, per-field read-back-verified 55/55). Commit 5 is now unblocked.
+See `PROJECT_TRACKER.md` and `specs/COLLABORATION_CONTEXT.md`.
 
 ---
 
