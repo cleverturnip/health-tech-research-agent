@@ -1168,3 +1168,70 @@ def test_search_with_recovery_presence_check_is_observability_only():
     assert union_t == union_f  # union content identical regardless of presence verdict
     assert calls_t == calls_f == 2  # pass count identical
     assert prov_t.figure_present is True and prov_f.figure_present is False
+
+
+# ---------------------------------------------------------------------------
+# Revenue config: source-directed retry prompt + presence check (Step 2)
+# ---------------------------------------------------------------------------
+
+
+def test_revenue_source_directed_prompt_leads_but_does_not_filter():
+    prompt = rr.revenue_source_directed_prompt("Midi Health (midihealth.com)")
+    assert "Midi Health (midihealth.com)" in prompt  # query interpolated
+    for src in ("CB Insights", "Latka", "Growjo", "PitchBook", "Sacra"):
+        assert src in prompt  # leads with the aggregators
+    assert "LEAD, NOT a filter" in prompt
+    # Gate-2 hardening: company-disclosed figures wherever they live, never restricted
+    low = prompt.lower()
+    assert "press release" in low
+    assert "crowdcube" in low  # the ZOE recovery source
+    assert "founder" in low and "interview" in low
+    assert "do not restrict" in low
+
+
+def test_revenue_presence_check_prompt_shape_and_no_web_search():
+    client = RecordingClient(["PRESENT"])
+    rr.revenue_presence_check(
+        "--- pass1 ---\n$150M run-rate (CB Insights)", client=client, model="m"
+    )
+    prompt = client.last_prompt
+    assert "$150M run-rate (CB Insights)" in prompt  # union included
+    assert "PRESENT or ABSENT" in prompt  # asks the binary
+    low = prompt.lower()
+    assert "funding rounds" in low and "valuation" in low  # exclusions
+    assert "paying-customers x pricing" in low  # implied-from-pricing counts as present
+    assert "tools" not in client.calls[-1]  # NO web search on the presence check
+
+
+def test_revenue_presence_check_parses_present_and_absent():
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+    # tolerant of trailing text / case
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["present — $10M"]), model="m") is True
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["absent, none found"]), model="m") is False
+
+
+def test_search_with_recovery_with_revenue_config_end_to_end():
+    # pass 1 = real search_commercial_scale; passes 2-3 = source-directed; then the
+    # presence check. All four calls hit the scripted client in order.
+    client = ScriptedClient(
+        [
+            "pass1: $115.9M revenue (Latka, 2025)",  # search_commercial_scale (pass 1)
+            "pass2: $150M run-rate (CB Insights)",   # source-directed pass 2
+            "pass3: no further figure",              # source-directed pass 3
+            "PRESENT",                                # presence check
+        ]
+    )
+    union, prov = rr.search_with_recovery(
+        rr.search_commercial_scale,
+        "Midi Health",
+        client=client,
+        model="m",
+        retry_prompt_builder=rr.revenue_source_directed_prompt,
+        presence_check=rr.revenue_presence_check,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert "115.9M" in union and "150M run-rate" in union  # union preserves both
+    assert prov.figure_present is True
+    assert len(client.calls) == 4  # 3 searches + 1 presence check

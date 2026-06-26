@@ -544,6 +544,82 @@ def search_with_recovery(
     )
 
 
+# ---------------------------------------------------------------------------
+# Revenue config (the first instance of search_with_recovery)
+# ---------------------------------------------------------------------------
+
+
+def revenue_source_directed_prompt(research_query) -> str:
+    """Source-directed retry prompt for passes 2..N of revenue recovery.
+
+    LEADS with the financial-data sources that recurred across our recoveries
+    (CB Insights / Latka / Growjo / PitchBook / Sacra), but as a LEAD, NOT a FILTER:
+    it MUST still surface company-disclosed figures wherever they live -- press
+    releases, crowdfunding disclosures, founder interviews (our own recoveries: ZOE
+    via Crowdcube, Pelago via a press release; neither is an aggregator). It never
+    restricts to the five. The pass-1 general prompt (``search_commercial_scale``)
+    is unchanged; this only sharpens the retries. Issued with web search ON by
+    ``search_with_recovery``."""
+    return f"""
+Use live web search to find REVENUE / ARR / run-rate evidence for:
+
+{research_query}
+
+START by checking the financial-data sources that most often carry private-company
+revenue figures and estimates: CB Insights, Latka, Growjo, PitchBook, and Sacra.
+
+These sources are a LEAD, NOT a filter. You MUST ALSO surface company-disclosed
+figures wherever they live, including:
+- company press releases, newsroom posts, and blog announcements
+- crowdfunding disclosures (e.g. Crowdcube, Wefunder) and investor / IR pages
+- founder or executive interviews and conference talks
+- reputable press citing a disclosed or estimated figure
+Do NOT restrict the search to the five sources above -- a real figure that lives
+only in a press release or a crowdfunding round MUST still be returned.
+
+For EACH figure include: the value with its date / period; the SOURCE TYPE
+(company-reported / third-party estimate -- name the source and method / promotional);
+and the trend or history if available. Clearly distinguish company-reported from
+estimated figures. Include weak or single-source figures too -- label them weak; do
+NOT omit a real figure for being low-quality. If no revenue figure is found in any
+credible source, say "No revenue figure found." Do not invent figures.
+"""
+
+
+def _parse_presence(text) -> bool:
+    """Parse a PRESENT / ABSENT verdict. Conservative: only an explicit PRESENT is
+    True. This is observability-only, so a wrong guess gates nothing."""
+    return str(text or "").strip().upper().startswith("PRESENT")
+
+
+def revenue_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-only end-of-union presence check for revenue (NO web search).
+
+    Answers "did the union surface a real revenue figure?" for provenance / logging
+    and the Mode-B cross-check. It makes NO quality judgment and gates nothing --
+    quality is the synthesis's job (``evidence_confidence_score`` / ``q4``).
+    Implied-from-pricing counts as PRESENT (a real, labeled signal)."""
+    prompt = f"""
+Read the research findings below and decide ONE thing: do they contain a real
+REVENUE figure for the company -- revenue, ARR, run-rate, GMV, sales, or bookings
+that a source actually stated or credibly implied (including a figure implied from
+paying-customers x pricing)?
+
+Do NOT count as revenue: funding rounds, total raised, valuation, or a list / sticker
+price on its own. A weak or single-source revenue figure still counts as PRESENT --
+quality is judged elsewhere, not here.
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
 # =============================================================================
 # STEP 5 - Company fit synthesis prompt
 # =============================================================================
