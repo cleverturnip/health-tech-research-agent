@@ -733,6 +733,67 @@ Findings:
     return _parse_presence(out)
 
 
+def paying_count_source_directed_prompt(research_query) -> str:
+    """Source-directed retry prompt for PAYING customer-count recovery (Group 1). Paying-only: a
+    PAYING employer/health-plan client counts and belongs HERE; "covered / eligible lives" are
+    NON-paying reach (they belong to institutional-distribution), and the two coexist for the same
+    company (Pelago: "100+ employer clients" AND "3.4M eligible lives") -- keep them DISTINCT
+    (Tightening 2). Leads with where paid counts are disclosed (company press/about, interviews) plus
+    aggregators, as a LEAD not a filter; alias-aware; non-paying counts are returned + LABELED (not
+    dropped, so free-scale signal is preserved). Used on passes 2..N by search_with_recovery."""
+    return f"""
+Use live web search to find the company's PAYING customer / subscriber / member COUNT for:
+
+{research_query}
+
+We need a count of PAYING customers -- paid subscribers, paid members, or PAYING business/enterprise
+clients (e.g. "100+ employer clients" that PAY for the product). EXCLUDE free users, trials, pilots,
+waitlists, downloads, and registered (non-paying) users.
+
+Keep these DISTINCT -- do NOT conflate them:
+- PAYING entities (paid members, OR paying employer/health-plan clients) -> THIS field.
+- "Covered / eligible lives" under those clients are NON-paying reach, NOT a paying count -> they
+  belong to institutional-distribution, not here. A company can have BOTH at once (e.g. Pelago:
+  "100+ paying employer clients" AND "3.4M eligible lives") -- report the paying-client count here
+  and label the eligible-lives figure separately as NON-paying.
+
+START where paid counts are usually disclosed:
+- company press releases, newsroom, "about" / "impact" pages, milestone posts
+  ("over 100,000 paying members"; "100+ employer clients")
+- founder / executive interviews and conference talks
+- credible press citing a company-disclosed paid count
+IN ADDITION (not instead), check aggregators: Latka getlatka.com/companies/<domain>; Growjo;
+CB Insights company pages. Try KNOWN ALIASES / FORMER NAMES and a "Join X" brand; if a namesake looks
+wrong (absurd scale/industry), try the alias before concluding none.
+
+For EACH count give: the value, the date, whether it is explicitly PAYING (vs free / covered-lives),
+and the SOURCE TYPE. If only free / registered / covered-lives counts are found, RETURN them but
+LABEL them NON-paying. Do not invent figures.
+"""
+
+
+def paying_count_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-only: is a PAYING customer / subscriber / member / business-client count present?
+    Free / trial / registered users and "covered / eligible lives" do NOT count. No web search;
+    gates nothing; makes no quality judgment."""
+    prompt = f"""
+Read the findings below. Is there a count of PAYING customers -- paid subscribers, paid members, or
+PAYING business/enterprise clients?
+
+Do NOT count: free / trial / pilot / waitlist / registered (non-paying) users, app downloads, or
+"covered / eligible lives" (eligible-but-not-paying reach under an employer/health-plan).
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
 # =============================================================================
 # STEP 5 - Company fit synthesis prompt
 # =============================================================================

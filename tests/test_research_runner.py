@@ -1364,6 +1364,34 @@ def test_growth_rate_presence_check_requires_period_and_parses():
     assert rr.growth_rate_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
 
 
+def test_paying_count_source_directed_prompt():
+    prompt = rr.paying_count_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    assert "Pelago (pelago.health), formerly Quit Genius" in prompt
+    low = prompt.lower()
+    assert "paying" in low
+    # paying-only: exclude free / covered / eligible lives
+    assert "free" in low and "covered" in low and "eligible" in low
+    # Tightening 2: paying employer clients belong HERE; covered/eligible lives NON-paying & distinct
+    assert "employer" in low and "client" in low
+    assert "3.4m eligible lives" in low  # the Pelago coexistence example, kept distinct
+    # non-paying counts carried + labeled, not dropped
+    assert "label them non-paying" in low
+    # URL targeting + lead-not-filter + alias (B1 principles)
+    assert "getlatka.com/companies/" in low
+    assert "in addition" in low
+    assert "former name" in low and "alias" in low
+
+
+def test_paying_count_presence_check_excludes_covered_lives_and_parses():
+    client = RecordingClient(["PRESENT"])
+    rr.paying_count_presence_check("100,000 paying members", client=client, model="m")
+    low = client.last_prompt.lower()
+    assert "covered" in low and "eligible" in low  # covered/eligible lives don't count
+    assert "tools" not in client.calls[-1]  # no web search
+    assert rr.paying_count_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.paying_count_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+
+
 def test_revenue_presence_check_prompt_shape_and_no_web_search():
     client = RecordingClient(["PRESENT"])
     rr.revenue_presence_check(
