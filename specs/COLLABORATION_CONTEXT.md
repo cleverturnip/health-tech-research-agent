@@ -47,6 +47,14 @@ segment defers a judgment to a gate instead of stalling or guessing.
   before Claude Code builds it.
 - Architecture principle ("Rule 7"): the LLM gathers EVIDENCE; deterministic rules DECIDE.
   Persist evidence components as columns so labels/signals are recomputable without re-research.
+- Absence is an upper bound, not a measurement ("Rule 8"): a blank or "not found" in our OWN
+  output means the data isn't IN our output — it does NOT establish the data doesn't exist.
+  "Truly absent" and "present but our search/pass missed it" produce an IDENTICAL blank. So never
+  attribute a cause to an empty field from the output alone; that's a ceiling on non-existence, not
+  a count of it. Convert the bound to a measurement with a live test that actually goes looking
+  (e.g. a repeat-N variance probe) BEFORE building on the attribution. This caught three wrong
+  calls in the research-layer work (revenue "non-disclosure", "weak prompt", "token starvation" —
+  all falsified by live re-runs; the real cause was web-search execution variance).
 - Every temporary measure is built toward the North Star end state. Testing scaffolding and
   partial builds (e.g. temporary Colab cells to define a batch before the front end exists) must
   minimize friction for the eventual autonomous flow — solve the immediate step in the shape the
