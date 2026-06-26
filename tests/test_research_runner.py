@@ -1235,3 +1235,22 @@ def test_search_with_recovery_with_revenue_config_end_to_end():
     assert "115.9M" in union and "150M run-rate" in union  # union preserves both
     assert prov.figure_present is True
     assert len(client.calls) == 4  # 3 searches + 1 presence check
+
+
+def test_prompt_revenue_carry_and_rate_and_multi_figure_q4():
+    # Step 4: Option-A carry-and-rate surfacing + multi-figure q4 resolution.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    # schema field surfaces ALL figures with the sanctioned type tags; empty only if none
+    assert "List ALL revenue/ARR/run-rate figures found" in prompt
+    assert "implied-from-pricing / weak-single-source" in prompt
+    assert "Empty ONLY if NO real figure was found in any pass" in prompt
+    # carry-and-rate instruction, tightened to STATED or implied-from-pricing (no open "credibly implied")
+    assert "a source actually STATED, or that is implied from paying-customers × pricing" in prompt
+    assert "credibly implied" not in prompt  # the over-inference phrasing must be absent
+    assert "Do NOT omit a real figure for being low-quality" in prompt
+    # q4 = strongest source type present, with the multiple-weak guard
+    assert "STRONGEST quality among them" in prompt
+    assert "Multiple weak or single-source figures do NOT promote q4" in prompt
+    assert "NEVER lifts q4's source-type bucket" in prompt
+    # q4's existing 3-value enum is unchanged (the deterministic Q4_STRONG_OK gate relies on it)
+    assert '"q4_evidence_quality": "company-reported / credible-estimate / unverified-promotional"' in prompt

@@ -738,6 +738,7 @@ Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the sys
 
 Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
 - Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
+- List every revenue/ARR/run-rate figure that a source actually STATED, or that is implied from paying-customers × pricing — including weak or single-source figures. Do NOT omit a real figure for being low-quality; quality is captured by evidence_confidence_score and q4, never by exclusion here. Leave the field empty only if NO real figure was found in any pass.
 - funding_evidence is context ONLY. Funding raised and valuation are NOT commercial traction and are structurally excluded from the signal — do not let them influence q1/q2.
 - The commercial research section now tags each figure with a SOURCE TYPE (company-reported / third-party estimate / promotional) and, where available, a TREND/history; read q4_evidence_quality off those SOURCE TYPE tags and read q1_acquisition off the TREND. Still answer q1-q4 here as defined below — the search only supplies richer evidence, it does not move where these are judged.
 - q1_acquisition: direction of the PAYING base (growing / flat / declining).
@@ -747,6 +748,7 @@ Commercial evidence — gather FACTS and answer the four red-flag questions. Do 
   - "company-reported" = the company disclosed the figure;
   - "credible-estimate" = a named reputable third party with a methodology (Sacra, CB Insights, reputable press citing sources);
   - "unverified-promotional" = the company's own marketing, vague "fast-growing", or figures with no attributable source.
+  - When MULTIPLE revenue figures are present, set q4_evidence_quality to the STRONGEST quality among them: "company-reported" if any figure is company-reported; else "credible-estimate" if any is a named third-party estimate; else "unverified-promotional". Multiple weak or single-source figures do NOT promote q4 — if no figure is company-reported and none is a credible third-party estimate, q4 stays "unverified-promotional" however many weak figures exist. (More corroboration may raise evidence_confidence_score, but it NEVER lifts q4's source-type bucket.)
 
 Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
 A company may be doing SEVERAL of these at once (e.g. pivoting its business model AND restructuring its team). List EACH distinct event as its own object in reset_events, and answer the opening question PER EVENT, on that event's own terms. Do NOT let one event's nature determine another's — a strategic pivot does not make a coexisting restructuring an opening, and a loud pivot must NOT hide a restructuring that IS an opening. If you find no reset/restructure events, return an empty list [].
@@ -1035,7 +1037,7 @@ Use this JSON schema exactly:
     ]
   }},
   "commercial_evidence": {{
-    "revenue_or_arr": "figure + source/date, or empty if none found",
+    "revenue_or_arr": "List ALL revenue/ARR/run-rate figures found, each with source, date, and type (company-reported / credible-estimate / implied-from-pricing / weak-single-source). Empty ONLY if NO real figure was found in any pass.",
     "paying_customer_count": "PAYING users/subscribers/members/customers only (exclude free/trial/pilot/waitlist) + source, or empty",
     "revenue_per_user": "reported or derived revenue per paying user, or empty",
     "growth_signal": "growing / flat / declining (+ rough rate if available)",
