@@ -53,6 +53,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_WAIT_BETWEEN_SEARCHES = 120  # seconds
+# Inter-pass wait for search_with_recovery's N passes. NON-ZERO by design: the
+# mechanism exploits web-search execution variance, so rapid-fire identical queries
+# risk correlated / cached result sets that defeat the variance we depend on. Well
+# short of the 120s between DISTINCT searches (these are retries of ONE query). This
+# is a hypothesis to validate via the live run's pass-level logging — tune up if the
+# passes come back near-identical.
+DEFAULT_WAIT_BETWEEN_PASSES = 45  # seconds
 
 
 SEARCH_FAILED_MARKER = (
@@ -467,11 +474,15 @@ class RecoveryProvenance:
     """Observability-only record of one recovery run. Gates nothing and judges no
     quality. ``figure_present`` is the single end-of-union presence check (the only
     presence role left once stop-on-hit is gone); it feeds logging and the Mode-B
-    cross-check (the union held a figure the synthesis later left empty)."""
+    cross-check (the union held a figure the synthesis later left empty). ``passes``
+    holds the raw per-pass findings so callers (the live-validation harness) can SEE
+    pass independence — if the passes come back near-identical, the inter-pass
+    cadence is too tight and the variance is not actually varying."""
 
     field_name: str
     n_passes: int
     figure_present: bool
+    passes: list = field(default_factory=list)
 
 
 def _union_findings(findings) -> str:
@@ -490,6 +501,8 @@ def search_with_recovery(
     presence_check,
     field_name: str,
     n_passes: int = 5,
+    wait_between_passes: float = 0.0,
+    sleep_fn=time.sleep,
 ):
     """Run ``n_passes`` web searches and UNION the results -- the field-agnostic
     recovery mechanism (no early stop; every company gets all N passes).
@@ -497,7 +510,12 @@ def search_with_recovery(
     * Pass 1 calls ``search_fn(research_query, client=, model=)`` verbatim (the
       proven general search).
     * Passes 2..N call ``call_openai`` with ``retry_prompt_builder(research_query)``
-      (source-directed; web search ON).
+      (source-directed; web search ON), each preceded by a ``wait_between_passes``
+      sleep so rapid-fire identical queries don't return correlated / cached result
+      sets that would defeat the execution variance this mechanism depends on.
+      ``wait_between_passes`` should be NON-ZERO in production; the 0.0 default is for
+      unit tests / direct callers that inject their own cadence (production wiring
+      passes ``DEFAULT_WAIT_BETWEEN_PASSES``).
     * Passes that returned ``SEARCH_FAILED_MARKER`` or blank contribute NOTHING to
       the union. If EVERY pass failed, ``SEARCH_FAILED_MARKER`` is returned so
       downstream ``is_search_failure`` still tells a failed search apart from a
@@ -506,8 +524,9 @@ def search_with_recovery(
       (provenance + Mode-B cross-check): it gates nothing and judges no quality.
 
     ``search_fn`` / ``retry_prompt_builder`` / ``presence_check`` / ``field_name``
-    are per-field config, so adding a field is configuration, not a rewrite.
-    Returns ``(union_text, RecoveryProvenance)``.
+    are per-field config, so adding a field is configuration, not a rewrite. The raw
+    per-pass findings are returned in ``RecoveryProvenance.passes`` so a caller can
+    inspect pass independence. Returns ``(union_text, RecoveryProvenance)``.
     """
     if n_passes < 1:
         raise ValueError("n_passes must be >= 1")
@@ -516,6 +535,8 @@ def search_with_recovery(
         ("pass1 (general)", search_fn(research_query, client=client, model=model))
     ]
     for p in range(2, n_passes + 1):
+        if wait_between_passes:
+            sleep_fn(wait_between_passes)  # let the search result set vary (avoid cache)
         text = call_openai(
             retry_prompt_builder(research_query),
             client=client,
@@ -524,6 +545,8 @@ def search_with_recovery(
             max_output_tokens=700,
         )
         findings.append((f"pass{p} (source-directed)", text))
+
+    raw_passes = [text for _label, text in findings]
 
     real = [
         (label, text)
@@ -534,13 +557,19 @@ def search_with_recovery(
         # Every pass failed or was blank -> preserve the failure signal so the
         # union is not mistaken for a genuine "no figure found".
         return SEARCH_FAILED_MARKER, RecoveryProvenance(
-            field_name=field_name, n_passes=n_passes, figure_present=False
+            field_name=field_name,
+            n_passes=n_passes,
+            figure_present=False,
+            passes=raw_passes,
         )
 
     union_text = _union_findings(real)
     figure_present = bool(presence_check(union_text, client=client, model=model))
     return union_text, RecoveryProvenance(
-        field_name=field_name, n_passes=n_passes, figure_present=figure_present
+        field_name=field_name,
+        n_passes=n_passes,
+        figure_present=figure_present,
+        passes=raw_passes,
     )
 
 
@@ -1218,6 +1247,7 @@ def run_research_batch(
     mirror_checkpoint_path=None,
     taxonomy_dir=None,
     wait_between_searches: float = DEFAULT_WAIT_BETWEEN_SEARCHES,
+    wait_between_passes: float = DEFAULT_WAIT_BETWEEN_PASSES,
     sleep_fn=time.sleep,
     validate_json: bool = True,
 ) -> ResearchBatchResult:
@@ -1229,9 +1259,11 @@ def run_research_batch(
       "complete"; those companies are skipped (``reused``) and not re-researched.
     * After each successful company the checkpoint is written atomically and
       (optionally) mirrored, so a runtime loss never loses completed work.
-    * The six web searches (the four original + the two Slice 3.7 operator
-      searches: org events, operating characteristics) run with the faithful
-      wait between them (injected ``sleep_fn``), then the fit brief is synthesized.
+    * The web searches (the four original + the two Slice 3.7 operator searches:
+      org events, operating characteristics) run with the faithful wait between them
+      (injected ``sleep_fn``); the commercial/revenue search is now an N-pass
+      ``search_with_recovery`` union with ``wait_between_passes`` between its passes.
+      Then the fit brief is synthesized.
 
     New here (the missing per-company recovery): each company's work is wrapped so
     one failure — an API error, a network error, or (when ``validate_json``) a fit
@@ -1286,6 +1318,8 @@ def run_research_batch(
                 presence_check=revenue_presence_check,
                 field_name="revenue",
                 n_passes=REVENUE_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
             )
             logger.info(
                 "Revenue recovery for %s: %s passes, figure_present=%s.",

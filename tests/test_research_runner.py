@@ -705,11 +705,15 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         client=client,
         checkpoint_path=ckpt,
         wait_between_searches=7,
+        wait_between_passes=3,
         sleep_fn=sleeps.append,
     )
 
-    # per successful company: 5 waits between the 6 searches + 1 trailing wait
-    assert sleeps == [7] * 12
+    # per company: funding/payer/outcomes waits (7,7,7); 4 inter-pass waits (3) inside
+    # the 5-pass commercial recovery; then the after-commercial (7), after-org (7), and
+    # trailing (7) waits. (operating has no trailing wait; synthesis none.)
+    per_company = [7, 7, 7, 3, 3, 3, 3, 7, 7, 7]
+    assert sleeps == per_company * 2
 
 
 # --- KeyboardInterrupt / SystemExit propagate (not caught as Exception) ------
@@ -1202,6 +1206,58 @@ def test_search_with_recovery_presence_check_is_observability_only():
     assert union_t == union_f  # union content identical regardless of presence verdict
     assert calls_t == calls_f == 2  # pass count identical
     assert prov_t.figure_present is True and prov_f.figure_present is False
+
+
+def test_search_with_recovery_sleeps_between_passes_when_configured():
+    sleeps = []
+    client = ScriptedClient(["p2", "p3", "p4"])
+    rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=4,
+        wait_between_passes=9,
+        sleep_fn=sleeps.append,
+    )
+    assert sleeps == [9, 9, 9]  # one wait before each of the 3 retry passes (2,3,4)
+
+
+def test_search_with_recovery_no_sleep_when_wait_is_zero():
+    sleeps = []
+    client = ScriptedClient(["p2", "p3"])
+    rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+        wait_between_passes=0,
+        sleep_fn=sleeps.append,
+    )
+    assert sleeps == []  # zero wait -> no sleep calls (the mechanism-defeating value)
+
+
+def test_search_with_recovery_provenance_carries_raw_passes():
+    client = ScriptedClient(["p2", "p3"])
+    _union, prov = rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    # raw per-pass findings, so the harness can SEE independence (not infer it)
+    assert prov.passes == ["p1", "p2", "p3"]
 
 
 # ---------------------------------------------------------------------------
