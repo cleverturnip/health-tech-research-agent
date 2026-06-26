@@ -671,42 +671,56 @@ Findings:
 
 
 def growth_rate_source_directed_prompt(research_query) -> str:
-    """Source-directed retry prompt for growth-RATE recovery (Group 1). Requires a QUANTIFIED rate
-    WITH its time period (Tightening 1 -- a dateless relative figure or from->to is not a usable
-    rate). Leads with the pages that carry growth figures (Latka series, Growjo, CB Insights) plus
-    company-disclosed rates (funding/milestone press, CEO interviews, statutory YoY), as a LEAD not a
-    filter; alias-aware. Folds in the (low-urgency) required-rate coverage fix. Used on passes 2..N by
-    search_with_recovery (web search ON); pass 1 = general search_commercial_scale, unchanged."""
+    """Source-directed retry prompt for growth-RATE recovery (Group 1). Refine-to-derive: COMPUTES the
+    rate from dated revenue endpoints the search finds (not just pre-stated rates), with mandatory
+    show-the-inputs, because growth rates exist as RAW MATERIAL more often than as finished figures.
+    Keeps Tightening 1 (usable only WITH a period), lead-not-filter + alias (B1), and tags computed
+    rates DERIVED. Used on passes 2..N by search_with_recovery (web search ON); pass 1 = general
+    search_commercial_scale, unchanged. (Matched unit with the growth_signal carry text + the
+    growth_rate_presence_check derived-clause; ship together.)"""
     return f"""
 Use live web search to find the company's QUANTIFIED revenue/user GROWTH RATE for:
 
 {research_query}
 
-We need a NUMBER -- e.g. "287% YoY", "+53%", "10x since Series B", "revenue doubled", or a
-from->to like "$60M -> $150M". The qualitative word "growing" with NO number does NOT count.
+A usable growth rate is a NUMBER WITH the time period it covers -- e.g. "287% in 2023",
+"+53% YoY 2024", "10x from Series B (2021) to 2023". The word "growing" with no number does
+NOT count.
 
-TIME PERIOD IS REQUIRED for any rate to be usable:
-- Any relative figure ("doubled", "10x", "+53%") MUST include the time period it covers.
-- A from->to MUST include BOTH endpoint dates so the rate is derivable; a from->to WITHOUT dates is
-  NOT a usable rate -- record it as "endpoints found, dates missing -- not a usable rate".
+[1] COMPUTE the rate -- don't just look for a finished one. Growth rates exist as RAW MATERIAL
+(two or more dated revenue/ARR points) more often than as a pre-stated percentage. WHENEVER you
+find two or more dated revenue figures for the company, COMPUTE the growth between them yourself
+(e.g. Latka's "$0 in 2021 -> $115.9M in 2025"; a CEO's "$60M end-2024 -> $150M late-2025").
+Report derived rates AND any pre-stated rates; do not limit yourself to pre-stated ones.
+
+[2] SHOW THE INPUTS for every computed rate, inline -- ALWAYS. A derived rate MUST display the
+endpoints and dates it was computed from, e.g. "~2.5x over ~9 months, computed from $60M
+(Dec 2024) -> $150M (Sep 2025)". NEVER emit a bare derived number like "150% growth" with no
+visible inputs -- a number with no inputs is uninterpretable and is not acceptable. Mark a
+computed rate as DERIVED (vs a company-stated rate) so its provenance is clear.
+
+[3] TIME PERIOD IS REQUIRED for any rate, stated OR derived:
+- A relative figure ("doubled", "10x", "+53%") MUST carry the period it covers.
+- Endpoints (a from->to) WITHOUT dates are NOT usable -- record "endpoints found, dates missing
+  -- not a usable rate"; do not emit a dateless rate.
 - If a rate is stated but its period is unclear, record "rate found, period unclear" -- do NOT
   assume a period.
 
-START by going directly to the pages that carry growth figures (construct the URLs):
-- Latka: getlatka.com/companies/<domain> (revenue series + YoY %)
-- Growjo: its company page for the name AND any former name (growth %)
+[4] START by going directly to the pages that carry growth figures and dated revenue series
+(construct the URLs), as a LEAD -- not a filter:
+- Latka: getlatka.com/companies/<domain> (a revenue series by year -> compute the rate from it)
+- Growjo: its company page for the name AND any former name
 - CB Insights: cbinsights.com/company/<name>/financials
-This is IN ADDITION TO, NOT INSTEAD OF, company-disclosed growth wherever it lives:
-- funding / milestone press releases and newsroom posts (rates are often announced with raises,
-  e.g. "287% revenue growth in 2023", "10x since Series B")
-- founder / executive interviews and conference talks
-- statutory filings showing year-over-year revenue (derive the rate; show the inputs and dates)
-Try KNOWN ALIASES / FORMER NAMES (e.g. Quit Genius -> Pelago; a "Join X" brand). If a page looks like
-a wrong-entity namesake (absurd scale/industry), try the alias before concluding none.
+This is IN ADDITION TO, NOT INSTEAD OF, company-disclosed growth wherever it lives -- funding/
+milestone press releases ("287% revenue growth in 2023"), founder/executive interviews (often
+two dated revenue points), statutory filings (compute the rate; show inputs+dates). Try KNOWN
+ALIASES / FORMER NAMES (e.g. Quit Genius -> Pelago; a "Join X" brand); if a page looks like a
+wrong-entity namesake (absurd scale/industry), try the alias before concluding none.
 
-For EACH growth figure give: the value (a number, or from->to WITH dates), the PERIOD it covers, and
-the SOURCE TYPE (company-reported / third-party estimate). If ONLY a qualitative "growing" with no
-number is found, say so explicitly: "growth direction only, no quantified rate." Do not invent figures.
+For EACH growth figure give: the value (a stated rate, OR a derived rate WITH its endpoints+dates),
+the PERIOD, and the SOURCE TYPE (company-reported / third-party estimate / DERIVED-by-you). If only
+a qualitative "growing" with no number and no dated endpoints is found, say so explicitly:
+"growth direction only, no quantified rate." Do not invent figures or fabricate dates.
 """
 
 
@@ -715,9 +729,10 @@ def growth_rate_presence_check(union_text, *, client, model: str = DEFAULT_MODEL
     period (Tightening 1)? A dateless relative figure, a from->to without dates, or a qualitative
     "growing" is NOT usable -> absent. No web search; gates nothing; makes no quality judgment."""
     prompt = f"""
-Read the findings below. Is there a USABLE quantified GROWTH RATE -- a numeric rate (e.g. "287% YoY",
-"+53%", "10x", "revenue doubled", or a from->to like "$60M->$150M") that ALSO has a clear TIME PERIOD
-so the rate is derivable?
+Read the findings below. Is there a USABLE quantified GROWTH RATE -- a numeric rate WITH a clear time
+period, EITHER (a) STATED (e.g. "287% in 2023", "+53% YoY", "10x since 2021"), OR (b) DERIVED from two
+or more dated revenue endpoints with the inputs shown (e.g. "~2.5x over ~9mo, from $60M (Dec 2024) ->
+$150M (Sep 2025)")?
 
 A numeric rate WITHOUT a time period, a from->to WITHOUT dates, or a qualitative "growing" with no
 number does NOT count -- those are ABSENT for a usable rate.
@@ -1219,7 +1234,7 @@ Use this JSON schema exactly:
     "revenue_or_arr": "List ALL revenue/ARR/run-rate figures found, each with source, date, and type (company-reported / credible-estimate / implied-from-pricing / weak-single-source). Empty ONLY if NO real figure was found in any pass.",
     "paying_customer_count": "PAYING users/subscribers/members/customers only (exclude free/trial/pilot/waitlist) + source, or empty",
     "revenue_per_user": "company-stated, OR DERIVED from revenue ÷ paying-customer count or annual pricing WITH the inputs shown (mark DERIVED, not company-reported); empty only if neither a figure nor the inputs to derive one exist",
-    "growth_signal": "growing / flat / declining (+ rough rate if available)",
+    "growth_signal": "growing / flat / declining, PLUS the quantified rate when found — carried WITH its period, and if COMPUTED from dated endpoints, WITH its inputs and a DERIVED tag. e.g. 'growing; 287% in 2023 (company-reported)' or 'growing; ~2.5x over ~9mo, DERIVED from $60M (Dec 2024) -> $150M (Sep 2025)'. NEVER strip the inputs/period or emit a bare rate. A DERIVED rate (or a third-party estimate) is a moderate-confidence source, NOT company-reported. Direction alone (no rate) is acceptable.",
     "business_model_type": "consumer-subscription / enterprise / payer-reimbursed / other",
     "funding_evidence": "raises / valuation (context ONLY; the system EXCLUDES this from the commercial signal)",
     "q1_acquisition": "is the PAYING base growing, flat, or declining? growing / flat / declining",

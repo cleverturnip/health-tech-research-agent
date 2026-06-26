@@ -1353,15 +1353,30 @@ def test_growth_rate_source_directed_prompt():
     assert "getlatka.com/companies/" in low
     assert "in addition to, not instead of" in low
     assert "former name" in low and "alias" in low
+    # refine-to-derive: [1] compute-don't-just-report + [2] mandatory show-the-inputs / never bare + DERIVED tag
+    assert "compute the rate" in low
+    assert "show the inputs" in low
+    assert "never emit a bare" in low
+    assert "derived-by-you" in low
 
 
 def test_growth_rate_presence_check_requires_period_and_parses():
     client = RecordingClient(["PRESENT"])
     rr.growth_rate_presence_check("$60M->$150M in 2024-2025", client=client, model="m")
-    assert "time period" in client.last_prompt.lower()  # usable rate needs a period
+    low = client.last_prompt.lower()
+    assert "time period" in low  # usable rate needs a period (Tightening 1 preserved)
+    assert "derived" in low and "dated revenue endpoints" in low  # (b) a derived rate counts PRESENT
     assert "tools" not in client.calls[-1]  # no web search
     assert rr.growth_rate_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
     assert rr.growth_rate_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+
+
+def test_prompt_growth_signal_carries_derived_rate():
+    # Companion edit 1: synthesis carries a DERIVED rate with inputs+period; never strips/bare-emits.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert "if COMPUTED from dated endpoints, WITH its inputs and a DERIVED tag" in prompt
+    assert "NEVER strip the inputs/period or emit a bare rate" in prompt
+    assert "moderate-confidence source, NOT company-reported" in prompt
 
 
 def test_paying_count_source_directed_prompt():
