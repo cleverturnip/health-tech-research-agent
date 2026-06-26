@@ -1335,6 +1335,35 @@ def test_build_summary_surfaces_entity_review_needed_field():
     assert by_company["Other"] == ""  # additive default; no false flags
 
 
+# ---------------------------------------------------------------------------
+# Group 1 field configs: growth-rate + paying-customer-count
+# ---------------------------------------------------------------------------
+
+
+def test_growth_rate_source_directed_prompt():
+    prompt = rr.growth_rate_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    assert "Pelago (pelago.health), formerly Quit Genius" in prompt
+    low = prompt.lower()
+    assert "quantified" in low and "growth rate" in low
+    # Tightening 1: a rate is only usable WITH its time period
+    assert "time period" in low
+    assert "not a usable rate" in low
+    assert "period unclear" in low
+    # source-directed URL targeting + lead-not-filter + alias (B1 principles)
+    assert "getlatka.com/companies/" in low
+    assert "in addition to, not instead of" in low
+    assert "former name" in low and "alias" in low
+
+
+def test_growth_rate_presence_check_requires_period_and_parses():
+    client = RecordingClient(["PRESENT"])
+    rr.growth_rate_presence_check("$60M->$150M in 2024-2025", client=client, model="m")
+    assert "time period" in client.last_prompt.lower()  # usable rate needs a period
+    assert "tools" not in client.calls[-1]  # no web search
+    assert rr.growth_rate_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.growth_rate_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+
+
 def test_revenue_presence_check_prompt_shape_and_no_web_search():
     client = RecordingClient(["PRESENT"])
     rr.revenue_presence_check(

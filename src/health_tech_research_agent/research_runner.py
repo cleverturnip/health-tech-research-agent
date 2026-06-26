@@ -665,6 +665,74 @@ Findings:
     return _parse_presence(out)
 
 
+# ---------------------------------------------------------------------------
+# Group 1 field configs (source-directed prompts + presence checks)
+# ---------------------------------------------------------------------------
+
+
+def growth_rate_source_directed_prompt(research_query) -> str:
+    """Source-directed retry prompt for growth-RATE recovery (Group 1). Requires a QUANTIFIED rate
+    WITH its time period (Tightening 1 -- a dateless relative figure or from->to is not a usable
+    rate). Leads with the pages that carry growth figures (Latka series, Growjo, CB Insights) plus
+    company-disclosed rates (funding/milestone press, CEO interviews, statutory YoY), as a LEAD not a
+    filter; alias-aware. Folds in the (low-urgency) required-rate coverage fix. Used on passes 2..N by
+    search_with_recovery (web search ON); pass 1 = general search_commercial_scale, unchanged."""
+    return f"""
+Use live web search to find the company's QUANTIFIED revenue/user GROWTH RATE for:
+
+{research_query}
+
+We need a NUMBER -- e.g. "287% YoY", "+53%", "10x since Series B", "revenue doubled", or a
+from->to like "$60M -> $150M". The qualitative word "growing" with NO number does NOT count.
+
+TIME PERIOD IS REQUIRED for any rate to be usable:
+- Any relative figure ("doubled", "10x", "+53%") MUST include the time period it covers.
+- A from->to MUST include BOTH endpoint dates so the rate is derivable; a from->to WITHOUT dates is
+  NOT a usable rate -- record it as "endpoints found, dates missing -- not a usable rate".
+- If a rate is stated but its period is unclear, record "rate found, period unclear" -- do NOT
+  assume a period.
+
+START by going directly to the pages that carry growth figures (construct the URLs):
+- Latka: getlatka.com/companies/<domain> (revenue series + YoY %)
+- Growjo: its company page for the name AND any former name (growth %)
+- CB Insights: cbinsights.com/company/<name>/financials
+This is IN ADDITION TO, NOT INSTEAD OF, company-disclosed growth wherever it lives:
+- funding / milestone press releases and newsroom posts (rates are often announced with raises,
+  e.g. "287% revenue growth in 2023", "10x since Series B")
+- founder / executive interviews and conference talks
+- statutory filings showing year-over-year revenue (derive the rate; show the inputs and dates)
+Try KNOWN ALIASES / FORMER NAMES (e.g. Quit Genius -> Pelago; a "Join X" brand). If a page looks like
+a wrong-entity namesake (absurd scale/industry), try the alias before concluding none.
+
+For EACH growth figure give: the value (a number, or from->to WITH dates), the PERIOD it covers, and
+the SOURCE TYPE (company-reported / third-party estimate). If ONLY a qualitative "growing" with no
+number is found, say so explicitly: "growth direction only, no quantified rate." Do not invent figures.
+"""
+
+
+def growth_rate_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-only: is a USABLE quantified growth rate present -- a numeric rate WITH a time
+    period (Tightening 1)? A dateless relative figure, a from->to without dates, or a qualitative
+    "growing" is NOT usable -> absent. No web search; gates nothing; makes no quality judgment."""
+    prompt = f"""
+Read the findings below. Is there a USABLE quantified GROWTH RATE -- a numeric rate (e.g. "287% YoY",
+"+53%", "10x", "revenue doubled", or a from->to like "$60M->$150M") that ALSO has a clear TIME PERIOD
+so the rate is derivable?
+
+A numeric rate WITHOUT a time period, a from->to WITHOUT dates, or a qualitative "growing" with no
+number does NOT count -- those are ABSENT for a usable rate.
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
 # =============================================================================
 # STEP 5 - Company fit synthesis prompt
 # =============================================================================
