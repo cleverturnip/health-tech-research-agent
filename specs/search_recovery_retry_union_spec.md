@@ -146,6 +146,12 @@ floor — table uses *blind* p; passes 2–5 are source-directed → real p high
   OR implied from paying-customers × pricing — vs funding, valuation, or list price alone?"
   Implied-from-pricing **counts as present**. Makes no quality call.
 - `n_passes` = 5.
+- `wait_between_passes` = `DEFAULT_WAIT_BETWEEN_PASSES` (45s) — **NON-ZERO by design.** The mechanism
+  exploits web-search execution variance, so rapid-fire identical passes risk correlated/cached
+  result sets that defeat the variance. 45s is ≈⅓ of the 120s between *distinct* searches; it is a
+  **hypothesis to validate** via the live run's per-pass logging (bump it if passes look near-
+  identical). The hybrid design mitigates the risk somewhat — pass 1 (general) differs from passes
+  2–5 (source-directed), so the identical-query risk is mainly *among* the retries.
 
 ## Boundary discipline (load-bearing)
 
@@ -202,6 +208,24 @@ had). Neither gates anything. No master column in this change.
 After revenue lands, re-run the 5×-identical probe scoring **every** field → per-field blink-rate map;
 apply always-N to high-blink + recoverable fields. **Costs API + credits** → separate explicit go (a
 sustained "rate limit" there usually means *out of credits* — check billing).
+
+## Regen sequencing (LOCKED — Katelynd, 2026-06-26)
+
+The full commercial regeneration is **run-once** and is **DEFERRED until the COMPLETE set of fields
+needing recovery is known.** We do **not** regen for revenue now and again for growth/other fields
+later — we pay for the full regen **once**, across every field that needs recovery, together. Locked
+order:
+
+1. **Revenue live-validation** (4 ground-truth companies, cheap, read-only) — proves the mechanism +
+   the inter-pass cadence (`scripts/revenue_live_validation.py`).
+2. **All-fields blink probe** (cheap, read-only, separate go) — per-field blink map → the COMPLETE
+   set of fields that need retry.
+3. **Enable + design all flagged fields** — add each field's config; design any LLM-facing wording
+   jointly (esp. growth's required-RATE coverage fix, separate from its variance fix).
+4. **THEN one run-once full regen** across revenue + every field the probe flags, together.
+
+**Do NOT scope or start a revenue-only regen.** Any 55-company regen cost estimate is framed for the
+FULL multi-field regen; the field set (and thus the estimate) firms up after step 2.
 
 ## Test plan (red→green, fake injected client — no real API, no spend)
 
