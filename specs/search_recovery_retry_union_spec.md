@@ -89,6 +89,11 @@ source figure"), so it is not guaranteed; `:508` ("do not overvalue … vague gr
 nudge the LLM to omit. Verdict: **it carries today (by design), but unguaranteed → make it explicit.**
 Not a clear pre-existing bug; an under-specified behavior we harden.
 
+**Residual (prompt-vs-runtime) — captured, not assumed closed:** this verdict was verified at the
+PROMPT level only, not at runtime. Option A makes it moot by *forcing* carry-and-rate. But if a
+company known to have a thin/single-source figure ever returns an empty `revenue_or_arr` post-build,
+this prompt-vs-runtime gap is the first place to look (a cheap live spot-check would settle it).
+
 **The rule to encode (the precision fix): credibility RATES, it does not FILTER.** The failure to
 avoid: one thin/low-credibility figure is the only thing found; if only "credible" figures are
 carried, that real-but-weak figure is dropped → `revenue_or_arr` empty → `_has_real_evidence`
