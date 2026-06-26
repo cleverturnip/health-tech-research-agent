@@ -44,6 +44,15 @@ per field.
 ## Method (the locked design; implementation left to Claude Code)
 - Reuse the SAME instrument that proved the revenue case: the repeat-A variance probe — run a
   byte-identical config N times per company and watch whether each target figure appears or not.
+- **HARD REQUIREMENT (2026-06-26, post live-validation): recoverability — and any "genuine absence"
+  determination — MUST be measured with SOURCE-DIRECTED retries, not the blind config.** The live
+  validation recovered Pelago (Latka $27.5M / Growjo $25.3M, both predating the original probe) — our
+  CANONICAL 0/5 blind "genuine absence" case. Blind UNDER-measures recoverability: a blind miss proves
+  the figure is absent from the *blind search*, not from the *world* (Rule 8). So: use the blind 5×
+  config to measure BLINK RATE (variance / source-concentration); but to classify a field/company as
+  genuinely-absent vs recoverable, the run MUST lead with the source-directed retry the mechanism
+  uses. A "never found" is only meaningful when the SOURCE-DIRECTED retry also never finds it. See
+  `audits/revenue_live_validation_findings.md` §3.
 - Run it 5× per company (matching the revenue probe), on a small company sample.
 - KEY DIFFERENCE from the revenue probe: score EVERY field on each run, not just revenue — produce a
   per-field blink map.
@@ -69,10 +78,13 @@ For each field, compute its blink rate across the repeats:
   retry-and-union for that field (add its config: absence-check + source-directed retry prompt + N).
   N is per-field — re-derive from that field's measured single-pass hit rate, don't copy revenue's 5.
 - **Stable-present (≈always found)** → no retry needed; the single pass is reliable.
-- **Stable-absent (≈never found)** → likely genuinely-absent / not-published; retry won't help.
-  Distinguish this from high-blink by the PATTERN across repeats (genuine-absent = consistent F;
-  blink = mixed F/T), exactly as the revenue probe distinguished Pelago (0/5 stable) from Midi
-  (2/5 blink).
+- **Stable-absent (≈never found) — ONLY meaningful under SOURCE-DIRECTED retries** → likely
+  genuinely-absent / not-published; retry won't help. **Stable-absent under the BLIND config does NOT
+  establish genuine absence:** Pelago was 0/5 blind yet recovered under source-directed retries in the
+  live validation. So a "consistent F" pattern supports a genuine-absence call ONLY when the
+  source-directed retry produced it; a blind "consistent F" is an upper bound, not a measurement
+  (Rule 8). (Midi's 2/5 mixed F/T blind remains a valid blink example; the Pelago "0/5 = genuine
+  absence" reading is RETIRED.)
 - **Diffuse fields that turn out robust** (predicted org-events/strain/payer/outcomes) → confirm
   robust, leave on single pass. If any predicted-robust field shows a high blink rate, that's a
   surprise worth heeding — Rule 8, the prediction was wrong, follow the data.
