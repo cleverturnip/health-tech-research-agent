@@ -447,6 +447,104 @@ claims. Do not invent figures or events.
 
 
 # =============================================================================
+# STEP 4c - Search recovery: always-run-N + union on web-search variance
+# =============================================================================
+#
+# Web search is nondeterministic: a single pass coin-flips on whether it reaches
+# the page that holds a figure (see audits/research_revenue_cause_isolation_findings.md
+# -- Midi revenue 2/5 byte-identical tries; Solace 5/5; Pelago 0/5, genuinely
+# absent). ``search_with_recovery`` is the field-agnostic fix: run a FIXED N passes
+# on every company and UNION all results. Pass 1 is the proven general search;
+# passes 2..N are source-directed (lead, not filter). There is NO conditional stop,
+# so the retry layer makes NO quality judgment -- quality is rated entirely
+# downstream by the fit-brief synthesis (evidence_confidence_score / q4).
+# ``call_openai`` is untouched; its blank-guard still protects each individual pass.
+# Spec: specs/search_recovery_retry_union_spec.md.
+
+
+@dataclass
+class RecoveryProvenance:
+    """Observability-only record of one recovery run. Gates nothing and judges no
+    quality. ``figure_present`` is the single end-of-union presence check (the only
+    presence role left once stop-on-hit is gone); it feeds logging and the Mode-B
+    cross-check (the union held a figure the synthesis later left empty)."""
+
+    field_name: str
+    n_passes: int
+    figure_present: bool
+
+
+def _union_findings(findings) -> str:
+    """Concatenate labeled ``(label, text)`` pass findings, preserving everything.
+    Conflicting figures are NOT collapsed -- the synthesis adjudicates (Rule 7)."""
+    return "\n\n".join(f"--- {label} ---\n{text}" for label, text in findings)
+
+
+def search_with_recovery(
+    search_fn,
+    research_query,
+    *,
+    client,
+    model: str = DEFAULT_MODEL,
+    retry_prompt_builder,
+    presence_check,
+    field_name: str,
+    n_passes: int = 5,
+):
+    """Run ``n_passes`` web searches and UNION the results -- the field-agnostic
+    recovery mechanism (no early stop; every company gets all N passes).
+
+    * Pass 1 calls ``search_fn(research_query, client=, model=)`` verbatim (the
+      proven general search).
+    * Passes 2..N call ``call_openai`` with ``retry_prompt_builder(research_query)``
+      (source-directed; web search ON).
+    * Passes that returned ``SEARCH_FAILED_MARKER`` or blank contribute NOTHING to
+      the union. If EVERY pass failed, ``SEARCH_FAILED_MARKER`` is returned so
+      downstream ``is_search_failure`` still tells a failed search apart from a
+      genuine no-figure finding.
+    * ``presence_check(union_text, client=, model=) -> bool`` is OBSERVABILITY ONLY
+      (provenance + Mode-B cross-check): it gates nothing and judges no quality.
+
+    ``search_fn`` / ``retry_prompt_builder`` / ``presence_check`` / ``field_name``
+    are per-field config, so adding a field is configuration, not a rewrite.
+    Returns ``(union_text, RecoveryProvenance)``.
+    """
+    if n_passes < 1:
+        raise ValueError("n_passes must be >= 1")
+
+    findings = [
+        ("pass1 (general)", search_fn(research_query, client=client, model=model))
+    ]
+    for p in range(2, n_passes + 1):
+        text = call_openai(
+            retry_prompt_builder(research_query),
+            client=client,
+            model=model,
+            use_web_search=True,
+            max_output_tokens=700,
+        )
+        findings.append((f"pass{p} (source-directed)", text))
+
+    real = [
+        (label, text)
+        for label, text in findings
+        if str(text or "").strip() and not is_search_failure(text)
+    ]
+    if not real:
+        # Every pass failed or was blank -> preserve the failure signal so the
+        # union is not mistaken for a genuine "no figure found".
+        return SEARCH_FAILED_MARKER, RecoveryProvenance(
+            field_name=field_name, n_passes=n_passes, figure_present=False
+        )
+
+    union_text = _union_findings(real)
+    figure_present = bool(presence_check(union_text, client=client, model=model))
+    return union_text, RecoveryProvenance(
+        field_name=field_name, n_passes=n_passes, figure_present=figure_present
+    )
+
+
+# =============================================================================
 # STEP 5 - Company fit synthesis prompt
 # =============================================================================
 

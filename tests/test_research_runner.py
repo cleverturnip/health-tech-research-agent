@@ -1017,3 +1017,154 @@ def test_fit_brief_capability_block_and_schema():
     for key in ('"a1_score"', '"a1_basis"', '"a2_score"', '"a2_basis"', '"a3_score"', '"a3_basis"'):
         assert key in prompt
     assert "HIGH = strained / high opportunity, LOW = smoothly-scaling" in prompt
+
+
+# ---------------------------------------------------------------------------
+# search_with_recovery — always-run-N + union (generic mechanism, Step 1)
+# ---------------------------------------------------------------------------
+
+
+def _stub_search(text):
+    """A search_fn double that ignores the client and returns fixed text, so the
+    client.calls count reflects only the source-directed retry passes."""
+
+    def _search(research_query, *, client, model):
+        return text
+
+    return _search
+
+
+def _retry_builder(query):
+    return f"source-directed retry for {query}"
+
+
+def _present(union_text, *, client, model):
+    return True
+
+
+def _absent(union_text, *, client, model):
+    return False
+
+
+def test_search_with_recovery_always_runs_n_passes_and_unions():
+    client = ScriptedClient(["pass2 text", "pass3 text"])  # passes 2 and 3
+    union, prov = rr.search_with_recovery(
+        _stub_search("pass1 text"),
+        "Acme Health",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert len(client.calls) == 2  # passes 2,3 hit the client; pass 1 is stubbed
+    assert all(s in union for s in ("pass1 text", "pass2 text", "pass3 text"))
+    assert prov.n_passes == 3
+    assert prov.field_name == "revenue"
+    assert prov.figure_present is True
+
+
+def test_search_with_recovery_runs_all_passes_even_when_pass1_has_content():
+    # No early stop: pass 1 "finding" a figure does NOT short-circuit the rest.
+    client = ScriptedClient(["p2", "p3", "p4"])
+    _union, prov = rr.search_with_recovery(
+        _stub_search("pass1 has $150M run-rate"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=4,
+    )
+    assert len(client.calls) == 3  # passes 2,3,4 all ran
+    assert prov.n_passes == 4
+
+
+def test_search_with_recovery_retry_passes_use_web_search():
+    client = ScriptedClient(["p2", "p3"])
+    rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    for call in client.calls:  # every retry pass is a web search
+        assert call["tools"] == [{"type": "web_search"}]
+        assert call["tool_choice"] == "auto"
+
+
+def test_search_with_recovery_union_preserves_conflicting_figures():
+    client = ScriptedClient(["$150M run-rate (CB Insights)", "no revenue disclosed"])
+    union, _prov = rr.search_with_recovery(
+        _stub_search("$115.9M revenue (Latka)"),
+        "Midi",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert "115.9" in union and "150M" in union  # both legitimate figures kept
+
+
+def test_search_with_recovery_excludes_failed_passes_from_union():
+    client = ScriptedClient([rr.SEARCH_FAILED_MARKER, "pass3 real text"])
+    union, _prov = rr.search_with_recovery(
+        _stub_search("pass1 real text"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert rr.SEARCH_FAILED_MARKER not in union
+    assert "pass1 real text" in union and "pass3 real text" in union
+    assert not rr.is_search_failure(union)
+
+
+def test_search_with_recovery_returns_marker_when_all_passes_fail():
+    client = ScriptedClient([rr.SEARCH_FAILED_MARKER, rr.SEARCH_FAILED_MARKER])
+    union, prov = rr.search_with_recovery(
+        _stub_search(rr.SEARCH_FAILED_MARKER),
+        "Ghost",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,  # would say present, but all-failed short-circuits first
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert union == rr.SEARCH_FAILED_MARKER
+    assert rr.is_search_failure(union)
+    assert prov.figure_present is False
+
+
+def test_search_with_recovery_presence_check_is_observability_only():
+    def run(presence_check):
+        client = ScriptedClient(["p2", "p3"])
+        union, prov = rr.search_with_recovery(
+            _stub_search("p1"),
+            "Acme",
+            client=client,
+            model="m",
+            retry_prompt_builder=_retry_builder,
+            presence_check=presence_check,
+            field_name="revenue",
+            n_passes=3,
+        )
+        return union, prov, len(client.calls)
+
+    union_t, prov_t, calls_t = run(_present)
+    union_f, prov_f, calls_f = run(_absent)
+    assert union_t == union_f  # union content identical regardless of presence verdict
+    assert calls_t == calls_f == 2  # pass count identical
+    assert prov_t.figure_present is True and prov_f.figure_present is False
