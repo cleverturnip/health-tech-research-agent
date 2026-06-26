@@ -548,6 +548,10 @@ def search_with_recovery(
 # Revenue config (the first instance of search_with_recovery)
 # ---------------------------------------------------------------------------
 
+# Per-field pass budget for revenue recovery (spec: N=5 -> ~92% worst-case recovery
+# on the Midi p=.40 case; passes 2..N are source-directed so real recovery >= that).
+REVENUE_RECOVERY_PASSES = 5
+
 
 def revenue_source_directed_prompt(research_query) -> str:
     """Source-directed retry prompt for passes 2..N of revenue recovery.
@@ -1273,7 +1277,22 @@ def run_research_batch(
             outcomes = search_outcomes(research_query, client=client, model=model)
             sleep_fn(wait_between_searches)
 
-            commercial = search_commercial_scale(research_query, client=client, model=model)
+            commercial, commercial_recovery = search_with_recovery(
+                search_commercial_scale,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=revenue_source_directed_prompt,
+                presence_check=revenue_presence_check,
+                field_name="revenue",
+                n_passes=REVENUE_RECOVERY_PASSES,
+            )
+            logger.info(
+                "Revenue recovery for %s: %s passes, figure_present=%s.",
+                company,
+                commercial_recovery.n_passes,
+                commercial_recovery.figure_present,
+            )
             sleep_fn(wait_between_searches)
 
             org_events = search_org_events(research_query, client=client, model=model)

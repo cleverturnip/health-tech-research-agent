@@ -507,10 +507,12 @@ def test_load_taxonomy_block_falls_back_when_builder_raises(monkeypatch):
 class BatchClient:
     """Fake OpenAI client for batch tests.
 
-    Distinguishes the four web searches (kwargs carry ``tools``) from the fit
-    brief (no ``tools``). It detects which company a call is for by finding a
-    company name inside the prompt, then:
+    Distinguishes web searches (kwargs carry ``tools`` — incl. the commercial
+    recovery passes) from the revenue presence check (no ``tools``, detected by its
+    "PRESENT or ABSENT" prompt) from the fit brief (no ``tools``). It detects which
+    company a call is for by finding a company name inside the prompt, then:
       * search calls -> return a short finding string;
+      * presence-check calls -> return "PRESENT" (observability only);
       * fit-brief calls -> return minimal valid JSON, UNLESS the company is in
         ``fail_on`` (raise ``fail_exc``) or ``bad_json_for`` (return non-JSON).
     Use company names that are not substrings of one another (e.g. Acme / Beta).
@@ -537,8 +539,10 @@ class BatchClient:
         self.calls.append(kwargs)
         prompt = kwargs["input"]
         company = self._company_in(prompt)
-        if "tools" in kwargs:  # one of the four research searches
+        if "tools" in kwargs:  # any web search (incl. the commercial recovery passes)
             return FakeResponse(f"finding for {company}")
+        if "PRESENT or ABSENT" in prompt:  # the revenue presence check (observability only)
+            return FakeResponse("PRESENT")
         # otherwise the fit-brief synthesis call
         if company in self.fail_on:
             raise self.fail_exc
@@ -547,7 +551,11 @@ class BatchClient:
         return FakeResponse('{"company": "%s", "priority_level": "P2"}' % company)
 
     def fitbrief_inputs(self):
-        return [c["input"] for c in self.calls if "tools" not in c]
+        return [
+            c["input"]
+            for c in self.calls
+            if "tools" not in c and "PRESENT or ABSENT" not in c["input"]
+        ]
 
 
 def _seed_complete_checkpoint(path, company):
@@ -941,17 +949,43 @@ def test_build_latest_status_findings_has_six_labeled_sections():
     assert "OE" in out and "OC" in out                       # the two new findings are carried
 
 
-def test_batch_runs_six_searches_and_persists_operator_findings(tmp_path):
-    """The loop calls all six searches per company and persists the two new finding columns."""
+def test_batch_runs_searches_and_persists_operator_findings(tmp_path):
+    """The loop runs all searches per company and persists the two new finding columns.
+    Commercial is now an N=5 recovery (step 5), so the web-search count rose from 6 to 10."""
     ckpt = tmp_path / "c.csv"
     client = BatchClient(companies=["Acme"])
     run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
     search_calls = [c for c in client.calls if "tools" in c]
-    assert len(search_calls) == 6                            # 4 original + 2 operator
+    # 5 single searches (funding/payer/outcomes/org/operating) + 5 commercial recovery passes
+    assert len(search_calls) == 10
     df = pd.read_csv(ckpt)
     for col in ("org_events_finding", "operating_characteristics_finding"):
         assert col in df.columns
         assert str(df.iloc[0][col]).strip() != ""
+
+
+def test_batch_commercial_uses_recovery_union_and_resume_is_idempotent(tmp_path):
+    """Step 5 wiring: commercial_scale_finding is the N=5 recovery UNION; a completed
+    company is skipped on resume with zero new calls (resume/idempotency unchanged)."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+
+    commercial = pd.read_csv(ckpt).iloc[0]["commercial_scale_finding"]
+    # all five passes are unioned into the one finding (pass 1 general + 4 source-directed)
+    assert "pass1 (general)" in commercial
+    assert "pass5 (source-directed)" in commercial
+    n_passes = commercial.count("(general)") + commercial.count("(source-directed)")
+    assert n_passes == 5
+
+    # resume: Acme already complete -> skipped, NOTHING re-researched (no new API calls)
+    client2 = BatchClient(companies=["Acme"])
+    result2 = run_research_batch(
+        ["Acme"], client=client2, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+    assert result2.reused == ["Acme"]
+    assert result2.completed == []
+    assert client2.calls == []  # idempotent resume: search_with_recovery NOT re-invoked
 
 
 def test_fit_brief_reset_nudge_points_at_org_events_and_does_not_rejudge():
