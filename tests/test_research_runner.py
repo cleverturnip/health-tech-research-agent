@@ -1392,6 +1392,16 @@ def test_paying_count_presence_check_excludes_covered_lives_and_parses():
     assert rr.paying_count_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
 
 
+def test_prompt_revenue_per_user_derive_in_synthesis():
+    # Group 2: rev-per-user derives in the synthesis from already-recovered revenue ÷ paying-count.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert "COMPUTE it from figures already recovered" in prompt
+    assert "revenue ÷ paying-customer count" in prompt
+    assert "SHOW THE INPUTS" in prompt
+    assert "Mark a computed value DERIVED" in prompt
+    assert "Never emit a bare per-user number" in prompt
+
+
 def test_revenue_presence_check_prompt_shape_and_no_web_search():
     client = RecordingClient(["PRESENT"])
     rr.revenue_presence_check(

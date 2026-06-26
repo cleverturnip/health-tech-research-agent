@@ -913,6 +913,7 @@ Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the sys
 Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
 - Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
 - List every revenue/ARR/run-rate figure that a source actually STATED, or that is implied from paying-customers × pricing — including weak or single-source figures. Do NOT omit a real figure for being low-quality; quality is captured by evidence_confidence_score and q4, never by exclusion here. Leave the field empty only if NO real figure was found in any pass.
+- revenue_per_user: prefer a company-stated figure; otherwise COMPUTE it from figures already recovered -- revenue ÷ paying-customer count, or annual pricing -- and SHOW THE INPUTS inline, e.g. "~$500/yr, computed from ~$100M revenue ÷ ~200k paying members" or "from $29/mo pricing x 12". Mark a computed value DERIVED (not company-reported). Leave empty only if neither a stated figure nor the inputs to derive one are available. Never emit a bare per-user number with no inputs.
 - ENTITY-DOUBT handling for a revenue figure whose source name/domain you are NOT certain is THIS company:
   - PLAUSIBLE alias (same or adjacent name; a brand alias or "Join X" / joinX.com matching the company's own domain root; or a known former name) -> CARRY the figure in revenue_or_arr, tag it inline "(entity-uncertain: possible alias of <company> -- verify)", set "entity_review_needed": "possible-alias", note it in unverified_or_weak_claims, and keep evidence_confidence_score moderate-to-low. NEVER silently omit it.
   - CLEAR mismatch (a different industry/business, a clearly different named company, or a scale implausibly off -- e.g. orders of magnitude below the company's corroborated scale) -> EXCLUDE it as wrong-entity and say so in unverified_or_weak_claims.
@@ -1217,7 +1218,7 @@ Use this JSON schema exactly:
   "commercial_evidence": {{
     "revenue_or_arr": "List ALL revenue/ARR/run-rate figures found, each with source, date, and type (company-reported / credible-estimate / implied-from-pricing / weak-single-source). Empty ONLY if NO real figure was found in any pass.",
     "paying_customer_count": "PAYING users/subscribers/members/customers only (exclude free/trial/pilot/waitlist) + source, or empty",
-    "revenue_per_user": "reported or derived revenue per paying user, or empty",
+    "revenue_per_user": "company-stated, OR DERIVED from revenue ÷ paying-customer count or annual pricing WITH the inputs shown (mark DERIVED, not company-reported); empty only if neither a figure nor the inputs to derive one exist",
     "growth_signal": "growing / flat / declining (+ rough rate if available)",
     "business_model_type": "consumer-subscription / enterprise / payer-reimbursed / other",
     "funding_evidence": "raises / valuation (context ONLY; the system EXCLUDES this from the commercial signal)",
