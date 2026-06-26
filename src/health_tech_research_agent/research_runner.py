@@ -784,6 +784,10 @@ Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the sys
 Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
 - Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
 - List every revenue/ARR/run-rate figure that a source actually STATED, or that is implied from paying-customers × pricing — including weak or single-source figures. Do NOT omit a real figure for being low-quality; quality is captured by evidence_confidence_score and q4, never by exclusion here. Leave the field empty only if NO real figure was found in any pass.
+- ENTITY-DOUBT handling for a revenue figure whose source name/domain you are NOT certain is THIS company:
+  - PLAUSIBLE alias (same or adjacent name; a brand alias or "Join X" / joinX.com matching the company's own domain root; or a known former name) -> CARRY the figure in revenue_or_arr, tag it inline "(entity-uncertain: possible alias of <company> -- verify)", set "entity_review_needed": "possible-alias", note it in unverified_or_weak_claims, and keep evidence_confidence_score moderate-to-low. NEVER silently omit it.
+  - CLEAR mismatch (a different industry/business, a clearly different named company, or a scale implausibly off -- e.g. orders of magnitude below the company's corroborated scale) -> EXCLUDE it as wrong-entity and say so in unverified_or_weak_claims.
+  - When genuinely unsure which applies, PREFER carry+flag over silent drop: a flagged figure is reviewable; a dropped one is invisible.
 - funding_evidence is context ONLY. Funding raised and valuation are NOT commercial traction and are structurally excluded from the signal — do not let them influence q1/q2.
 - The commercial research section now tags each figure with a SOURCE TYPE (company-reported / third-party estimate / promotional) and, where available, a TREND/history; read q4_evidence_quality off those SOURCE TYPE tags and read q1_acquisition off the TREND. Still answer q1-q4 here as defined below — the search only supplies richer evidence, it does not move where these are judged.
 - q1_acquisition: direction of the PAYING base (growing / flat / declining).
@@ -1137,6 +1141,7 @@ Use this JSON schema exactly:
   "final_recommendation": "Strong fit, active pursuit / Strong fit, near-priority diligence / Possible fit, pending diligence / Watch list / Weak fit",
   "priority_level": "P0: Highest-priority target / P1: High-priority diligence / P2: Worth deeper diligence / P3: Watch list / P4: Low priority / likely reject",
   "calibration_flag": "short flag if needed, otherwise blank string",
+  "entity_review_needed": "none / possible-alias -- set 'possible-alias' when carrying an entity-uncertain figure per the entity-doubt rule, else 'none'",
   "final_takeaway": "1-3 sentence concise conclusion"
 }}
 """

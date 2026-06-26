@@ -189,6 +189,7 @@ def build_summary(df: pd.DataFrame) -> pd.DataFrame:
             "stage_timing_fit": timing.get("stage_timing_fit", ""),
             "why_now_or_why_not": timing.get("why_now_or_why_not", ""),
             "calibration_flag": parsed.get("calibration_flag", ""),
+            "entity_review_needed": parsed.get("entity_review_needed", ""),
             "final_takeaway": parsed.get("final_takeaway", ""),
             "funding_finding": raw_row.get("funding_finding", ""),
             "payer_institutional_finding": raw_row.get(

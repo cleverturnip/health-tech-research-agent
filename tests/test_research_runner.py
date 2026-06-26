@@ -1295,6 +1295,46 @@ def test_revenue_source_directed_prompt_has_url_targeting_and_alias_handling():
     assert "companies house" in low or "statutory filing" in low
 
 
+def test_prompt_entity_carry_and_flag_rule():
+    # B2: plausible-alias -> carry + flag (queryable field); clear mismatch -> drop; prefer carry when unsure.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert '"entity_review_needed"' in prompt  # dedicated queryable field in the schema
+    assert "possible-alias" in prompt
+    assert "PLAUSIBLE alias" in prompt
+    assert "CLEAR mismatch" in prompt
+    assert "(entity-uncertain: possible alias of" in prompt
+    assert "NEVER silently omit" in prompt
+    assert "PREFER carry+flag over silent drop" in prompt
+
+
+def test_build_summary_surfaces_entity_review_needed_field():
+    # B2: the flag must be a QUERYABLE column (routes to manual review), not buried free-text.
+    import json
+
+    from health_tech_research_agent.review import build_summary
+
+    fit_present = json.dumps(
+        {
+            "entity_review_needed": "possible-alias",
+            "commercial_evidence": {
+                "revenue_or_arr": "$82.3M (entity-uncertain: possible alias of ZOE — verify)"
+            },
+        }
+    )
+    fit_absent = json.dumps({"commercial_evidence": {"revenue_or_arr": "$10M"}})
+    df = pd.DataFrame(
+        [
+            {"company": "ZOE", "fit_brief_json": fit_present},
+            {"company": "Other", "fit_brief_json": fit_absent},
+        ]
+    )
+    summary = build_summary(df)
+    assert "entity_review_needed" in summary.columns  # queryable/filterable column
+    by_company = dict(zip(summary["company"], summary["entity_review_needed"]))
+    assert by_company["ZOE"] == "possible-alias"
+    assert by_company["Other"] == ""  # additive default; no false flags
+
+
 def test_revenue_presence_check_prompt_shape_and_no_web_search():
     client = RecordingClient(["PRESENT"])
     rr.revenue_presence_check(
