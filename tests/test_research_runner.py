@@ -1279,6 +1279,22 @@ def test_revenue_source_directed_prompt_leads_but_does_not_filter():
     assert "do not restrict" in low
 
 
+def test_revenue_source_directed_prompt_has_url_targeting_and_alias_handling():
+    # B1: direct-URL targeting + alias/former-name handling, framed as ADDITIVE (not a filter).
+    prompt = rr.revenue_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    low = prompt.lower()
+    # direct-URL patterns for the named aggregators (reliability boost on pages we know exist)
+    assert "getlatka.com/companies/" in low
+    assert "cbinsights.com/company/" in low
+    # alias / former-name handling (the Pelago/Quit Genius, Join-X miss class)
+    assert "former name" in low
+    assert "alias" in low
+    # ADDITIVE framing — must NOT become the filter we rejected (Gate-2 softening)
+    assert "in addition to, not instead of" in low
+    # off-aggregator company-disclosed figures still required, incl. statutory filings (ZOE/Companies House)
+    assert "companies house" in low or "statutory filing" in low
+
+
 def test_revenue_presence_check_prompt_shape_and_no_web_search():
     client = RecordingClient(["PRESENT"])
     rr.revenue_presence_check(

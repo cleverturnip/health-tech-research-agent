@@ -585,30 +585,42 @@ REVENUE_RECOVERY_PASSES = 5
 def revenue_source_directed_prompt(research_query) -> str:
     """Source-directed retry prompt for passes 2..N of revenue recovery.
 
-    LEADS with the financial-data sources that recurred across our recoveries
-    (CB Insights / Latka / Growjo / PitchBook / Sacra), but as a LEAD, NOT a FILTER:
-    it MUST still surface company-disclosed figures wherever they live -- press
-    releases, crowdfunding disclosures, founder interviews (our own recoveries: ZOE
-    via Crowdcube, Pelago via a press release; neither is an aggregator). It never
-    restricts to the five. The pass-1 general prompt (``search_commercial_scale``)
-    is unchanged; this only sharpens the retries. Issued with web search ON by
-    ``search_with_recovery``."""
+    Targets the financial-data sources that recurred across our recoveries
+    (CB Insights / Latka / Growjo / PitchBook / Sacra) by constructing their canonical
+    URLs directly (a per-pass reliability boost) AND by trying known aliases / former
+    names (the Pelago/Quit Genius, "Join X" miss class). This is ADDITIVE, never a
+    filter (Gate-2): it MUST still surface company-disclosed figures that live OUTSIDE
+    aggregators -- press releases, crowdfunding (Crowdcube), founder interviews,
+    statutory filings (Companies House) -- our own recoveries came through those. The
+    pass-1 general prompt (``search_commercial_scale``) is unchanged; this only sharpens
+    the retries. Issued with web search ON by ``search_with_recovery``."""
     return f"""
 Use live web search to find REVENUE / ARR / run-rate evidence for:
 
 {research_query}
 
-START by checking the financial-data sources that most often carry private-company
-revenue figures and estimates: CB Insights, Latka, Growjo, PitchBook, and Sacra.
+START by going DIRECTLY to the financial-data sources that most often carry private-
+company revenue figures and estimates. Construct and open their canonical pages from
+the company's domain / name so you reliably land on pages we know exist:
+- Latka: getlatka.com/companies/<company domain> (e.g. .../companies/pelagohealth.com)
+- CB Insights: cbinsights.com/company/<company-name>/financials
+- Growjo: its company page for the name AND for any former name
+- PitchBook and Sacra: the company's profile page
+Also try the company's KNOWN ALIASES and FORMER NAMES -- aggregators often list a
+company under a former name or a brand alias (e.g. Quit Genius -> Pelago; a "Join X"
+brand for X). If a page shows an entry that looks wrong for this company (absurd scale,
+wrong employee count, wrong industry), treat it as a possible namesake and try the
+alias / former name before concluding no figure exists.
 
-These sources are a LEAD, NOT a filter. You MUST ALSO surface company-disclosed
-figures wherever they live, including:
+This direct-URL targeting is IN ADDITION TO, NOT INSTEAD OF, the open search for
+company-disclosed figures wherever they live. The aggregators are a LEAD, NOT a filter
+-- you MUST ALSO surface company-disclosed figures that live OUTSIDE them, including:
 - company press releases, newsroom posts, and blog announcements
 - crowdfunding disclosures (e.g. Crowdcube, Wefunder) and investor / IR pages
 - founder or executive interviews and conference talks
-- reputable press citing a disclosed or estimated figure
-Do NOT restrict the search to the five sources above -- a real figure that lives
-only in a press release or a crowdfunding round MUST still be returned.
+- statutory filings (e.g. Companies House) and reputable press citing a figure
+Do NOT restrict the search to the aggregators above -- a real figure that lives only in
+a press release, a crowdfunding round, or a statutory filing MUST still be returned.
 
 For EACH figure include: the value with its date / period; the SOURCE TYPE
 (company-reported / third-party estimate -- name the source and method / promotional);
