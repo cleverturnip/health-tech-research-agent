@@ -180,14 +180,12 @@ Important:
 - Do not overstate uncertain funding information.
 - If source quality is weak, say so.
 
-Return a concise, sourced FACT LIST covering, where available: the DATED funding-round sequence (each
-round WITH its date), and from it funding_stage as follows -- if a dated IPO / public-listing event
-exists, funding_stage = "public" (a public event OUTRANKS any private round); otherwise funding_stage =
-the stage of the latest-dated PRICED EQUITY round (a later bridge / extension / SAFE / debt event does
-NOT redefine the bucket -- a 2025 bridge after a 2023 Series C is still Series C). Also report IPO /
-public status (with the IPO/filing date); total funding to date; valuation; and founding year.
-Tag each fact with its source name and date. A round whose DATE cannot be established must be
-flagged "date unknown" and NOT used to set funding_stage -- never silently pick an undated round.
+Return a concise, sourced FACT LIST covering, where available: the DATED funding-round sequence (EACH
+round with its date, amount, and whether it is a priced equity round vs a bridge / extension / SAFE /
+debt event); any IPO / public-listing event with its date; total funding to date; valuation; and
+founding year. Tag each fact with its source name and date. GATHER every round (including undated ones,
+marked date-unknown) -- do NOT compute or pick a single funding_stage; a deterministic rule downstream
+selects it from the rounds you gather.
 If a particular fact is not found, say so rather than guessing.
 If no credible public funding evidence exists at all, say "No strong public funding evidence found."
 Do not invent figures.
@@ -945,11 +943,18 @@ PMF / scale guardrails:
 - Do not require D2C revenue quality for a high PMF/scale score if the company has strong institutional distribution.
 - Pricing alone, a membership model alone, a waitlist alone, funding alone, or role-fit relevance alone is not enough to establish strong PMF/scale.
 
-Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the system derives it deterministically from funding_stage + ipo_status.
-- funding_stage = the company's MOST RECENT priced round. If credible sources don't establish it, use "unknown" — do NOT infer a stage from headcount, revenue, valuation, or "feel."
+Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label OR a funding_stage; the system
+derives BOTH deterministically (a code mapper picks funding_stage from the rounds; maturity from
+funding_stage + ipo_status).
+- funding_rounds = GATHER every funding round you can source, each with its type, date, amount, and
+  is_priced_equity (priced equity vs bridge/extension/SAFE/convertible/debt). Include undated rounds
+  with date "unknown". Do NOT pick a single stage and do NOT infer rounds from headcount, revenue,
+  valuation, or "feel" — the deterministic mapper selects the stage (public-outranks; else latest-dated
+  priced round) from what you gather.
+- ipo_event = {{"occurred": true/false, "date": ...}} for a real IPO / public-listing event.
 - ipo_status = "public" if shares trade publicly; "filed" ONLY if an S-1 / IPO registration is publicly filed but shares are not yet trading; otherwise "private".
-- Revenue, ARR, valuation, and growth do NOT determine maturity — capture those under commercial_evidence. A Series B company with large revenue is still funding_stage = "series-b".
-- funding_stage_evidence: cite the source + date for the stage and IPO status.
+- Revenue, ARR, valuation, and growth do NOT determine maturity — capture those under commercial_evidence. A Series B company with large revenue is still a series-b round (NOT a higher stage).
+- funding_stage_evidence: cite the source + date for the funding rounds and IPO status.
 
 Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
 - Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
@@ -1232,14 +1237,22 @@ Use this JSON schema exactly:
   "commercial_scale_assessment": "plain-English assessment of revenue quality, paid-customer scale, retention, pricing power, CAC/margin if available, and whether revenue is reported, estimated, or inferred",
   "pmf_scale_assessment": "plain-English assessment explaining the strongest scale engine, secondary scale engine if any, outcomes/product-value support, and key caveats",
   "maturity_evidence": {{
-    "funding_stage": "most recent priced round: pre-seed / seed / series-a / series-b / series-c / series-d-plus / public / unknown",
+    "funding_rounds": [
+      {{
+        "type": "pre-seed / seed / series-a / series-b / series-c / series-d / series-e / ... / bridge / extension / SAFE / convertible / debt",
+        "date": "YYYY or YYYY-MM, or 'unknown' if you cannot establish it",
+        "amount": "$ amount, or 'unknown'",
+        "is_priced_equity": "true for a priced equity round (seed/series-*); false for bridge/extension/SAFE/convertible/debt"
+      }}
+    ],
+    "ipo_event": {{ "occurred": "true or false", "date": "YYYY or YYYY-MM, or 'unknown'" }},
     "ipo_status": "private / filed / public",
     "ipo_or_filing_date": "date if filed or public, else empty",
     "founding_year": "YYYY, or empty",
     "last_raise_date": "date of most recent raise, or empty",
     "last_raise_amount": "amount + currency of most recent raise, or empty",
     "total_funding": "total disclosed funding, or empty",
-    "funding_stage_evidence": "short source/basis (name + date) for funding_stage and ipo_status"
+    "funding_stage_evidence": "short source/basis (name + date) for the funding rounds and ipo_status"
   }},
   "role_timing_assessment": {{
     "likely_agency_level": "high / medium / low / role-dependent",

@@ -252,7 +252,12 @@ def test_commercial_signal_text_roundtrips_with_engine(score, text):
 def test_flatten_extracts_all_fields():
     parsed = {
         "maturity_evidence": {
-            "funding_stage": "series-b", "ipo_status": "private", "founding_year": "2019",
+            "funding_rounds": [
+                {"type": "series-a", "date": "2020", "amount": "$10M", "is_priced_equity": True},
+                {"type": "series-b", "date": "2022", "amount": "$30M", "is_priced_equity": True},
+            ],
+            "ipo_event": {"occurred": False},
+            "ipo_status": "private", "founding_year": "2019",
             "total_funding": "$250M", "funding_stage_evidence": "Crunchbase 2025",
         },
         "commercial_evidence": {
@@ -266,7 +271,8 @@ def test_flatten_extracts_all_fields():
     # every declared column present
     for field in se.MATURITY_EVIDENCE_FIELDS + se.COMMERCIAL_EVIDENCE_FIELDS:
         assert field in flat
-    assert flat["funding_stage"] == "series-b"
+    assert flat["funding_stage"] == "series-b"           # DERIVED by the mapper (latest priced round)
+    assert "series-b" in flat["funding_rounds_json"]     # raw rounds persisted (recomputable)
     assert flat["q3_funding_dependent"] == "no"
     assert flat["revenue_or_arr"] == "$100M (Sacra)"
     assert flat["user_scale_signal"] == "~2M registered users (2024)"   # secondary signal persisted
@@ -279,13 +285,18 @@ def test_flatten_missing_or_nondict_blocks_yield_empty_strings():
     for parsed in ({}, {"maturity_evidence": None, "commercial_evidence": "oops"}, "not-a-dict"):
         flat = se.flatten_slice2_fields(parsed)
         assert set(flat) == set(se.MATURITY_EVIDENCE_FIELDS + se.COMMERCIAL_EVIDENCE_FIELDS)
-        assert all(value == "" for value in flat.values())
+        # funding_stage is mapper-derived: no rounds -> "unknown"; every other field empty
+        assert flat["funding_stage"] == "unknown"
+        assert all(v == "" for k, v in flat.items() if k != "funding_stage")
 
 
 def test_flatten_and_derive_compose():
     """flatten -> derive on the flattened row reproduces the expected label/signal."""
     parsed = {
-        "maturity_evidence": {"funding_stage": "series-b", "ipo_status": "private"},
+        "maturity_evidence": {
+            "funding_rounds": [{"type": "series-b", "date": "2022", "is_priced_equity": True}],
+            "ipo_event": {"occurred": False}, "ipo_status": "private",
+        },
         "commercial_evidence": {
             "revenue_or_arr": "$100M (Sacra)", "paying_customer_count": "200k",
             "q1_acquisition": "growing", "q2_monetization": "strong",
@@ -295,6 +306,36 @@ def test_flatten_and_derive_compose():
     flat = se.flatten_slice2_fields(parsed)
     assert se.derive_maturity(flat) == ("early-growth", False)
     assert se.derive_commercial_signal(flat) == 3
+
+
+def test_funding_stage_mapper():
+    """The deterministic Rule-7 mapper -- the whole selection logic validated offline (zero credits)."""
+    sword = [{"type": "series-a", "date": "2019", "is_priced_equity": True},
+             {"type": "series-b", "date": "2020", "is_priced_equity": True},
+             {"type": "series-c", "date": "2021", "is_priced_equity": True},
+             {"type": "series-d", "date": "2021-11", "is_priced_equity": True}]
+    assert se.funding_stage_from_rounds(sword, {"occurred": False}) == "series-d-plus"   # latest priced = D
+    allara = [{"type": "seed", "date": "2021", "is_priced_equity": True},
+              {"type": "series-a", "date": "2022", "is_priced_equity": True},
+              {"type": "series-b", "date": "2023", "is_priced_equity": True}]
+    assert se.funding_stage_from_rounds(allara, {"occurred": False}) == "series-b"        # control -> B
+    assert se.funding_stage_from_rounds(allara, {"occurred": True, "date": "2025-05"}) == "public"  # IPO outranks
+    bridge_after_c = [{"type": "series-c", "date": "2022", "is_priced_equity": True},
+                      {"type": "bridge", "date": "2024", "is_priced_equity": False}]
+    assert se.funding_stage_from_rounds(bridge_after_c, {"occurred": False}) == "series-c"  # bridge != new bucket
+    assert se.funding_stage_from_rounds(
+        [{"type": "series-b", "date": "unknown", "is_priced_equity": True}], {"occurred": False}) == "unknown"
+    assert se.funding_stage_from_rounds([], {"occurred": False}) == "unknown"              # empty
+    # Tightening 1: seed-only -> the too-early bucket "seed" (gate FAIL), NOT a generic pass
+    assert se.funding_stage_from_rounds(
+        [{"type": "seed", "date": "2023", "is_priced_equity": True}], {"occurred": False}) == "seed"
+    # Tightening 2: same-year tie (C 2021 + D 2021) -> later stage wins -> series-d-plus
+    assert se.funding_stage_from_rounds(
+        [{"type": "series-c", "date": "2021", "is_priced_equity": True},
+         {"type": "series-d", "date": "2021", "is_priced_equity": True}], {"occurred": False}) == "series-d-plus"
+    # tolerates the LLM emitting string booleans ("true"/"false")
+    assert se.funding_stage_from_rounds(
+        [{"type": "series-b", "date": "2022", "is_priced_equity": "true"}], {"occurred": "false"}) == "series-b"
 
 
 # ---------------------------------------------------------------------------

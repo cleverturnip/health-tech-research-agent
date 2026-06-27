@@ -65,6 +65,7 @@ MATURITY_EVIDENCE_FIELDS = [
     "last_raise_amount",
     "total_funding",
     "funding_stage_evidence",
+    "funding_rounds_json",
 ]
 COMMERCIAL_EVIDENCE_FIELDS = [
     "revenue_or_arr",
@@ -139,6 +140,69 @@ def _norm_stage(value) -> str:
     if re.match(r"^series-[d-z]", text):
         return "series-d-plus"
     return text
+
+
+# ---------------------------------------------------------------------------
+# Funding-stage MAPPER (Rule 7, FRAMEWORK_VERSION v1.2) -- the LLM GATHERS dated rounds; CODE picks the
+# stage. Replaces the old LLM-emitted funding_stage, which blinked across the round sequence (even the
+# Allara control). SOT B4: a dated IPO/public event OUTRANKS any private round; else the latest-dated
+# PRICED EQUITY round (bridge/extension/SAFE/debt + undated rounds excluded). Emits the SOT B4 vocab.
+# ---------------------------------------------------------------------------
+
+# Raw stage order for the same-date tiebreak (NOT collapsed -- series-d beats series-c on equal dates).
+_STAGE_ORDER = [
+    "pre-seed", "seed", "series-a", "series-b", "series-c",
+    "series-d", "series-e", "series-f", "series-g", "series-h", "series-i",
+]
+
+
+def _is_true(value) -> bool:
+    """Tolerate the LLM emitting a bool OR a string ('true'/'yes') for booleans like is_priced_equity."""
+    return value is True or _norm(value) in {"true", "yes", "1"}
+
+
+def _has_date(value) -> bool:
+    """A round/event counts toward stage selection only with a real date -- 'unknown'/empty does not."""
+    text = _norm(value)
+    return bool(text) and text != "unknown"
+
+
+def _parse_date(value) -> tuple[int, int]:
+    """('YYYY' or 'YYYY-MM') -> (year, month). A bare year sorts at month 0 (so a more-specific same-year
+    round sorts later). Never raises -- a malformed date that slips past _has_date -> (0, 0)."""
+    try:
+        parts = _norm(value).split("-")
+        year = int(parts[0])
+        month = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        return (year, month)
+    except (ValueError, IndexError, AttributeError):
+        return (0, 0)
+
+
+def _stage_rank(round_type) -> int:
+    """Tiebreak rank for two rounds on the SAME date: the later stage wins (series-d > series-c)."""
+    try:
+        return _STAGE_ORDER.index(_norm_enum(round_type))
+    except ValueError:
+        return -1
+
+
+def funding_stage_from_rounds(funding_rounds, ipo_event) -> str:
+    """Deterministic funding_stage from the LLM-gathered dated rounds (Rule 7 -- the LLM never picks it).
+    public-outranks (SOT B4 refinement 2); else the latest-dated PRICED EQUITY round (refinement 1:
+    bridge/extension/SAFE/debt and undated rounds excluded). Returns the SOT B4 vocab, or 'unknown'."""
+    rounds = funding_rounds if isinstance(funding_rounds, list) else []
+    ipo = ipo_event if isinstance(ipo_event, dict) else {}
+    if _is_true(ipo.get("occurred")) and _has_date(ipo.get("date")):
+        return "public"
+    priced = [
+        r for r in rounds
+        if isinstance(r, dict) and _is_true(r.get("is_priced_equity")) and _has_date(r.get("date"))
+    ]
+    if not priced:
+        return "unknown"
+    latest = max(priced, key=lambda r: (_parse_date(r.get("date")), _stage_rank(r.get("type"))))
+    return _norm_stage(latest.get("type")) or "unknown"
 
 
 def _has_real_evidence(value) -> bool:
@@ -262,6 +326,12 @@ def flatten_slice2_fields(parsed) -> dict:
         out[field] = _safe_text(maturity.get(field, ""))
     for field in COMMERCIAL_EVIDENCE_FIELDS:
         out[field] = _safe_text(commercial.get(field, ""))
+    # B-rec (Rule 7): the LLM GATHERS dated rounds; funding_stage is DERIVED here by the deterministic
+    # mapper -- the LLM never picks it. Raw rounds persist as a JSON evidence column (recomputable,
+    # like reset_events_json).
+    rounds = maturity.get("funding_rounds")
+    out["funding_rounds_json"] = json.dumps(rounds) if isinstance(rounds, list) else ""
+    out["funding_stage"] = funding_stage_from_rounds(rounds, maturity.get("ipo_event"))
     return out
 
 

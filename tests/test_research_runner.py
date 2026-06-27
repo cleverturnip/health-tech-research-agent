@@ -327,7 +327,8 @@ def test_prompt_has_maturity_evidence_block():
     prompt = rr.build_fit_brief_prompt("C", "F", "T")
     assert '"maturity_evidence": {' in prompt
     for field in [
-        "funding_stage",
+        "funding_rounds",
+        "ipo_event",
         "ipo_status",
         "founding_year",
         "last_raise_date",
@@ -336,9 +337,11 @@ def test_prompt_has_maturity_evidence_block():
         "funding_stage_evidence",
     ]:
         assert f'"{field}":' in prompt
+    # B-rec (v1.2): the LLM gathers rounds and NEVER emits funding_stage (a code mapper derives it)
+    assert '"funding_stage":' not in prompt
     # the maturity-revenue separation backstop, stated in the prompt (Function fix)
-    assert "do NOT infer a stage from headcount, revenue" in prompt
-    assert 'still funding_stage = "series-b"' in prompt
+    assert "do NOT infer rounds from headcount, revenue" in prompt
+    assert "still a series-b round (NOT a higher stage)" in prompt
 
 
 def test_prompt_has_commercial_evidence_and_four_redflags():
@@ -892,11 +895,11 @@ def test_search_funding_gathers_fact_list_with_founding_year():
     assert "founding year" in prompt                          # added field (was uncovered)
     assert "FACT LIST" in prompt
     assert "Tag each fact with its source name and date." in prompt
-    # MISSING-DATE fix (v1.2): dated round sequence; priced-latest; public-outranks; undated excluded
+    # B-rec (v1.2): search GATHERS the dated rounds; a deterministic mapper picks funding_stage
     assert "DATED funding-round sequence" in prompt
-    assert "latest-dated PRICED EQUITY round" in prompt
-    assert "OUTRANKS any private round" in prompt
-    assert "date unknown" in prompt and "never silently pick an undated round" in prompt
+    assert "priced equity round" in prompt
+    assert "do NOT compute or pick a single funding_stage" in prompt
+    assert "date-unknown" in prompt
 
 
 def test_search_commercial_scale_gathers_provenance_and_trend():
