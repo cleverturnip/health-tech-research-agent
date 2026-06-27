@@ -347,6 +347,7 @@ def test_prompt_has_commercial_evidence_and_four_redflags():
     for field in [
         "revenue_or_arr",
         "paying_customer_count",
+        "user_scale_signal",
         "revenue_per_user",
         "growth_signal",
         "business_model_type",
@@ -358,6 +359,8 @@ def test_prompt_has_commercial_evidence_and_four_redflags():
     # funding is structurally excluded; q3 phrased as the counterfactual (Solace catch)
     assert "structurally excluded" in prompt
     assert "setting the funding/valuation story aside" in prompt
+    # user_scale_signal (SOT B6.1 v1.2): secondary signal, structurally barred from the score
+    assert "NEVER feeds growth_signal OR growth_score" in prompt
 
 
 def test_prompt_q4_evidence_quality_anchors():
@@ -1377,6 +1380,11 @@ def test_growth_rate_source_directed_prompt():
     assert "show the inputs" in low
     assert "never emit a bare" in low
     assert "derived-by-you" in low
+    # FENCE (FRAMEWORK_VERSION v1.2 / SOT B6.1): revenue or PAID-user growth ONLY; headcount/employee,
+    # partner/client-count, funding, and non-paying user/MAU/download growth are excluded
+    assert "paid-user growth rate" in low                # :688 tightened (no loose "revenue/user")
+    assert "headcount/" in low and "employee/team growth" in low
+    assert "partner/client-count growth" in low
 
 
 def test_growth_rate_presence_check_requires_period_and_parses():
@@ -1385,6 +1393,8 @@ def test_growth_rate_presence_check_requires_period_and_parses():
     low = client.last_prompt.lower()
     assert "time period" in low  # usable rate needs a period (Tightening 1 preserved)
     assert "derived" in low and "dated revenue endpoints" in low  # (b) a derived rate counts PRESENT
+    # FENCE (v1.2 / SOT B6.1): employee/headcount/funding/partner/non-paying-user growth do NOT count
+    assert "employee/headcount growth" in low and "non-paying" in low
     assert "tools" not in client.calls[-1]  # no web search
     assert rr.growth_rate_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
     assert rr.growth_rate_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False

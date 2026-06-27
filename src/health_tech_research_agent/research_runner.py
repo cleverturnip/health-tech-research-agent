@@ -685,13 +685,18 @@ def growth_rate_source_directed_prompt(research_query) -> str:
     search_commercial_scale, unchanged. (Matched unit with the growth_signal carry text + the
     growth_rate_presence_check derived-clause; ship together.)"""
     return f"""
-Use live web search to find the company's QUANTIFIED revenue/user GROWTH RATE for:
+Use live web search to find the company's QUANTIFIED revenue or PAID-user growth rate for:
 
 {research_query}
 
 A usable growth rate is a NUMBER WITH the time period it covers -- e.g. "287% in 2023",
 "+53% YoY 2024", "10x from Series B (2021) to 2023". The word "growing" with no number does
 NOT count.
+
+This is REVENUE growth or PAID-user/subscriber/member growth ONLY. Do NOT report headcount/
+employee/team growth, office or geographic expansion, partner/client-count growth, funding
+growth, or total-user/download/MAU growth that is NOT specifically PAID users/subscribers/
+members -- those are NOT the signal we need here.
 
 [1] COMPUTE the rate -- don't just look for a finished one. Growth rates exist as RAW MATERIAL
 (two or more dated revenue/ARR points) more often than as a pre-stated percentage. WHENEVER you
@@ -742,6 +747,9 @@ $150M (Sep 2025)")?
 
 A numeric rate WITHOUT a time period, a from->to WITHOUT dates, or a qualitative "growing" with no
 number does NOT count -- those are ABSENT for a usable rate.
+
+Employee/headcount growth, funding growth, partner-count growth, office expansion, or non-paying
+user/download/MAU growth do NOT count -- only REVENUE or PAID-user/subscriber/member growth.
 
 Answer with exactly one word: PRESENT or ABSENT.
 
@@ -1239,6 +1247,7 @@ Use this JSON schema exactly:
   "commercial_evidence": {{
     "revenue_or_arr": "List ALL revenue/ARR/run-rate figures found, each with source, date, and type (company-reported / credible-estimate / implied-from-pricing / weak-single-source). Empty ONLY if NO real figure was found in any pass.",
     "paying_customer_count": "PAYING users/subscribers/members/customers only (exclude free/trial/pilot/waitlist) + source, or empty",
+    "user_scale_signal": "NON-PAYING user-scale only -- total/registered/active users, MAU, app downloads/installs that are NOT paid -- with source/date and trend if available. e.g. '~2M registered users (2024), up from ~800k (2023)'. SECONDARY signal: NOT revenue, NOT paying customers; NEVER counts as revenue presence and NEVER feeds growth_signal OR growth_score. Empty if none.",
     "revenue_per_user": "company-stated, OR DERIVED from revenue ÷ paying-customer count or annual pricing WITH the inputs shown (mark DERIVED, not company-reported); empty only if neither a figure nor the inputs to derive one exist",
     "growth_signal": "growing / flat / declining, PLUS the quantified rate when found — carried WITH its period, and if COMPUTED from dated endpoints, WITH its inputs and a DERIVED tag. e.g. 'growing; 287% in 2023 (company-reported)' or 'growing; ~2.5x over ~9mo, DERIVED from $60M (Dec 2024) -> $150M (Sep 2025)'. NEVER strip the inputs/period or emit a bare rate. A DERIVED rate (or a third-party estimate) is a moderate-confidence source, NOT company-reported. Direction alone (no rate) is acceptable.",
     "business_model_type": "consumer-subscription / enterprise / payer-reimbursed / other",

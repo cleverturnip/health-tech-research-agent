@@ -257,6 +257,7 @@ def test_flatten_extracts_all_fields():
         },
         "commercial_evidence": {
             "revenue_or_arr": "$100M (Sacra)", "paying_customer_count": "200k",
+            "user_scale_signal": "~2M registered users (2024)",
             "q1_acquisition": "growing", "q2_monetization": "strong",
             "q3_funding_dependent": "no", "q4_evidence_quality": "credible-estimate",
         },
@@ -268,6 +269,7 @@ def test_flatten_extracts_all_fields():
     assert flat["funding_stage"] == "series-b"
     assert flat["q3_funding_dependent"] == "no"
     assert flat["revenue_or_arr"] == "$100M (Sacra)"
+    assert flat["user_scale_signal"] == "~2M registered users (2024)"   # secondary signal persisted
     # absent sub-fields become empty strings, not missing keys
     assert flat["ipo_or_filing_date"] == ""
     assert flat["business_model_type"] == ""
