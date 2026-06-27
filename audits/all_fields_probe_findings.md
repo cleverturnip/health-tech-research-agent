@@ -117,3 +117,33 @@ Revisit AFTER the re-measures.
 The probe's mechanical worst-case verdicts OVER-FLAG diffuse fields; the per-company map + a live-web
 check of the zeros (§5) is what produced the correct read. Same discipline as every prior step: read
 the data, verify the absence, don't trust the mark.
+
+## 10. Growth-rate re-measure (post refine-to-derive) — N=5 sized to the recoverable case
+
+Built against FRAMEWORK_VERSION v1.1. The refine-to-derive trio (search compute-from-endpoints +
+`growth_signal` carry + presence (a)/(b) split) shipped, then Midi / Solace / ZOE were re-measured
+(`scripts/growth_rate_remeasure.py`, N=5, on the explicit credit-spend go):
+
+| company | pre-derive | post-derive | read |
+|---------|-----------|-------------|------|
+| Midi   | 20% | **60%** (3/5)  | derive WORKING — passes computed ~1.93x / ~2.5x / ~5x from dated $ endpoints, inputs shown; the two misses were the general pass + a correctly-rejected $0-base, not failures |
+| ZOE    | 40% | **100%** (5/5) | reliably DERIVED +227.8% from £1.8m (2021) → £5.9m (2022) Companies House points |
+| Solace | 40% | 20% (1/5)      | **genuine-absent for growth** — one dated revenue point ($10M, 2025) exists; no second point to derive from (4/5 correctly "not computable"); the qualitative floor catches it |
+
+**[1]/[2] fired live** — rates were COMPUTED from dated endpoints with the inputs shown, and a $0-base
+was correctly rejected as not-a-usable-%. Derive lifted the genuinely-recoverable cases hard (Midi
+20→60, ZOE 40→100).
+
+**N decision = 5** (always-run-N, never stop-on-hit). Sized to the worst **RECOVERABLE** case, Midi 60%
+→ ~99% at N=5; matches revenue / paying-count. **Solace was EXCLUDED from sizing** — it is genuine-absent
+(a structurally consistent one-point absence across passes), NOT a recoverable blinker, so more passes
+cannot manufacture a second data point that doesn't exist (the inverse of Rule 8). This is distinct from
+**Pelago**, whose revenue absence was RECOVERABLE (B1 raised it 0/5 → 4/5). Genuine-absent cases do not
+drive N. NOT the reflexive worst-case-20% → N≈11.
+
+**Employee-growth false positive (motivates SOT B6.1 routing).** Solace's lone "hit" (pass 4) was
+"~304% EMPLOYEE growth" (Growjo), and Midi surfaced "0→435 employees" as a candidate — headcount growth
+counted as a growth RATE, because the presence-check (a)-clause had no kind-of-growth filter. The fix is
+ROUTING, not discard (these are real secondary signals): a precision FENCE keeps headcount / non-paying
+user / download / MAU / partner-count / funding growth OUT of growth_rate, and those signals are
+captured + carried elsewhere — the reserved **SOT B6.1** slot, locked in the routing task.

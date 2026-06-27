@@ -581,6 +581,12 @@ def search_with_recovery(
 # on the Midi p=.40 case; passes 2..N are source-directed so real recovery >= that).
 REVENUE_RECOVERY_PASSES = 5
 
+# Per-field pass budget for growth-rate recovery (always-run-N, never stop-on-hit). Sized from the
+# post-refine-to-derive re-measure (FRAMEWORK_VERSION v1.1): worst RECOVERABLE case Midi 60% -> ~99%
+# at N=5; ZOE 100%. Solace EXCLUDED from sizing -- genuine-absent for growth (one dated revenue
+# point, consistent across passes; the qualitative floor catches it), not a recoverable blinker.
+GROWTH_RECOVERY_PASSES = 5
+
 
 def revenue_source_directed_prompt(research_query) -> str:
     """Source-directed retry prompt for passes 2..N of revenue recovery.
@@ -1372,12 +1378,14 @@ def _row_is_complete(row) -> bool:
 
 
 def _build_latest_status_findings(
-    funding, payer, outcomes, commercial, org_events, operating_characteristics
+    funding, payer, outcomes, commercial, growth, org_events, operating_characteristics
 ) -> str:
-    """Assemble the six research findings into the synthesis input.
+    """Assemble the research findings into the synthesis input.
 
-    The four original STEP 7 sections plus the two Slice 3.7 operator sections
-    (org events -> reset; operating characteristics -> capability-fit, scored in Slice 4).
+    The four original STEP 7 sections, the growth-rate recovery union (its own
+    growth-directed N=5 search; the synthesis derives growth_signal from its dated
+    endpoints), plus the two Slice 3.7 operator sections (org events -> reset;
+    operating characteristics -> capability-fit, scored in Slice 4).
     """
     return f"""
 Funding:
@@ -1391,6 +1399,9 @@ Outcomes:
 
 Commercial scale / revenue quality:
 {commercial}
+
+Revenue growth / dated revenue endpoints:
+{growth}
 
 Recent org / leadership events (last ~12-18 months):
 {org_events}
@@ -1491,6 +1502,29 @@ def run_research_batch(
             )
             sleep_fn(wait_between_searches)
 
+            # Growth-rate recovery: its OWN per-field config (growth-directed retries +
+            # presence check) at N=5 -- the synthesis derives growth_signal from this
+            # union's dated endpoints. Built against FRAMEWORK_VERSION v1.1.
+            growth, growth_recovery = search_with_recovery(
+                search_commercial_scale,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=growth_rate_source_directed_prompt,
+                presence_check=growth_rate_presence_check,
+                field_name="growth_rate",
+                n_passes=GROWTH_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
+            )
+            logger.info(
+                "Growth-rate recovery for %s: %s passes, figure_present=%s.",
+                company,
+                growth_recovery.n_passes,
+                growth_recovery.figure_present,
+            )
+            sleep_fn(wait_between_searches)
+
             org_events = search_org_events(research_query, client=client, model=model)
             sleep_fn(wait_between_searches)
 
@@ -1499,7 +1533,7 @@ def run_research_batch(
             )
 
             latest_status_findings = _build_latest_status_findings(
-                funding, payer, outcomes, commercial, org_events, operating_characteristics
+                funding, payer, outcomes, commercial, growth, org_events, operating_characteristics
             )
 
             fit_brief = run_company_fit_brief(
@@ -1522,6 +1556,7 @@ def run_research_batch(
                 "payer_institutional_finding": payer,
                 "outcomes_finding": outcomes,
                 "commercial_scale_finding": commercial,
+                "growth_finding": growth,
                 "org_events_finding": org_events,
                 "operating_characteristics_finding": operating_characteristics,
                 "fit_brief_json": fit_brief,

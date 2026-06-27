@@ -709,10 +709,11 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         sleep_fn=sleeps.append,
     )
 
-    # per company: funding/payer/outcomes waits (7,7,7); 4 inter-pass waits (3) inside
-    # the 5-pass commercial recovery; then the after-commercial (7), after-org (7), and
-    # trailing (7) waits. (operating has no trailing wait; synthesis none.)
-    per_company = [7, 7, 7, 3, 3, 3, 3, 7, 7, 7]
+    # per company: funding/payer/outcomes waits (7,7,7); the 5-pass commercial recovery
+    # (4 inter-pass waits of 3) then its after-wait (7); the 5-pass growth recovery
+    # (4 inter-pass waits of 3) then its after-wait (7); then after-org (7) and trailing
+    # (7) waits. (operating has no trailing wait; synthesis none.)
+    per_company = [7, 7, 7, 3, 3, 3, 3, 7, 3, 3, 3, 3, 7, 7, 7]
     assert sleeps == per_company * 2
 
 
@@ -939,29 +940,31 @@ def test_row_is_complete_only_with_both_operator_findings():
     assert rr._row_is_complete(row) is True                  # complete only with BOTH
 
 
-def test_build_latest_status_findings_has_six_labeled_sections():
-    out = rr._build_latest_status_findings("F", "P", "O", "C", "OE", "OC")
+def test_build_latest_status_findings_has_seven_labeled_sections():
+    out = rr._build_latest_status_findings("F", "P", "O", "C", "G", "OE", "OC")
     for label in (
         "Funding:",
         "Payer / institutional signal:",
         "Outcomes:",
         "Commercial scale / revenue quality:",
+        "Revenue growth / dated revenue endpoints:",
         "Recent org / leadership events",
         "Operating characteristics",
     ):
         assert label in out
-    assert "OE" in out and "OC" in out                       # the two new findings are carried
+    assert "G" in out                                        # the growth-recovery union is carried
+    assert "OE" in out and "OC" in out                       # the two operator findings are carried
 
 
 def test_batch_runs_searches_and_persists_operator_findings(tmp_path):
-    """The loop runs all searches per company and persists the two new finding columns.
-    Commercial is now an N=5 recovery (step 5), so the web-search count rose from 6 to 10."""
+    """The loop runs all searches per company and persists the new finding columns.
+    Commercial AND growth-rate are each N=5 recoveries, so the web-search count is 15."""
     ckpt = tmp_path / "c.csv"
     client = BatchClient(companies=["Acme"])
     run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
     search_calls = [c for c in client.calls if "tools" in c]
-    # 5 single searches (funding/payer/outcomes/org/operating) + 5 commercial recovery passes
-    assert len(search_calls) == 10
+    # 5 single (funding/payer/outcomes/org/operating) + 5 commercial recovery + 5 growth recovery
+    assert len(search_calls) == 15
     df = pd.read_csv(ckpt)
     for col in ("org_events_finding", "operating_characteristics_finding"):
         assert col in df.columns
@@ -990,6 +993,22 @@ def test_batch_commercial_uses_recovery_union_and_resume_is_idempotent(tmp_path)
     assert result2.reused == ["Acme"]
     assert result2.completed == []
     assert client2.calls == []  # idempotent resume: search_with_recovery NOT re-invoked
+
+
+def test_batch_growth_recovery_union_persisted_and_feeds_synthesis(tmp_path):
+    """FRAMEWORK_VERSION v1.1 wiring: growth-rate gets its OWN N=5 recovery union
+    (growth-directed retries), persisted as growth_finding and fed to the synthesis as
+    the 'Revenue growth / dated revenue endpoints' section."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+
+    growth = pd.read_csv(ckpt).iloc[0]["growth_finding"]
+    n_passes = growth.count("(general)") + growth.count("(source-directed)")
+    assert n_passes == 5                                     # always-run-N=5 union (pass1 + 4 retries)
+    # the growth union reaches the synthesis as its own labeled section
+    fit_inputs = "\n".join(client.fitbrief_inputs())
+    assert "Revenue growth / dated revenue endpoints:" in fit_inputs
 
 
 def test_fit_brief_reset_nudge_points_at_org_events_and_does_not_rejudge():
