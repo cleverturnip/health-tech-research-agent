@@ -192,3 +192,42 @@ robust); ratified in the N-table.
 
 (2a capability right-data + 2b reset recall were READ-confirmed clean against the regen doc earlier this
 thread; 2c is the only check that needed a live measure, and it surfaced the C/D flip above.)
+
+## 12. Funding dating-fix re-check — RESIDUAL is a MEASUREMENT CONFOUND, not an N problem (read the control)
+
+Re-ran the single-pass re-check after the dating-wording build (`4ede0a6`), 5 cos × N=5, package path.
+Mechanical verdict printed: "RESIDUAL BLINK → funding = N=2." **That verdict is WRONG — read the control.**
+
+| company | expected | got (×5) | vs 2c |
+|---|---|---|---|
+| Sword | series-d-plus | d-plus×2, b×1, d×1, c×1 | more spread |
+| Hinge | public | public×1, a×1, unknown×1, b×2 | far WORSE |
+| Omada | public | public×4, a×1 | ~same |
+| Transcarent | series-d-plus | d-plus×3, a×1, public×1 | worse |
+| **Allara (control)** | series-b | **a×1, b×4** | **was 5/5 PERFECT in 2c** |
+
+**The tell — the Allara CONTROL got WORSE** (5/5 series-b in 2c → blinks series-a here). A dating fix
+CANNOT make a clean control less reliable, so the change is in the MEASUREMENT, not the company. What
+changed: the dating-wording makes `search_funding` surface the FULL dated round SEQUENCE (Seed/A/B/C/D…),
+and the re-check's GENERIC LLM extraction now picks `funding_stage` by reading that multi-round list —
+blinking toward EARLIER rounds (series-a/b now appear on every company, even public Hinge). Pre-fix the
+search stated ONE stage; post-fix it lists every round, so an LLM picker has more to blink across. **The
+blink is in the SELECTION, not the evidence.**
+
+**Real diagnosis (Rule 7).** The dating-wording correctly makes the LLM GATHER the dated rounds (good
+evidence). But `funding_stage` SELECTION (public-outranks / latest-dated priced round) is still an LLM
+judgment (the prompt asks the LLM to compute it; the re-check re-does it generically) — and LLM selection
+over a multi-round sequence is non-deterministic. **The fix is a DETERMINISTIC mapper**: LLM emits the
+dated rounds as STRUCTURED evidence; CODE picks `funding_stage`. Same Rule-7 pattern as who_uses/who_pays
+(LLM extracts facts; deterministic mapper emits the label).
+
+**N=2 is NOT the fix** — a union of multi-round findings still leaves an LLM picking the stage; it still
+blinks. Determinism fixes the source (as derive fixed growth; as the classifier mapper fixes
+business_model). **Funding-N is therefore NOT locked at N=2 — HELD pending the deterministic-mapper design.**
+Likely outcome: funding stays SINGLE-PASS (the mapper is code, no extra searches) → cost stays ~1,100,
+not 1,155.
+
+**One verify (Rule 8).** The re-check printed only the stage, not raw findings, so it can't tell whether
+the search ALSO sometimes MISSES the latest round (a recall gap a small N union would address) vs always
+gathers it (mapper alone suffices). The Allara control (simple rounds, blinking only toward an earlier
+LISTED round) points to SELECTION, not recall — but confirm with a raw-finding look before finalizing N.
