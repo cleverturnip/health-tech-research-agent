@@ -2,13 +2,11 @@
 
 **FRAMEWORK_VERSION: v1.2** · pairs with [`SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md`](SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md) §B2.
 
-> **Status: PARTIAL (authoritative-as-far-as-it-goes).** The load-bearing checks — the **B2B-floor 7**,
-> the **counts**, the **8 canonical asserts**, and **needs_review=0** — are captured here from the SOT.
-> The full per-company **B2C-11** and **B2B2C-37** lists are **PENDING**: they live in
-> `business_model_classifier_spec.md` §4, which is not yet in the repo. Paste that doc (or just the two
-> lists) and this fixture completes. **Do NOT** backfill the missing lists from a classifier run — the
-> regression target must be the human-locked labels, never the classifier's own output (that would make
-> the test circular).
+> **Status: COMPLETE.** All locked labels are captured — the **B2B-floor 7**, the full per-company
+> **B2C-11** and **B2B2C-37**, the **counts**, the **8 canonical asserts**, and **needs_review=0** — from
+> `business_model_classifier_spec.md` §4 (the human-locked source), NOT from any classifier run (the
+> regression target must be the human labels, never the classifier's own output — that would make the
+> test circular). Internal consistency verified: 7 + 11 + 37 = 55 distinct companies = the roster.
 
 ## Why this file exists
 The forced who_uses/who_pays classifier (SOT §B2) is the PATH-gate linchpin. Its **regression target was
@@ -53,12 +51,20 @@ not a re-uploaded memory. **No classifier logic is built here; this is only the 
 | angle-health | **B2B** | |
 | outcomes4me | **B2C** | |
 
-## PENDING — full per-company lists (fill from `business_model_classifier_spec.md` §4)
-- [ ] **B2C-11** — full 11-company list (so far only `zoe`, `outcomes4me` are named, via the asserts).
-- [ ] **B2B2C-37** — full 37-company list (so far only `nourish`, `headway`, `rula`, `grow-therapy`).
+## B2C — the 11 (LOCKED; consumer user + consumer pays)
+oura, insidetracker, allara health, function health, noom med, oova, levels health, zoe, signos,
+tia, outcomes4me.
 
-Until these land, the classifier-prompt validation can score floor-7 + the 8 asserts + the counts +
-needs_review=0, but cannot check every per-company B2C-vs-B2B2C label.
+## B2B2C — the 37 (LOCKED; consumer user + institution/mixed pays)
+nourish, equip health, grow therapy, maven clinic, omada health, oshi health, visana health,
+sword health, solace health, midi health, transcarent, familywell health, headway, affect therapeutics,
+9amhealth, culina health, jasper health, fay, season health, pomelo care, thyme care, hinge health,
+waymark, oula, mae health, cylinder health, foodsmart, rula health, pelago, bicycle health,
+vivante health, diana health, firefly health, summer health, berry street, counsel health, wellist.
+
+_Consistency: 7 (floor) + 11 (B2C) + 37 (B2B2C) = 55 distinct companies = the roster; the 8 canonical
+asserts are consistent with these lists (openevidence / medically-home / angle in floor-7; zoe /
+outcomes4me in B2C; nourish / headway / rula / grow-therapy in B2B2C)._
 
 ## Evidence-sufficiency (verified — Option B confirmed, this thread)
 Tested **evidence-only** against the last regen checkpoint (`v42_full_regen…full56_checkpoint`, the persisted
