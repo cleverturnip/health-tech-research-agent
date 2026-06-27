@@ -227,6 +227,11 @@ order:
 **Do NOT scope or start a revenue-only regen.** Any 55-company regen cost estimate is framed for the
 FULL multi-field regen; the field set (and thus the estimate) firms up after step 2.
 
+**Regen cost line item (named, so it's a known number not a discovered surprise):** growth per-field
+recovery = **+~275 searches on the run-once** (a second 5-pass commercial-base search/company × 55;
+revenue + growth + paying-count are EACH N=5). Accepted design — growth is 60% of PMF, corroboration is
+worth it; built against FRAMEWORK_VERSION v1.1, not relitigated.
+
 ## Test plan (red→green, fake injected client — no real API, no spend)
 
 1. Always runs exactly **N** passes regardless of pass-1 result (success AND absent cases).
