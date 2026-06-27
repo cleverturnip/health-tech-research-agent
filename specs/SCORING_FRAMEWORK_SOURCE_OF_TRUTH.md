@@ -1,0 +1,411 @@
+# Scoring & Priority Framework — SOURCE OF TRUTH
+
+**FRAMEWORK_VERSION: v1.1 (2026-06-27)**
+**Changelog:** v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
+**Status:** canonical. This is the ONE doc the design chats AND Claude Code point at for the scoring +
+priority framework. If a decision about scoring logic isn't here, it isn't locked. When scoring logic
+changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
+anything that depends on it (see DISCIPLINE, bottom).
+
+**How to read this doc — three layers, on purpose:**
+1. **NARRATIVE / WHY** (§A) — what changed from the old model and the reasoning behind each change.
+   Preserved verbatim-in-spirit from the old-vs-new diff. If we ever reopen the scoring logic, START
+   HERE — this is the expensive-to-reconstruct part.
+2. **LOCKED BUILDABLE DETAIL** (§B) — the specific, buildable logic Claude Code implements. The "what."
+3. **STABILITY MARKINGS** (§C) — every point tagged STABLE / OPEN-DIAL / PLACEHOLDER so no one builds
+   or calibrates against a number that's still moving.
+
+A note on scope: the RESEARCH-LAYER work (search_with_recovery, per-field N, derive) lives in its own
+thread/docs; it is referenced here only where it gates the scoring model (the second regen → calibration
+bar). This doc is the SCORING + PRIORITY framework.
+
+---
+
+# §A — NARRATIVE / WHY (the reasoning; start here if reopening the logic)
+
+## TL;DR — the one-sentence diff
+OLD = a single blended score that rewarded ABSOLUTE revenue magnitude (favoring mature/big companies)
+and used fuzzy fit/quality judgments as if they were reliable; NEW = a GATED-then-RANKED model where
+reliable facts ELIMINATE (gates), fuzzy judgments only RANK (gradients, errors recoverable), revenue is
+graded RELATIVE TO STAGE (a strong Series B beats a big-but-flat public co), and the hardest judgments
+are routed to human review instead of forced into the model.
+
+## A1. ARCHITECTURE — blended score → gated-then-ranked
+**OLD:** effectively a weighted blend of signals (thesis_fit, pmf_scale, capability/role_fit,
+operator_timing, evidence_confidence) producing a priority. Problem: averaging everything lets a company
+that's great on three signals and disqualifying on one (a pure-B2B company, or a public mega-cap) float
+UP when it should be floored. Original symptom: a collapsed distribution (the spec's "93%-P3 problem").
+**NEW:** three stages, each fact enters EXACTLY ONCE:
+- STAGE 1 GATES (pass/fail, eliminate): AGENCY + PATH-TO-SCALE. Fail either → P3, stop.
+- STAGE 2 GRADIENTS (1–10, rank): BACKGROUND FIT + PMF SIGNS.
+- STAGE 3 MODIFIER: STRAIN (small capped bump).
+- FINAL = Background Fit + PMF + Strain; FLOOR RULE: P0/P1 require BOTH gradients > 4.
+**Why:** reliable binary facts (maturity, is-there-a-consumer) belong in gates that eliminate; fuzzy
+judgments (how-good-a-fit, how-proven) belong in gradients that rank. Gating first prevents the
+great-on-three-bad-on-one float-up. **Why "each fact once" is load-bearing:** the old blend implicitly
+double-counted (a fast-growth company got credit in pmf_scale AND again wherever growth leaked into fit/
+timing). The new model assigns each fact ONE home so a single strength can't inflate multiple stages —
+this is the invariant every later rule protects (see B1).
+
+## A2. PMF — absolute magnitude → STAGE-RELATIVE
+**OLD:** `pmf_scale_score` rewarded ABSOLUTE revenue/scale → systematically favored mature, big companies
+(the exact bias the thesis rejects — the goal is to join EARLY and build to $100M ARR).
+**NEW:** PMF grades revenue RELATIVE to a hardcoded per-stage benchmark (two 1–10 scales: ARR-by-stage +
+growth-by-stage). A Series B at $100M ARR is best-in-class; a public co at $260M can score mid. Composite
+= 40% ARR-level + 60% growth (growth-weighted because the thesis bets on the slope). Missing-revenue cap
+(≤7 on estimates-only). Acceleration bonus (+1/+2) on the growth scale.
+**Why growth-weighted:** the thesis is a bet on the SLOPE to $100M ARR, not the current level — so the
+heavier weight goes on growth. **Why a cap on estimates:** a company scored on inferred/estimated revenue
+can't be allowed to reach best-in-class on numbers we're not sure of (carry-and-rate, never pretend
+confidence). This is NEW deterministic logic (the stage-benchmark map), NOT a re-bucketing of the old
+score.
+
+## A3. BUSINESS MODEL — wrong-axis fuzzy field → forced who-pays/who-uses classifier
+**OLD:** `business_model_type` was on the REVENUE-MECHANISM axis ("consumer-subscription / enterprise /
+payer-reimbursed / other") — and mislabeled the key B2B case (OpenEvidence) as B2B2C. Unreliable, and the
+PATH gate can't floor on it.
+**NEW:** a forced B2B/B2B2C/B2C classifier, Rule-7 style — LLM extracts who_uses (consumer|professional)
++ who_pays (consumer|institution|mixed); a DETERMINISTIC mapper emits the label (LLM never emits it).
+who_uses rule locked (consumer-interacts-with-THIS-product = B2B2C even if an institution pays; product-
+operated-behind-the-scenes = B2B). Frequency firewall (a daily-using clinician is still `professional`).
+**Why the who_uses axis (not who_pays) decides B2B:** the thesis cares whether a CONSUMER is the end-user
+(that's the business Katelynd knows how to build); who-pays is a revenue-mechanism detail that doesn't
+change whether there's a consumer to build for. **Why the frequency firewall:** the old model let high
+usage frequency push a professional tool into the consumer bucket (the OpenEvidence error) — frequency is
+scored elsewhere (engagement), it must not contaminate who_uses. This classifier is the LINCHPIN — PATH
+Test A floors B2B on it.
+
+## A4. AGENCY GATE — (largely new as an explicit gate)
+**NEW (explicit):** maturity from funding stage. Series A/B/early-C PASS; Series D+ FAILS unless a RESET
+fired (leadership change / declared transformation / restructuring reopens the build-window for a mature
+company). Reset acts on the GATE (flips fail→pass).
+**Why an explicit eliminator:** "too late-stage to join and still shape the build" is a real disqualifier
+the old blended score couldn't express cleanly — a big late-stage company scored well on revenue and
+floated up. Making maturity a GATE lets it eliminate. **Why reset exists:** a mature company that just had
+a leadership change / restructuring has effectively REOPENED its build-window — the maturity FAIL no
+longer reflects reality, so reset flips it. **Why maturity stays factual (funding stage only):** funding
+stage is reliable and verifiable; letting LLM "timing" judgments re-enter as a parallel signal would put
+a fuzzy read into a gate (forbidden — gates must rest on reliable facts).
+
+## A5. BACKGROUND FIT — gate-like/load-bearing → GRADIENT (errors recoverable)
+**OLD:** fit/habit judgments were effectively load-bearing for the outcome, despite being the signal the
+LLM most often misreads (it mislabeled Nourish, a daily-engagement company, as "periodic").
+**NEW (LOCKED):** Background Fit is a GRADIENT, NOT a gate. An LLM misread LOWERS the score (recoverable,
+visible, calibratable) instead of FLOORING a good company. The reliable B2B exclusion lives in the PATH
+gate, never here.
+**Why move it out of gate-territory:** you never want your LEAST-reliable signal to be an ELIMINATOR. Fit
+is exactly that signal (the Nourish "periodic" mislabel). As a gradient, a misread costs a company a few
+points (visible, fixable in calibration) instead of wrongly killing it. The reliable exclusion (is there
+a consumer end-user) is handled by the PATH gate on the classifier — so nothing reliable is lost by
+demoting fit to a gradient.
+
+## A6. EVIDENCE CONFIDENCE — was a GATE → now a FLAG-and-rescore (^c0)
+**OLD:** evidence confidence was used as a GATE (low confidence could eliminate).
+**NEW:** evidence_confidence_score is a deterministic FLAG that (a) gates TIERS (P0 needs ≥60, P1 ≥55 — so
+a thin figure can't reach top tiers on fabricated confidence) and (b) routes weak cases to human review —
+but it doesn't silently eliminate a company. Same chain the research-layer thread verified in code
+(candidate_priority.py:226/315; calibration flags priority.py:402; q4 hard-gate
+structured_evidence.py:208). Carry-and-rate, never carry-and-filter.
+**Why flag-not-gate:** low confidence means WE don't know yet, not that the company is bad — eliminating on
+it would throw away companies for OUR research gaps (the exact Rule-8 error). Flagging keeps the company
+in play, caps how high it can rank on thin evidence, and routes it to the human who can actually resolve
+it. This is the meeting point between the scoring model and the research-layer recovery work.
+
+## A7. "HIGH REVENUE ≠ HEALTHY" — DELIBERATELY left to human review (new explicit stance)
+**NEW (LOCKED):** the model does NOT try to catch the high-revenue-but-secretly-dying company (high burn,
+churn, bad unit economics — e.g. Truepill scored "well" on revenue while failing). That judgment is too
+nuanced for a gate (a gate must not rest on a fragile read). The model is a HIGH-RECALL FILTER that
+surfaces the right ~10–15 companies; the operator deep-researches every P0/P1 manually and ranks down
+under-the-surface problems.
+**Why deliberately NOT modeled:** over-engineering a gate to catch "looks healthy but isn't" makes the
+gate fragile for a job the human does better with a few hours of deep research. The model's job is RECALL
+(surface the right shortlist with honest confidence ratings); the human provides PRECISION on the
+shortlist. This is WHY the research-layer recovery work matters — it feeds the human the best evidence
+with confidence ratings, rather than pretending the model is the final arbiter.
+
+## A8. PRIORITY OUTPUT — interim bridge → real (and still un-wired)
+**OLD/INTERIM:** the engine ran as a V4.2-interim "capability bridge" (capability-fit == role_fit) and was
+INERT (did not write `final_priority_level`); false "Human Reviewed" labeling existed.
+**NEW:** real capability-fit (A1/A2/A3 rubric) replaces the bridge; `final_priority_level` gets populated
+by Commit 5 (still un-built; RE-GATED behind the second/recovery regen — calibrating on the untrustworthy
+V4.2 master would bake in wrong thresholds). Thresholds are PLACEHOLDERS to be CALIBRATED against the 55
+on trustworthy data, never guessed.
+
+## What did NOT change (carried, not diffed)
+- The NORTH STAR: two-gate human-in-the-loop autonomous flow; inside an autonomous segment, surface at
+  the next gate (flag-for-review), never rely on a human noticing mid-flow.
+- Rule 7 (LLM gathers evidence; deterministic rules decide; evidence persists as columns).
+- Rule 8 (absence is an upper bound on non-existence, not a measurement, until a live test discriminates).
+- The roster (the 55) and canonical test cases (ZOE = reset; Function = maturity/commercial;
+  Nourish = the "periodic" mislabel regression; OpenEvidence = the B2B classifier regression).
+- Calibrate against trusted data only; do NOT hand-edit the master.
+
+---
+
+# §B — LOCKED BUILDABLE DETAIL (the "what" Claude Code implements)
+
+> Everything in §B is the buildable form of §A. Where a number is a calibration knob, it's marked here
+> AND in §C. Stable structure with a tunable number = build the mechanism, expose the knob.
+
+## B0. ARCHITECTURAL INVARIANTS (do not violate)
+- **Rule 7:** LLM gathers EVIDENCE; deterministic rules DECIDE. Evidence persists as columns
+  (recomputable without re-research).
+- **Each fact enters the model EXACTLY ONCE** — no double-count across gate / gradient / modifier.
+  Enforced instances (B1).
+- Gates use the most reliable signals (errors unrecoverable → only reliable facts may gate). Fuzzy
+  judgment lives in gradients (errors only LOWER a score). **Never weaken a gate to make something pass.**
+- Load-bearing / LLM-facing changes ship as a reviewed change — never self-merged.
+
+## B1. THE NO-DOUBLE-COUNT INVARIANT — enforced instances
+This is the invariant A1 describes, made concrete. Each must hold in the build:
+- **Growth is read ONCE:** the PATH gate floors only on the PRESENCE/absence of a growth signal (loose
+  "alive" check); the STRENGTH of growth is scored only in PMF. Growth strength must NOT influence the
+  gate. (This is why growth-in-the-gate was rejected — see B3.)
+- **Reset vs Strain are separated:** RESET acts on the GATE (flips a maturity fail→pass). STRAIN acts on
+  the RANK (a small capped bump). They are cousins (both turnaround-related) deliberately separated so the
+  SAME turnaround event cannot count twice. Build guard: a single org event that feeds reset must not ALSO
+  feed strain in a way that double-weights it (the Slice 3.7 forward-note: ensure A2-strain and reset
+  aren't double-weighted when both feed a combined priority signal).
+- **Maturity is FACTUAL only** (funding stage); LLM "timing" judgments must not re-enter as a parallel
+  signal.
+
+## B2. BUSINESS-MODEL CLASSIFIER (Item #1 — the linchpin)
+- LLM extracts: `who_uses` (consumer|professional), `who_pays` (consumer|institution|mixed), plus
+  `who_uses_basis`, `who_pays_basis`, `who_uses_confidence` (high|low). LLM does NOT emit the label.
+- **Deterministic mapper:**
+  ```
+  if who_uses == "professional":          return "B2B"     # FLOOR (PATH Test A fail), regardless of who_pays
+  if who_pays == "consumer":              return "B2C"
+  if who_pays in ("institution","mixed"): return "B2B2C"
+  ```
+- `who_uses == professional` floors to B2B REGARDLESS of who_pays (the OpenEvidence fix — a professional-
+  operated product can't be rescued by who-pays).
+- `who_pays == mixed` with consumer user → B2B2C (a real institutional channel exists; cash-pay strength
+  surfaces later in PMF, not here).
+- **`who_uses_confidence == low` → set `business_model_needs_review = True`, route to human gate (flag,
+  don't gate).** Expected to fire ~never on the current 55.
+- **Frequency firewall (in the prompt):** usage frequency is IRRELEVANT to who_uses (daily-using clinician
+  = still professional; occasional-using patient = still consumer).
+- **Persisted columns (Rule 7):** who_uses, who_uses_basis, who_pays, who_pays_basis, who_uses_confidence,
+  and the derived business_model (written by the mapper).
+- **Replaces** old `business_model_type` (revenue-mechanism axis) as the PATH signal. Keep the old field
+  only if other code reads it; it is NO LONGER the gate signal.
+- **REGRESSION FIXTURE — the locked 55 (classifier MUST reproduce):** B2B-floor **7** / B2C **11** /
+  B2B2C **37**; `needs_review` expected **0** (>1–2 to review ⇒ prompt logic is off, fix before accepting).
+  Canonical asserts: openevidence→B2B (was mislabeled B2B2C); nourish→B2B2C; zoe→B2C; medically-home→B2B;
+  headway/rula/grow-therapy→B2B2C; angle-health→B2B; outcomes4me→B2C.
+  - B2B-floor (7): openevidence, cohere health, zus health, om1, medically home, linus health, angle health.
+  - (full B2C-11 / B2B2C-37 lists live in business_model_classifier_spec.md §4 — fixture is the assert.)
+- **Classifier PROMPT wording is STAGED** — live Colab test vs this fixture before final-merge. Mapper +
+  fixture are LOCKED.
+
+## B3. PATH-TO-SCALE GATE (Item #2) — runs on classifier output; two sequential tests
+**Test A — is there a consumer end-user? (deterministic)**
+```
+if business_model == "B2B":  GATE_FAIL     # no consumer end-user
+else:                        proceed to Test B   # B2C and B2B2C both have a consumer user
+```
+**Test B — is the engine viable? (TWO-TIER, loose "engine alive" floor only)**
+```
+# B2C path
+if business_model == "B2C":
+    alive = has_any_revenue(c) or has_meaningful_user_scale(c) or has_positive_growth_signal(c)
+    return GATE_PASS if alive else GATE_FAIL
+# B2B2C path
+if business_model == "B2B2C":
+    return GATE_PASS if has_real_institutional_channel(c) else GATE_FAIL
+```
+- **Gate job = loose floor only.** It floors ONLY the genuinely dead (no revenue AND no meaningful user/
+  customer scale AND no growth signal). Engine STRENGTH is NOT judged here — that's PMF's job (this is the
+  no-double-count invariant, B1). **Do not put growth-strength in the gate** — doing so would floor ~45
+  companies on missing growth data (the reason growth-in-gate was rejected).
+- `has_real_institutional_channel` = a REAL durable channel (named customers / covered lives / scaled
+  adoption), NOT pilots/positioning. **Do not change this logic (^c4 says it's accurate).** Refining the
+  exact "line" is deferred.
+- **No-revenue fallback (^c10):** a B2C company with no revenue figure STILL PASSES if user-scale or
+  growth evidence exists. Missing revenue ≠ dead. The missing-data audit discriminates `recoverable` vs
+  `genuinely-absent` BEFORE any company is floored for absence.
+- **`payer_institutional` SCOPE FIX (verified, parked for this gate):** the field is named for PAYER
+  reimbursement, but `has_real_institutional_channel` needs "ANY real institutional/B2B2C channel."
+  Function Health proves the gap — real EMPLOYER-DIRECT channel ("Function for Work"), but insurance-free,
+  so a payer-only field scores it "no institutional channel" and mis-gates it. **When building Test B,
+  the institutional-channel check MUST cover employer-direct, not just payer-reimbursed.** (Verified live.)
+- **^c3 OPEN QUESTION (not yet decided — see §C PLACEHOLDER):** the B2C unit-economics / viable-engine
+  LINE (the "$2M-equivalent" threshold). Instinct: use revenue GROWTH / SensorTower app-store revenue as
+  the signal. Test B's STRUCTURE is stable; this specific LINE is open.
+
+## B4. AGENCY GATE (Item #3) — deterministic from funding_stage + ipo_status, with reset
+```
+Series A / B          -> early-growth -> PASS
+Series C (early)      -> scale-up     -> PASS
+Series C (late)       -> scale-up     -> PASS (okay; see late-stage dial)
+Series D+             -> late-stage   -> FAIL unless reset fired
+Public / pre-IPO      -> mature       -> FAIL unless reset fired
+Seed / pre-seed       -> too-early    -> FAIL (no reset rescue)
+```
+- **RESET (already built, ZOE-validated):** fires on a qualifying event — leadership change, declared
+  transformation, founder transition, post-failure rebuild, restructuring/layoffs — creating a forward-
+  looking high-agency opening. **Strategic-pivot and M&A-integration NEVER fire.** Reset flips a maturity-
+  FAIL (D+, public/pre-IPO) to PASS. Reset does NOT rescue seed/pre-seed (too-early ≠ reopened window).
+- **Reset mechanism (Rule-7):** search GATHERS events; synthesis EMITS the canonical reset_events (SINGLE
+  emitter); the deterministic rule DECIDES firing. Synthesis must NOT re-derive/override the opening.
+  Multi-event: evaluate each event's opening SEPARATELY so a loud pivot can't bury a co-occurring
+  restructuring (the ZOE case).
+- **Maturity is FACTUAL only** (funding stage) — no LLM timing judgments as a parallel signal.
+- **OPEN DIAL — late-Series-C / late-stage treatment:** clean pass vs soft pass that also lowers the final
+  score. Build as CLEAN PASS; expose a flag so calibration can switch it. (§C OPEN-DIAL.)
+
+## B5. BACKGROUND FIT GRADIENT (1–10) (Item #4) — STAGED (LLM-facing)
+- A GRADIENT, not a gate. Reword A1/A3 to the consumer-end-user test (reuse the classifier `who_uses`:
+  `who_uses == consumer` is the precondition; the gradient then scores HOW CLOSE the consumer-habit model
+  is to the mobile-games loop). Data-feedback loop (consumer sees body data → acts → sees it reflected) =
+  top-of-scale amplifier; a strong consumer-health company lacking that loop still scores solidly, not
+  floored.
+- **STAGED:** wording designed jointly + Colab-tested before lock (Nourish "periodic" mislabel is the
+  regression case). Structure (gradient, errors recoverable) is LOCKED; the rewording is STAGED.
+
+## B6. PMF GRADIENT (1–10) (Item #5) — assembly LOCKED
+```
+pmf_raw = 0.4 * arr_level_score + 0.6 * growth_score     # 40/60 split is an OPEN DIAL
+pmf     = round_even_bands(pmf_raw)                       # 8.4->8, 8.5->9
+```
+- Two scales: **ARR-by-stage** + **growth-by-stage** (stage-relative benchmarks — built + roster-
+  validated as STRUCTURE; specific per-stage cutoff VALUES are calibration-adjacent, §C).
+- **ACCELERATION BONUS:** +1 to +2 on the growth score for accelerating-at-scale (rides on the growth
+  sub-score, not the weights). Magnitude is a dial.
+- **MISSING-DATA CAP (^c10):** when revenue/growth genuinely undisclosed after the recovery pass, fall
+  back to subscriber/user-scale + funding context as a WEAKER proxy and CAP pmf at 7 (can't hit best-in-
+  class on estimates alone). Cap MECHANISM stable; the value 7 is a dial.
+- **40/60 LEVEL:GROWTH split is an OPEN DIAL** — tune toward growth (35/65, 30/70) if big-but-slowing
+  companies rank too high; toward level (45/55) if small-base spikes. Worked anchors: Function 10/10;
+  Nutrisense 7→6 for decelerating; an "$80M-but-flat" hypothetical 6→5.
+- **DEPENDENCY:** the growth half scores most of the roster only AFTER the research-layer growth recovery
+  lands (37/55 lacked quantified growth pre-recovery). Build the assembly now; it scores fully once the
+  recovery regen lands.
+
+## B6.1. SECONDARY USER-SCALE SIGNALS — routing (OPEN; reserved slot, lock in next research-layer task)
+**Status: OPEN — DO NOT BUILD until locked (FRAMEWORK_VERSION bump when locked).** Documented here now
+so the decision has a home before it's built, per the doc-first discipline.
+
+**The problem this reserves a slot for:** non-revenue growth figures (headcount/employee growth,
+download/install/MAU growth, partner/client-count growth, funding growth) are abundant on aggregators
+(Growjo headcount, app-store downloads) and the LLM can mistake them for the revenue/paid-user growth
+signal (live cases: Solace 304% EMPLOYEE growth and Midi "0→435 employees" surfaced as candidate growth
+"rates"). Two design facts govern how they're handled:
+- **They are REAL secondary signals, not noise** — they feed the §B3 no-revenue fallback (a B2C company
+  with no revenue still passes Test B on user-scale) and the §B6 missing-data PMF proxy (user-scale +
+  funding context, capped at 7). A turnaround operator also cares about speed-of-scale as a §B7 STRAIN
+  structural signal. So they must be CAPTURED + CARRIED (carry-and-rate, never carry-and-filter) — NOT
+  discarded.
+- **But they must NEVER masquerade as revenue/paid-user growth** — they must NOT satisfy the
+  `growth_rate_presence_check` and must NOT feed `growth_score` (the 60%-of-PMF signal). Letting "they're
+  hiring fast" stand in for "revenue is growing fast" corrupts the heaviest signal in PMF. This is the
+  inverse of the §A7 high-recall-filter stance: just as the model must not over-credit high revenue, it
+  must not let user-scale proxies impersonate revenue traction.
+
+**The reserved decision (to lock next):** WHERE each secondary signal lands (which captured/queryable
+field) and WHAT it is barred from feeding (revenue presence; growth_score). The bar is known; the field
+routing is the open design content. Lock in the next research-layer task and bump the version.
+
+## B7. STRAIN + FLOOR + FINAL ASSEMBLY (Item #7) — LOCKED
+```
+final_score = background_fit + pmf + strain        # strain: 0..+2/+3 (max is an OPEN DIAL)
+# FLOOR RULE: P0/P1 require background_fit > 4 AND pmf > 4
+# THRESHOLDS (PLACEHOLDER — calibrate vs the 55): e.g. P0=21-23, P1=15-20, P2=9-14, P3=below
+```
+- **STRAIN is a GLOBAL-RANK modifier** — cannot move a company across a tier alone. Cousin of reset
+  (reset acts on the GATE, strain on the RANK) — separated so the same event can't double-count (B1).
+- **STRAIN evidence split (WORDING-LOCKED):** B1-structural vs B2-reported, with a STRICT bar on B2
+  (multiple independent sources on the SAME breakdown; prefer Reddit/forums over Glassdoor; routine
+  griping does NOT count; speed-of-scale e.g. 100→500 staff in 6mo is a strong STRUCTURAL signal,
+  reported as evidence not verdict). Absence-is-a-finding default: default LOW unless strain clearly
+  demonstrated. Strength-tagged (STRONG/MODERATE/WEAK) output.
+- **Gate fail (either gate) → P3 floor, stop** (score not computed).
+- **EVIDENCE CONFIDENCE = FLAG not gate:** low-confidence evidence routes to human review + rescore, does
+  NOT floor. `who_uses_confidence == low` feeds this same route.
+
+## B8. MISSING-REVENUE / GROWTH AUDIT (prerequisite to growth-recovery #6)
+For each company missing revenue/growth, a TARGETED check classifies it `recoverable` (exists, research
+missed) vs `genuinely-absent`. Output a table: company | missing field | recoverable? | best source |
+est. effort — this DEFINES the recovery batch scope. (Method: B2C → SensorTower; B2B2C/B2B → press
+releases, funding announcements, covered-lives counts.) Resolves ^c10's "is missing = absent?" before any
+company is floored for absence. (This is the bridge to the research-layer thread, which is executing the
+recovery.)
+
+## B9. BUILD ORDER (scoring track — resumes AFTER the research layer + second regen)
+1. Classifier (mapper LOCKED build-now; prompt STAGED — live Colab test vs the 55-fixture FIRST).
+2. PATH gate (Test A + Test B two-tier + no-revenue fallback + the employer-direct scope fix).
+3. AGENCY gate (maturity buckets + reset exception + D-fails).
+4. BACKGROUND FIT gradient (STAGED rewording — A1/A3 to consumer-end-user; the Nourish regression).
+5. PMF gradient + the stage-benchmark ARR/growth scales.
+6. STRAIN modifier + FLOOR rule + final assembly → Commit 5 wires `final_priority_level`.
+7. Score the 55 → calibrate thresholds (AFTER the second regen — trustworthy data; NEVER before).
+8. Document final model + rationale in the repo.
+**Sequencing bar:** research layer (all fields enabled) → SECOND run-once regen → THEN scoring builds +
+calibrates. Calibration on pre-regen data is BARRED (^c10).
+
+---
+
+# §C — STABILITY MARKINGS (build/calibrate discipline)
+
+**STABLE — locked as reference; safe to build against:**
+- Gated-then-ranked architecture (3 stages; fact-enters-once). [A1/B0]
+- The no-double-count invariant + enforced instances (growth gate-vs-PMF; reset-vs-strain). [B1]
+- Classifier: who_uses/who_pays extraction, deterministic mapper, frequency firewall, Rule-7 split,
+  needs_review routing. (PROMPT wording STAGED.) [B2]
+- The locked 55-fixture counts + canonical asserts (regression target). [B2]
+- AGENCY gate: maturity buckets, D+ fails-without-reset, reset rescues D+/public not seed/pre-seed. [B4]
+- Reset mechanism: which events fire/never-fire, multi-event per-event eval, search-gathers/synthesis-
+  emits single-emitter. [B4]
+- PATH Test A (B2B floor). PATH Test B two-tier STRUCTURE (loose engine-alive floor; strength in PMF). [B3]
+- No-revenue fallback rule (missing revenue ≠ dead). [B3]
+- `payer_institutional` → employer-direct scope FIX (the fix is known + verified). [B3]
+- Background Fit is a GRADIENT not a gate (errors recoverable). (A1/A3 rewording STAGED.) [A5/B5]
+- Evidence-confidence FLAG-and-rescore + the deterministic tier-gate chain (P0≥60/P1≥55) + code
+  locations. [A6/B7]
+- High-recall-filter stance — model surfaces ~10–15; human deep-researches P0/P1. [A7]
+- PMF STRUCTURE: stage-relative grading, the two scales, composite-of-level-and-growth, missing-data cap
+  MECHANISM, acceleration-bonus MECHANISM, round-even banding. [A2/B6]
+- STRAIN STRUCTURE: global-rank modifier, capped, can't move a tier alone; B1/B2 split + strict B2 bar. [B7]
+- FLOOR rule: P0/P1 require BOTH gradients > 4. [B7]
+- North Star; Rule 7; Rule 8; carry-and-rate; calibrate-on-trusted-data-only.
+
+**OPEN-DIAL — build the mechanism, EXPOSE the knob, do NOT treat the number as final:**
+- PMF composite split **40% level / 60% growth** — tune 35/65, 30/70, or 45/55 per the anchors. [B6]
+- Missing-data cap **value (≤7)** — cap mechanism stable; the 7 is a dial. [B6]
+- Acceleration bonus **magnitude (+1/+2)** — mechanism stable, size is a dial. [B6]
+- STRAIN **max bump (+2 vs +3)** — explicitly open. [B7]
+- AGENCY **late-Series-C / late-stage** treatment — clean-pass vs soft-pass-that-lowers; build clean pass,
+  expose a flag. [B4]
+- Per-field recovery **N** (research-layer) — N=5 set for revenue/paying-count/growth; permanent per-field
+  N is a later calibration. (Cross-ref only; lives in the research-layer docs.)
+- **Secondary user-scale signal ROUTING** (headcount/download/MAU/partner-count/funding growth) — captured
+  + carried, BARRED from satisfying revenue presence or feeding growth_score; WHERE each lands is the open
+  design content. Reserved slot at B6.1 — LOCK in the next research-layer task (version bump). [B6.1]
+
+**PLACEHOLDER — committed for context but DO NOT BUILD/CALIBRATE AGAINST:**
+- **All P0/P1/P2/P3 THRESHOLD NUMBERS** (21–23 / 15–20 / 9–14 examples). Calibrated against the 55 AFTER
+  the second regen. Calibrating early bakes in wrong thresholds (^c10). This is the most important
+  do-not-build-against. [B7]
+- **The specific ARR-by-stage / growth-by-stage benchmark VALUES** inside the two PMF scales — the SCALES
+  exist as stable STRUCTURE (roster-validated), but the exact per-stage cutoffs are calibration-adjacent;
+  treat the numbers as tunable. [B6]
+- **^c3 — the B2C unit-economics / viable-engine LINE** (the "$2M-equivalent" threshold). Open question,
+  not yet decided (instinct: revenue-growth / SensorTower as the signal). Test B's STRUCTURE is stable;
+  this LINE is open. [B3]
+
+---
+
+# DISCIPLINE — how this doc stays the source of truth (read every time)
+- **This doc changes FIRST.** Any scoring-logic decision locked in a design chat is written HERE before
+  anything is built against it. FRAMEWORK_VERSION bumps on every change.
+- **Doc-update-before-build, as its own commit.** Claude Code commits the doc change SEPARATELY from and
+  PRIOR to any logic build that depends on it. The doc-commit IS the sync; the build references the
+  committed doc.
+- **Both sides cite the version.** Research-layer + scoring work reference "built against
+  FRAMEWORK_VERSION vN." Output citing an old version is an instant staleness flag — a mismatch is VISIBLE
+  instead of remembered.
+- **Placeholders are load-bearing.** Never build or calibrate against a §C PLACEHOLDER. OPEN-DIALs get the
+  mechanism built with the knob exposed, never the number hardcoded as final.
+- **Nothing important lives only in chat.** If it's a locked decision and it's not in this doc, it isn't
+  locked.
