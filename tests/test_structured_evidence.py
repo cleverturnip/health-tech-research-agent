@@ -338,6 +338,48 @@ def test_funding_stage_mapper():
         [{"type": "series-b", "date": "2022", "is_priced_equity": "true"}], {"occurred": "false"}) == "series-b"
 
 
+def test_funding_stage_failsafe_flag():
+    """Gate fail-safe (req 1): fires on ABSENT recent-round + inconsistency, NEVER on ABSENT alone."""
+    # a recent round WAS gathered -> never flags, whatever the stage / age / scale
+    assert se.funding_stage_needs_review("series-b", True, company_age_years=20, commercial_signal=3) is False
+    # ABSENT alone (quiet-but-healthy: early, young, no scale) -> NOT flagged
+    assert se.funding_stage_needs_review("series-b", False, company_age_years=3, commercial_signal=0) is False
+    # ABSENT + early + OLD -> flagged (an 8-yr-old company reading series-b is inconsistent)
+    assert se.funding_stage_needs_review("series-b", False, company_age_years=8, commercial_signal=0) is True
+    # ABSENT + early + SCALED -> flagged (strong commercial signal but reads early)
+    assert se.funding_stage_needs_review("series-a", False, company_age_years=2, commercial_signal=2) is True
+    # ABSENT but NOT early (D+/public already FAIL the gate) -> never flags (no false-pass risk)
+    assert se.funding_stage_needs_review("series-d-plus", False, company_age_years=20, commercial_signal=3) is False
+    assert se.funding_stage_needs_review("public", False, company_age_years=20, commercial_signal=3) is False
+    # string-bool tolerance (the recall signal may arrive as a stored string)
+    assert se.funding_stage_needs_review("series-b", "True", company_age_years=20, commercial_signal=3) is False
+
+
+def test_has_recent_priced_round():
+    recent = [{"type": "series-b", "date": "2024", "is_priced_equity": True},
+              {"type": "series-a", "date": "2019", "is_priced_equity": True}]
+    assert se._has_recent_priced_round(recent, 2026) is True       # series-b 2024 within ~2y of 2026
+    assert se._has_recent_priced_round(
+        [{"type": "series-b", "date": "2019", "is_priced_equity": True}], 2026) is False   # 2019 not recent
+    assert se._has_recent_priced_round(
+        [{"type": "bridge", "date": "2025", "is_priced_equity": False}], 2026) is False    # bridge isn't priced
+    assert se._has_recent_priced_round([], 2026) is False
+
+
+def test_derive_funding_failsafe_recomputes_from_row():
+    # an OLD company (founded 2014) reading series-b with NO recent priced round -> flag for review
+    base = {"funding_stage": "series-b", "founding_year": "2014",
+            "revenue_or_arr": "", "q1_acquisition": "", "q2_monetization": "",
+            "q3_funding_dependent": "", "paying_customer_count": "", "q4_evidence_quality": ""}
+    stale = dict(base, funding_rounds_json=json.dumps(
+        [{"type": "series-b", "date": "2017", "is_priced_equity": True}]))
+    assert se.derive_funding_failsafe(stale, ref_year=2026) is True
+    # same company but WITH a recent (2025) round gathered -> no flag (recall not missed)
+    fresh = dict(base, funding_rounds_json=json.dumps(
+        [{"type": "series-b", "date": "2025", "is_priced_equity": True}]))
+    assert se.derive_funding_failsafe(fresh, ref_year=2026) is False
+
+
 # ---------------------------------------------------------------------------
 # derive_reset_signal (Slice 3.5 multi-event) — per-event opening evaluation
 # ---------------------------------------------------------------------------

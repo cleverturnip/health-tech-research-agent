@@ -597,6 +597,12 @@ GROWTH_RECOVERY_PASSES = 5
 # the revenue-directed commercial union. Built against FRAMEWORK_VERSION v1.2.
 PAYING_RECOVERY_PASSES = 5
 
+# Per-field pass budget for funding-ROUNDS recovery (always-run-N), source-directed for LATEST-round
+# RECALL (the Sword 2/4 miss). PLACEHOLDER = 3 -- SIZED POST-RE-MEASURE (Step 3): the source-directed
+# per-pass recall p sets N for ~97% (p~85% -> N=2-3). Do NOT treat 3 as final until the re-measure prints.
+# Built against FRAMEWORK_VERSION v1.2.
+FUNDING_RECOVERY_PASSES = 3
+
 
 def revenue_source_directed_prompt(research_query) -> str:
     """Source-directed retry prompt for passes 2..N of revenue recovery.
@@ -821,6 +827,69 @@ PAYING business/enterprise clients?
 
 Do NOT count: free / trial / pilot / waitlist / registered (non-paying) users, app downloads, or
 "covered / eligible lives" (eligible-but-not-paying reach under an employer/health-plan).
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
+def funding_rounds_source_directed_prompt(research_query) -> str:
+    """Source-directed retry for passes 2..N of funding-ROUNDS recovery (FRAMEWORK_VERSION v1.2). Fixes
+    the recall gap -- a generic pass coin-flips on the MOST RECENT round (Sword's series-d dropped 2/4) --
+    the B1 way: lead with the pages carrying COMPLETE, dated round histories (Crunchbase / PitchBook /
+    company announcements), constructing URLs, AND try aliases / former names. ADDITIVE, never a filter.
+    The LLM GATHERS rounds (the fit-brief synthesis structures them per c3779cc) and NEVER picks a stage
+    (the deterministic mapper does). Issued with web search ON by search_with_recovery."""
+    return f"""
+Use live web search to find the company's COMPLETE, DATED funding-round history -- and ESPECIALLY its
+MOST RECENT priced round -- for:
+
+{research_query}
+
+The single most important thing to get right is the LATEST round: a generic search often stops at an
+older round and misses the most recent one (the recall gap this pass exists to close). START by going
+DIRECTLY to the sources that carry full, dated round histories. Construct and open their canonical pages
+from the company's domain / name:
+- Crunchbase: crunchbase.com/organization/<company-name> (the funding-rounds section)
+- PitchBook: the company's profile page
+- Growjo / CB Insights / Tracxn: the company page for the name AND for any former name
+- the company's OWN funding announcements / newsroom / press releases for each raise
+Also try KNOWN ALIASES and FORMER NAMES -- aggregators often list a company (and its later rounds) under
+a former name or brand alias (e.g. Quit Genius -> Pelago; a "Join X" brand for X). If a page looks wrong
+for this company (absurd scale, wrong industry), treat it as a possible namesake and try the alias /
+former name before concluding.
+
+This direct-URL targeting is IN ADDITION TO, NOT INSTEAD OF, the open search for company-disclosed rounds
+wherever they live -- press releases, investor / IR pages, reputable press citing a raise + date,
+statutory filings. The aggregators are a LEAD, NOT a filter: a recent round announced only in a press
+release MUST still be returned. Pay special attention to any round in the LAST ~24 MONTHS -- that is the
+one a generic pass most often misses.
+
+For EVERY round, report: its TYPE (seed / series-a / ... / series-d / ... / bridge / extension / SAFE /
+convertible / debt), its DATE (year or year-month), its AMOUNT, and whether it is a PRICED EQUITY round
+(seed/series-*) vs a bridge / extension / SAFE / convertible / debt event. Include undated rounds (mark
+them date-unknown), and report the FULL dated sequence INCLUDING the most recent round.
+Do NOT compute or pick a single funding_stage -- the deterministic rule downstream selects it from the
+rounds you gather.
+"""
+
+
+def funding_latest_round_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-ONLY: does the union contain a RECENT priced equity round WITH a date -- a PROXY for
+    'the latest round was gathered'? No web search; gates NOTHING; changes only provenance (figure_present),
+    never the union / pass count / the mapper's selection. We cannot verify the TRUE latest without ground
+    truth, so ABSENT is a SOFT signal (recall-miss OR genuinely-no-recent-raise) that only FEEDS the gate
+    fail-safe flag -- it never filters rounds or floors a company."""
+    prompt = f"""
+Read the funding findings below. Is there at least one PRICED EQUITY round (seed / series-a / series-b /
+... / series-d+) reported WITH a date in roughly the LAST ~24 MONTHS -- a plausible MOST-RECENT round? A
+round history that stops several years ago, or rounds with no date at all, does NOT count.
 
 Answer with exactly one word: PRESENT or ABSENT.
 
@@ -1511,7 +1580,27 @@ def run_research_batch(
             continue
 
         try:
-            funding = search_funding(research_query, client=client, model=model)
+            # Funding-ROUNDS recovery (the 4th recovery field): source-directed retries for LATEST-round
+            # RECALL (the Sword 2/4 miss) + an observability-only presence check. Built v1.2. The union ->
+            # fit-brief synthesis (maturity_evidence.funding_rounds, c3779cc) -> the funding_stage mapper.
+            funding, funding_recovery = search_with_recovery(
+                search_funding,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=funding_rounds_source_directed_prompt,
+                presence_check=funding_latest_round_presence_check,
+                field_name="funding_stage",
+                n_passes=FUNDING_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
+            )
+            logger.info(
+                "Funding-rounds recovery for %s: %s passes, recent_round_present=%s.",
+                company,
+                funding_recovery.n_passes,
+                funding_recovery.figure_present,
+            )
             sleep_fn(wait_between_searches)
 
             payer = search_payer_signal(research_query, client=client, model=model)

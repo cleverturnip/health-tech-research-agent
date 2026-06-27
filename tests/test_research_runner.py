@@ -715,10 +715,20 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         sleep_fn=sleeps.append,
     )
 
-    # per company: funding/payer/outcomes waits (7,7,7); then the commercial, growth, and
-    # paying-count recoveries each add 4 inter-pass waits of 3 + an after-wait of 7; then
-    # after-org (7) and trailing (7). (operating has no trailing wait; synthesis none.)
-    per_company = [7, 7, 7, 3, 3, 3, 3, 7, 3, 3, 3, 3, 7, 3, 3, 3, 3, 7, 7, 7]
+    # per company: funding is now a recovery too. Each recovery contributes (N-1) inter-pass waits of 3
+    # then an after-wait of 7; the single searches (payer, outcomes) + after-org + trailing are 7 each.
+    # (operating has no trailing wait; synthesis none.) Order: funding, payer, outcomes, commercial,
+    # growth, paying, org, trailing.
+    def _recovery_waits(n):
+        return [3] * (n - 1) + [7]
+    per_company = (
+        _recovery_waits(rr.FUNDING_RECOVERY_PASSES)
+        + [7, 7]                                       # payer, outcomes
+        + _recovery_waits(rr.REVENUE_RECOVERY_PASSES)
+        + _recovery_waits(rr.GROWTH_RECOVERY_PASSES)
+        + _recovery_waits(rr.PAYING_RECOVERY_PASSES)
+        + [7, 7]                                       # after-org, trailing
+    )
     assert sleeps == per_company * 2
 
 
@@ -969,13 +979,15 @@ def test_build_latest_status_findings_has_eight_labeled_sections():
 
 def test_batch_runs_searches_and_persists_operator_findings(tmp_path):
     """The loop runs all searches per company and persists the new finding columns.
-    Commercial, growth-rate AND paying-count are each N=5 recoveries, so the web-search count is 20."""
+    Funding, commercial, growth-rate AND paying-count are each recoveries now."""
     ckpt = tmp_path / "c.csv"
     client = BatchClient(companies=["Acme"])
     run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
     search_calls = [c for c in client.calls if "tools" in c]
-    # 5 single (funding/payer/outcomes/org/operating) + 5 commercial + 5 growth + 5 paying recovery
-    assert len(search_calls) == 20
+    # 4 single (payer/outcomes/org/operating) + funding/commercial/growth/paying recoveries
+    expected = (4 + rr.FUNDING_RECOVERY_PASSES + rr.REVENUE_RECOVERY_PASSES
+                + rr.GROWTH_RECOVERY_PASSES + rr.PAYING_RECOVERY_PASSES)
+    assert len(search_calls) == expected
     df = pd.read_csv(ckpt)
     for col in ("org_events_finding", "operating_characteristics_finding"):
         assert col in df.columns
@@ -1458,6 +1470,28 @@ def test_paying_count_presence_check_excludes_covered_lives_and_parses():
     assert "tools" not in client.calls[-1]  # no web search
     assert rr.paying_count_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
     assert rr.paying_count_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+
+
+def test_funding_rounds_source_directed_prompt():
+    prompt = rr.funding_rounds_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    assert "Pelago (pelago.health), formerly Quit Genius" in prompt
+    low = prompt.lower()
+    assert "most recent priced round" in low                 # the recall goal (latest round)
+    assert "crunchbase" in low and "pitchbook" in low         # lead with full-history pages
+    assert "in addition to, not instead of" in low           # lead-not-filter
+    assert "former name" in low and "alias" in low            # alias / former-name handling
+    assert "last ~24 months" in low                           # the recall window
+    assert "do not compute or pick a single funding_stage" in low   # gather-not-pick (the mapper picks)
+
+
+def test_funding_latest_round_presence_check_is_observability():
+    client = RecordingClient(["PRESENT"])
+    rr.funding_latest_round_presence_check("series-d $90M 2024", client=client, model="m")
+    low = client.last_prompt.lower()
+    assert "last ~24 months" in low and "priced equity round" in low
+    assert "tools" not in client.calls[-1]                    # no web search (observability)
+    assert rr.funding_latest_round_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.funding_latest_round_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
 
 
 def test_prompt_revenue_per_user_derive_in_synthesis():

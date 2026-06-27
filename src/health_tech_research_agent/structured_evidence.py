@@ -253,6 +253,76 @@ def derive_maturity(row) -> tuple[str, bool]:
 
 
 # ---------------------------------------------------------------------------
+# Funding gate FAIL-SAFE (FRAMEWORK_VERSION v1.2) — a recall miss can read a too-late company as a
+# passing early stage. Flag-don't-gate (Rule 7): fire ONLY on ABSENT recent-round PLUS inconsistency,
+# never on ABSENT alone (a quiet-but-healthy no-recent-raise company must not be flagged).
+# ---------------------------------------------------------------------------
+
+# Conservative DIALS (tune later; near the SOT B4 late-stage dial neighborhood).
+FUNDING_FAILSAFE_AGE_YEARS = 7      # an EARLY stage on a company this old is inconsistent
+FUNDING_FAILSAFE_COMMERCIAL = 2     # >= moderate (0-3) commercial signal reads as "scaled"
+_EARLY_STAGES_FOR_FAILSAFE = frozenset({"pre-seed", "seed", "series-a", "series-b"})
+
+
+def funding_stage_needs_review(
+    funding_stage, recent_round_present, *, company_age_years=None, commercial_signal=None
+) -> bool:
+    """Gate fail-safe (flag-don't-gate, Rule 7): a funding RECALL miss can read a too-late company as a
+    passing EARLY stage. Fire ONLY when the recent round is ABSENT (a possible recall miss) AND the early
+    stage is INCONSISTENT with other maturity signals -- NEVER on ABSENT alone (a quiet-but-healthy company
+    that genuinely hasn't raised recently must NOT be flagged for the quiet stretch). The ~24mo presence
+    window (presence check) and the AGE / COMMERCIAL thresholds here are DIALS with conservative defaults;
+    the flag only routes to human review -- it never gates and never alters the mapped stage."""
+    if _is_true(recent_round_present):                               # a recent round WAS gathered -> no recall-miss risk
+        return False
+    if _norm_stage(funding_stage) not in _EARLY_STAGES_FOR_FAILSAFE:   # only an early stage can FALSE-PASS a too-late co
+        return False
+    old = company_age_years is not None and company_age_years >= FUNDING_FAILSAFE_AGE_YEARS
+    scaled = commercial_signal is not None and commercial_signal >= FUNDING_FAILSAFE_COMMERCIAL
+    return bool(old or scaled)                                       # ABSENT + early + (old OR scaled) -> flag for review
+
+
+def _has_recent_priced_round(funding_rounds, ref_year, *, window_years=2) -> bool:
+    """Deterministic proxy for 'a recent priced round was gathered' -- any PRICED EQUITY round dated within
+    ~window_years of ref_year. Recomputable from the stored funding_rounds (Rule 7), so the fail-safe's
+    recall-miss signal needs no LLM-result persistence (the LLM presence check stays observability-only)."""
+    for r in funding_rounds if isinstance(funding_rounds, list) else []:
+        if isinstance(r, dict) and _is_true(r.get("is_priced_equity")) and _has_date(r.get("date")):
+            year, _month = _parse_date(r.get("date"))
+            if year and 0 <= ref_year - year <= window_years:
+                return True
+    return False
+
+
+def _rounds_from_json(raw) -> list:
+    """Reconstruct funding_rounds from the persisted funding_rounds_json column (or a live list)."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def derive_funding_failsafe(row, *, ref_year) -> bool:
+    """Wired gate fail-safe (Rule 7, recomputable from stored columns): reads the persisted
+    funding_rounds_json + funding_stage + founding_year and the commercial signal, and applies
+    funding_stage_needs_review. The gate / review calls this; it routes to human review, never gates."""
+    rounds = _rounds_from_json(row.get("funding_rounds_json"))
+    founding_year, _ = _parse_date(row.get("founding_year"))
+    age = (ref_year - founding_year) if founding_year else None
+    return funding_stage_needs_review(
+        row.get("funding_stage"),
+        _has_recent_priced_round(rounds, ref_year),
+        company_age_years=age,
+        commercial_signal=derive_commercial_signal(row),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Commercial signal (Part B) — facts + four red-flags -> 0-3; funding excluded.
 # ---------------------------------------------------------------------------
 
