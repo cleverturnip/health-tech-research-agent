@@ -231,3 +231,33 @@ not 1,155.
 the search ALSO sometimes MISSES the latest round (a recall gap a small N union would address) vs always
 gathers it (mapper alone suffices). The Allara control (simple rounds, blinking only toward an earlier
 LISTED round) points to SELECTION, not recall — but confirm with a raw-finding look before finalizing N.
+
+## 13. Funding recall check (post-mapper) — SELECTION fixed; RECALL needs a recovery (N=2 too low)
+
+Ran the raw-rounds recall check after the deterministic mapper (`c3779cc`), Sword (complex) + Allara
+(control), N=4 each, reading the RAW gathered rounds (not just the mapped stage):
+
+| company | per-pass gathered rounds | latest-round recall |
+|---|---|---|
+| Sword | p1 [seed,b,c,d] ✓ · p2 [seed,b,c,d] ✓ · p3 [seed,a,b] ✗ · p4 [seed,a,a,b] ✗ | **2/4 — a single pass MISSED the D round half the time** |
+| Allara (control) | [seed,a,b] every pass | **4/4 clean** |
+
+**The mapper (SELECTION) is FIXED** — it deterministically returned `series-d-plus` whenever D was
+present and `series-b` whenever the rounds stopped at B; the control was rock-stable. The selection blink
+is gone. **The remaining gap is RECALL:** a single generic `search_funding` pass does NOT reliably GATHER
+the latest round for a COMPLEX company (Sword 2/4 missed D); simple companies (Allara) are clean. This is
+the same web-search execution variance the other fields hit.
+
+**N=2 (the pre-commit) is too low.** At the observed ~50% per-pass recall for Sword-class, an always-run
+union recovers the latest round with P = 1 − 0.5^N: N=2 → 75%, N=3 → 87%, N=5 → 97%. A 75% recall on a
+GATE input — a missed latest round reads a too-late D+ company as a passing series-b — is not enough.
+
+**Decision (HELD — not locked):** funding joins the recovery fields (it is NOT single-pass and NOT N=2).
+Either (a) a SOURCE-DIRECTED funding recovery (a retry that hunts the full/latest round history —
+Crunchbase / PitchBook — like the B1 source-direction that fixed revenue/growth recall), sized by a quick
+re-measure (source-direction should keep N modest, ~3); or (b) a plain N=5 union of the base gather (no
+new prompt, ~97%, conservative). (The high-recall-filter + human P0/P1 review is a partial backstop —
+a wrongly-passed Sword gets caught in deep research — but the gate should still eliminate it up front.)
+
+**Cost impact:** funding is no longer ~1,100. (a) source-directed N=3 → +110 → **~1,210**; (b) plain N=5
+→ +220 → **~1,320**. Locks once funding's recovery N is decided.
