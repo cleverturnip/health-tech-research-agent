@@ -892,6 +892,11 @@ def test_search_funding_gathers_fact_list_with_founding_year():
     assert "founding year" in prompt                          # added field (was uncovered)
     assert "FACT LIST" in prompt
     assert "Tag each fact with its source name and date." in prompt
+    # MISSING-DATE fix (v1.2): dated round sequence; priced-latest; public-outranks; undated excluded
+    assert "DATED funding-round sequence" in prompt
+    assert "latest-dated PRICED EQUITY round" in prompt
+    assert "OUTRANKS any private round" in prompt
+    assert "date unknown" in prompt and "never silently pick an undated round" in prompt
 
 
 def test_search_commercial_scale_gathers_provenance_and_trend():

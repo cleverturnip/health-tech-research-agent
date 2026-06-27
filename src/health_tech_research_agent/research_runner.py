@@ -164,14 +164,15 @@ Use live web search to find the latest credible funding, valuation, stage, inves
 {research_query}
 
 Look specifically for:
-- latest funding round
+- EACH priced funding round WITH ITS DATE and amount (e.g. "Series C, $40M, 2022; Series D, $90M, 2024")
+  -- the full dated sequence, not just a single "stage". Note any bridge / extension / SAFE / convertible
+  / debt events too (with dates), but mark them as such -- they do NOT redefine the stage bucket.
 - total funding
 - valuation
 - named investors
-- company stage
 - founding year (when the company was founded)
 - major acquisitions or strategic investments
-- IPO/S-1/public company status if applicable
+- IPO / S-1 / public-listing status (with the IPO/filing date)
 - evidence that funding supports growth versus survival
 
 Important:
@@ -179,9 +180,14 @@ Important:
 - Do not overstate uncertain funding information.
 - If source quality is weak, say so.
 
-Return a concise, sourced FACT LIST covering, where available: funding stage; IPO / public
-status (with the filing or IPO date if any); the date and amount of the latest raise; total
-funding to date; valuation; and founding year. Tag each fact with its source name and date.
+Return a concise, sourced FACT LIST covering, where available: the DATED funding-round sequence (each
+round WITH its date), and from it funding_stage as follows -- if a dated IPO / public-listing event
+exists, funding_stage = "public" (a public event OUTRANKS any private round); otherwise funding_stage =
+the stage of the latest-dated PRICED EQUITY round (a later bridge / extension / SAFE / debt event does
+NOT redefine the bucket -- a 2025 bridge after a 2023 Series C is still Series C). Also report IPO /
+public status (with the IPO/filing date); total funding to date; valuation; and founding year.
+Tag each fact with its source name and date. A round whose DATE cannot be established must be
+flagged "date unknown" and NOT used to set funding_stage -- never silently pick an undated round.
 If a particular fact is not found, say so rather than guessing.
 If no credible public funding evidence exists at all, say "No strong public funding evidence found."
 Do not invent figures.
