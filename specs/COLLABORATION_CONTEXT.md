@@ -59,6 +59,14 @@ segment defers a judgment to a gate instead of stalling or guessing.
   partial builds (e.g. temporary Colab cells to define a batch before the front end exists) must
   minimize friction for the eventual autonomous flow — solve the immediate step in the shape the
   end state will reuse, not in a throwaway shape that has to be undone later.
+- The scoring + priority framework has ONE source of truth:
+  `specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (FRAMEWORK_VERSION-stamped). Any scoring-logic
+  decision changes the DOC FIRST (the version bumps), and Claude Code commits the doc-update as
+  its own commit BEFORE building anything that depends on it. The doc-commit IS the sync; the
+  build references the committed doc. If a locked decision isn't in the doc, it isn't locked.
+- Both the research-layer and scoring work cite the framework version they were built against
+  ("built against FRAMEWORK_VERSION vN"). Output citing a superseded version is an instant
+  staleness flag — a mismatch becomes VISIBLE instead of relying on someone remembering it.
 
 ## Source-of-truth files (in the repo — I can paste these into chat, or hand them to Claude Code)
 1. `PROJECT_TRACKER.md` — current state, done, next.
