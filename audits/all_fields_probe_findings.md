@@ -147,3 +147,9 @@ counted as a growth RATE, because the presence-check (a)-clause had no kind-of-g
 ROUTING, not discard (these are real secondary signals): a precision FENCE keeps headcount / non-paying
 user / download / MAU / partner-count / funding growth OUT of growth_rate, and those signals are
 captured + carried elsewhere — the reserved **SOT B6.1** slot, locked in the routing task.
+
+**Capture-path WATCH-ITEM (regen live output).** `user_scale_signal` is populated by the synthesis from
+the commercial union (`search_commercial_scale` already surfaces scale figures). We did NOT add a directed
+non-paid-scale search — no evidence it's needed; don't pre-build. WATCH the regen's live output: if
+`user_scale_signal` comes back thin WHERE scale is known to exist, that is the trigger to add a directed
+`search_commercial_scale` capture for non-paid scale — its own decision, then.
