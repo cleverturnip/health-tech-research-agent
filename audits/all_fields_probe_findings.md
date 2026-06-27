@@ -153,3 +153,42 @@ the commercial union (`search_commercial_scale` already surfaces scale figures).
 non-paid-scale search — no evidence it's needed; don't pre-build. WATCH the regen's live output: if
 `user_scale_signal` comes back thin WHERE scale is known to exist, that is the trigger to add a directed
 `search_commercial_scale` capture for non-paid scale — its own decision, then.
+
+## 11. Funding-stage / IPO variance (2c) — gate input mostly robust; ONE real C/D-boundary flip
+
+Built against FRAMEWORK_VERSION v1.2. Ran 2c live via the NOTEBOOK path (= the package `search_funding` the
+regen uses, not a standalone harness), 5 boundary companies × N=5, billing-checked. The RAW per-pass marks
+show `funding_stage` "blinking" on 4/5 — but the GATE-RELEVANT read (does the stage land in the same AGENCY
+bucket: A/B/C = PASS vs D+/public = FAIL) is the real story:
+
+| company | stage reads (×5) | ipo_status | AGENCY bucket across 5 | gate-flip? |
+|---|---|---|---|---|
+| Hinge Health | d-plus×2, public×3 | public ×5 | FAIL all 5 (d-plus AND public both FAIL; ipo=public confirms) | NO — blink within FAIL |
+| Omada Health | d-plus×1, public×3, unknown×1 | public ×5 | FAIL all 5 (stable ipo=public floors it even when stage=unknown) | NO — ipo is the robust floor |
+| Sword Health | **series-c×1, d-plus×4** | private ×5 | **4 FAIL / 1 PASS** | **YES — 1/5 reads C (pass) vs D+ (fail)** |
+| Transcarent | series-d×1, d-plus×4 | private ×5 | FAIL all 5 (d and d-plus both FAIL) | NO — blink within FAIL |
+| Allara (control) | series-b ×5 | private ×5 | PASS all 5 | NO — perfectly stable |
+
+**Read the gate, not the label** (same discipline as the growth re-measure). The mechanical "BLINK(2/3)"
+marks over-state the risk: 3 of the 4 stage-blinks stay WITHIN one gate bucket (Hinge/Transcarent blink
+between two FAIL labels; Omada is floored by a rock-stable ipo=public). **`ipo_status` is rock-stable**
+(public/private 5/5 on EVERY company) — so for IPO'd/public companies it is the robust gate signal and the
+stage-label noise is cosmetic. Valuation blinks as expected (Hinge $6.2B↔none; Omada $1B↔none↔"just above
+$1B") — confirming the search IS noisy — while the gate inputs are steadier than valuation (the reassuring
+pattern).
+
+**The one real finding — the C-vs-D boundary flips.** Sword reads `series-c` 1/5 and `series-d-plus` 4/5,
+and C **passes** AGENCY while D+ **fails** — so at the C/D boundary funding_stage can blink across the
+pass/fail line (~20% here), wrongly PASSING a too-late company into scoring. (Transcarent's d↔d-plus did
+NOT flip — both FAIL.) Cause: the search sometimes surfaces an OLDER round (C) instead of the latest (D+).
+SOT B4 already defines funding_stage as the MOST RECENT priced round, so the fix is to make the search
+reliably surface + pick the latest round.
+
+**Implication for funding's N (feeds the N-table):** funding is NOT a clean single-pass. `ipo_status` →
+single-pass robust. `funding_stage` → needs a C/D-boundary mitigation: a LIGHT recovery (small N + take-the-
+most-recent-round per SOT B4 — the union surfaces the latest round, deterministically resolving C-vs-D) OR
+single-pass + a near-C/D boundary flag to human review. Recommend the recovery (directly implements B4 +
+robust); ratified in the N-table.
+
+(2a capability right-data + 2b reset recall were READ-confirmed clean against the regen doc earlier this
+thread; 2c is the only check that needed a live measure, and it surfaced the C/D flip above.)
