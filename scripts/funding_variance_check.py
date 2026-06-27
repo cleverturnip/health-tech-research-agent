@@ -1,5 +1,11 @@
 """Funding-stage / IPO-status VARIANCE check (2c) -- READ-ONLY, credit-spending.
 
+*** NOT THE CANONICAL 2c -- REFERENCE LOGIC ONLY (do not run against the regen question as-is). ***
+The CANONICAL 2c runs as a NOTEBOOK CELL that calls the PACKAGE path directly
+(_research_runner.search_funding -- the same path run_research_batch / the regen uses), so it cannot
+drift from the live path. This standalone harness duplicates that logic for offline reference only;
+reconcile it to the package before trusting it. (Kept, not deleted, to keep the logic legible.)
+
 The AGENCY gate (SOT B4, FRAMEWORK_VERSION v1.2) rests on funding_stage + ipo_status, whose run-to-run
 VARIANCE was never measured -- and the SAME search (search_funding) also yields valuation, which the
 all-fields probe showed blinks 0-100%. A static regen doc is ONE sample, so variance can only be

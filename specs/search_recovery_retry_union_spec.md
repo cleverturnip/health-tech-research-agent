@@ -232,6 +232,13 @@ recovery = **+~275 searches on the run-once** (a second 5-pass commercial-base s
 revenue + growth + paying-count are EACH N=5). Accepted design — growth is 60% of PMF, corroboration is
 worth it; built against FRAMEWORK_VERSION v1.1, not relitigated.
 
+**Regen-safety (do not rewire to the bare global):** every field — funding included — goes through
+`run_research_batch` → the package `research_runner.*` functions. Do NOT rewire the regen to a notebook
+bare global like `search_funding`: a stale pre-migration inline `search_funding` (~nb line 14600, 300-tok
+1-bullet) can shadow the global depending on cell-run order. **The regen is safe BECAUSE it uses
+`run_research_batch`**, which calls the package functions directly (immune to the shadow). (See the
+PROJECT_TRACKER post-migration cleanup item for pruning the stale cell.)
+
 ## Test plan (red→green, fake injected client — no real API, no spend)
 
 1. Always runs exactly **N** passes regardless of pass-1 result (success AND absent cases).
