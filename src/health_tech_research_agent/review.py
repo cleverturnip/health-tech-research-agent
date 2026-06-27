@@ -18,6 +18,7 @@ REQUIRED_RESEARCH_COLUMNS = [
     "outcomes_finding",
     "commercial_scale_finding",
     "growth_finding",
+    "paying_finding",
     "org_events_finding",
     "operating_characteristics_finding",
     "fit_brief_json",

@@ -78,6 +78,7 @@ def test_resume_completed_batch_without_research(tmp_path: Path):
             "outcomes_finding": "Outcomes",
             "commercial_scale_finding": "Commercial",
             "growth_finding": "Growth",
+            "paying_finding": "Paying",
             "org_events_finding": "Org events",
             "operating_characteristics_finding": "Operating characteristics",
             "fit_brief_json": _fit_brief(company),

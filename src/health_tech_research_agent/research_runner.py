@@ -587,6 +587,12 @@ REVENUE_RECOVERY_PASSES = 5
 # point, consistent across passes; the qualitative floor catches it), not a recoverable blinker.
 GROWTH_RECOVERY_PASSES = 5
 
+# Per-field pass budget for paying-customer-count recovery (always-run-N). Re-measured clean
+# (Tightening 2: paying employer-clients kept distinct from non-paying covered-lives; the Pelago
+# stress case) -> N=5, matching the measurement -- its OWN paying-directed recovery, not riding on
+# the revenue-directed commercial union. Built against FRAMEWORK_VERSION v1.2.
+PAYING_RECOVERY_PASSES = 5
+
 
 def revenue_source_directed_prompt(research_query) -> str:
     """Source-directed retry prompt for passes 2..N of revenue recovery.
@@ -1387,14 +1393,15 @@ def _row_is_complete(row) -> bool:
 
 
 def _build_latest_status_findings(
-    funding, payer, outcomes, commercial, growth, org_events, operating_characteristics
+    funding, payer, outcomes, commercial, growth, paying, org_events, operating_characteristics
 ) -> str:
     """Assemble the research findings into the synthesis input.
 
-    The four original STEP 7 sections, the growth-rate recovery union (its own
-    growth-directed N=5 search; the synthesis derives growth_signal from its dated
-    endpoints), plus the two Slice 3.7 operator sections (org events -> reset;
-    operating characteristics -> capability-fit, scored in Slice 4).
+    The four original STEP 7 sections, the growth-rate recovery union (growth-directed
+    N=5; synthesis derives growth_signal from its dated endpoints) and the paying-count
+    recovery union (paying-directed N=5; synthesis derives paying_customer_count from it),
+    plus the two Slice 3.7 operator sections (org events -> reset; operating
+    characteristics -> capability-fit, scored in Slice 4).
     """
     return f"""
 Funding:
@@ -1411,6 +1418,9 @@ Commercial scale / revenue quality:
 
 Revenue growth / dated revenue endpoints:
 {growth}
+
+Paying-customer count:
+{paying}
 
 Recent org / leadership events (last ~12-18 months):
 {org_events}
@@ -1534,6 +1544,29 @@ def run_research_batch(
             )
             sleep_fn(wait_between_searches)
 
+            # Paying-customer-count recovery: its OWN per-field config (paying-directed retries +
+            # presence check) at N=5 -- matches the re-measure (paying-directed, not the
+            # revenue-directed commercial union). Built against FRAMEWORK_VERSION v1.2.
+            paying, paying_recovery = search_with_recovery(
+                search_commercial_scale,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=paying_count_source_directed_prompt,
+                presence_check=paying_count_presence_check,
+                field_name="paying_customer_count",
+                n_passes=PAYING_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
+            )
+            logger.info(
+                "Paying-count recovery for %s: %s passes, figure_present=%s.",
+                company,
+                paying_recovery.n_passes,
+                paying_recovery.figure_present,
+            )
+            sleep_fn(wait_between_searches)
+
             org_events = search_org_events(research_query, client=client, model=model)
             sleep_fn(wait_between_searches)
 
@@ -1542,7 +1575,7 @@ def run_research_batch(
             )
 
             latest_status_findings = _build_latest_status_findings(
-                funding, payer, outcomes, commercial, growth, org_events, operating_characteristics
+                funding, payer, outcomes, commercial, growth, paying, org_events, operating_characteristics
             )
 
             fit_brief = run_company_fit_brief(
@@ -1566,6 +1599,7 @@ def run_research_batch(
                 "outcomes_finding": outcomes,
                 "commercial_scale_finding": commercial,
                 "growth_finding": growth,
+                "paying_finding": paying,
                 "org_events_finding": org_events,
                 "operating_characteristics_finding": operating_characteristics,
                 "fit_brief_json": fit_brief,
