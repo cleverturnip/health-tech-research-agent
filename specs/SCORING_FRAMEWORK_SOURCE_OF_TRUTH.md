@@ -1,7 +1,7 @@
 # Scoring & Priority Framework — SOURCE OF TRUTH
 
-**FRAMEWORK_VERSION: v1.1 (2026-06-27)**
-**Changelog:** v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
+**FRAMEWORK_VERSION: v1.2 (2026-06-27)**
+**Changelog:** v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `user_scale_signal`), with STRUCTURAL enforcement (no score-consumer reads `user_scale_signal`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
 **Status:** canonical. This is the ONE doc the design chats AND Claude Code point at for the scoring +
 priority framework. If a decision about scoring logic isn't here, it isn't locked. When scoring logic
 changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
@@ -283,11 +283,11 @@ pmf     = round_even_bands(pmf_raw)                       # 8.4->8, 8.5->9
   lands (37/55 lacked quantified growth pre-recovery). Build the assembly now; it scores fully once the
   recovery regen lands.
 
-## B6.1. SECONDARY USER-SCALE SIGNALS — routing (OPEN; reserved slot, lock in next research-layer task)
-**Status: OPEN — DO NOT BUILD until locked (FRAMEWORK_VERSION bump when locked).** Documented here now
-so the decision has a home before it's built, per the doc-first discipline.
+## B6.1. SECONDARY USER-SCALE SIGNALS — routing (LOCKED v1.2)
+**Status: LOCKED (FRAMEWORK_VERSION v1.2).** Reserved as an OPEN slot in v1.1; locked here with the routing
+below. The fence + the new field build red→green on the research branch citing v1.2 (doc-first).
 
-**The problem this reserves a slot for:** non-revenue growth figures (headcount/employee growth,
+**The problem this addresses:** non-revenue growth figures (headcount/employee growth,
 download/install/MAU growth, partner/client-count growth, funding growth) are abundant on aggregators
 (Growjo headcount, app-store downloads) and the LLM can mistake them for the revenue/paid-user growth
 signal (live cases: Solace 304% EMPLOYEE growth and Midi "0→435 employees" surfaced as candidate growth
@@ -303,9 +303,30 @@ signal (live cases: Solace 304% EMPLOYEE growth and Midi "0→435 employees" sur
   inverse of the §A7 high-recall-filter stance: just as the model must not over-credit high revenue, it
   must not let user-scale proxies impersonate revenue traction.
 
-**The reserved decision (to lock next):** WHERE each secondary signal lands (which captured/queryable
-field) and WHAT it is barred from feeding (revenue presence; growth_score). The bar is known; the field
-routing is the open design content. Lock in the next research-layer task and bump the version.
+**The LOCKED routing (v1.2) — code-grounded.** Each secondary signal is captured + carried in a specific
+field and fenced out of growth-rate. Three categories already have homes; one needs a new field:
+- **headcount / employee / speed-of-scale growth → existing A2 STRAIN** (`search_operating_characteristics`
+  + the a2 synthesis already capture "headcount ~100→500 in ~6mo" as a §B7 structural signal).
+- **partner / client-count growth → existing `institutional_distribution_signal`** (scale_signal_assessment).
+- **funding growth → existing `funding_evidence`** (context-only; already structurally excluded from the
+  commercial signal).
+- **non-paying digital user-scale (total/registered/active users, MAU, downloads/installs) + its growth →
+  NEW captured field `user_scale_signal`** (in `commercial_evidence` next to `paying_customer_count`,
+  persisted via structured_evidence.py). The one genuine gap: `paying_customer_count` is paid-only,
+  `growth_signal` is barred, and `scale_signal_assessment` holds assessments not raw counts — yet §B3
+  `has_meaningful_user_scale` + the §B6 user-scale proxy are meant to read exactly this. `user_scale_signal`
+  fills a gap the framework already assumes is filled (not scope creep).
+
+**The bar (fixed):** every routed signal is captured + carried + tagged as the secondary signal it is;
+NONE satisfies revenue presence; NONE feeds `growth_score`. A precision FENCE keeps headcount / non-paying
+user / download / MAU / partner-count / funding growth OUT of `growth_rate_source_directed_prompt` and
+`growth_rate_presence_check`, so `growth_signal` / `growth_score` stay revenue/paid-only.
+
+**Enforcement is STRUCTURAL, not just instructional:** the bar holds because `revenue_presence_check` reads
+the revenue union and `growth_score` reads `growth_signal` — neither reads `user_scale_signal` — so
+misfiling into this field cannot reach revenue presence or growth_score without a deliberate, visible edit
+to a consumer. A future change cannot quietly wire `user_scale_signal` into the score; it would have to
+change what a consumer reads, which is a reviewable edit.
 
 ## B7. STRAIN + FLOOR + FINAL ASSEMBLY (Item #7) — LOCKED
 ```
@@ -368,6 +389,10 @@ calibrates. Calibration on pre-regen data is BARRED (^c10).
   MECHANISM, acceleration-bonus MECHANISM, round-even banding. [A2/B6]
 - STRAIN STRUCTURE: global-rank modifier, capped, can't move a tier alone; B1/B2 split + strict B2 bar. [B7]
 - FLOOR rule: P0/P1 require BOTH gradients > 4. [B7]
+- **Secondary user-scale signal ROUTING (LOCKED v1.2)** — three categories to existing homes
+  (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`),
+  non-paying user-scale→new `user_scale_signal`; STRUCTURALLY barred from revenue presence + growth_score
+  (no score-consumer reads `user_scale_signal`). [B6.1]
 - North Star; Rule 7; Rule 8; carry-and-rate; calibrate-on-trusted-data-only.
 
 **OPEN-DIAL — build the mechanism, EXPOSE the knob, do NOT treat the number as final:**
@@ -379,9 +404,6 @@ calibrates. Calibration on pre-regen data is BARRED (^c10).
   expose a flag. [B4]
 - Per-field recovery **N** (research-layer) — N=5 set for revenue/paying-count/growth; permanent per-field
   N is a later calibration. (Cross-ref only; lives in the research-layer docs.)
-- **Secondary user-scale signal ROUTING** (headcount/download/MAU/partner-count/funding growth) — captured
-  + carried, BARRED from satisfying revenue presence or feeding growth_score; WHERE each lands is the open
-  design content. Reserved slot at B6.1 — LOCK in the next research-layer task (version bump). [B6.1]
 
 **PLACEHOLDER — committed for context but DO NOT BUILD/CALIBRATE AGAINST:**
 - **All P0/P1/P2/P3 THRESHOLD NUMBERS** (21–23 / 15–20 / 9–14 examples). Calibrated against the 55 AFTER
