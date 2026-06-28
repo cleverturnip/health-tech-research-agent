@@ -5,10 +5,14 @@ fixture live on the `docs-scoring-sot` branch, read by both tracks). Research-re
 `research-search-recovery`. **This is the one page Katelynd green-lights the run-once regen against** —
 not a reconstruction from the 14 findings sections in `audits/all_fields_probe_findings.md`.
 
-**GO statement.** Every *required research input* has been validated before the irreversible, ~$-expensive
-run-once. Each recovery field's N was **sized from measured data, never reflexively**; the one gate-critical
-selector (funding) is a **deterministic mapper with a fail-safe flag**, not LLM free-reasoning. Nothing
-below is an open question that should block the run; the open items in §4 are explicitly *non-blocking*.
+**GO statement — scoped to PHASE 1 (the research regen).** This is a GO for the **research regen only**:
+the recovery-enabled research pass that writes the **Step-7 research-output CSV** and stops there. It is
+**NOT** a GO to produce a scored master — the master is created later, in **Phase 3**, after **Phase 2**
+pressure-tests the framework against the real research output and locks thresholds (see §5). Every
+*required research input* has been validated before this irreversible, ~$-expensive run; each recovery
+field's N was **sized from measured data, never reflexively**; the one gate-critical selector (funding) is
+a **deterministic mapper with a fail-safe flag**, not LLM free-reasoning. Nothing below blocks the run;
+the open items in §4 are explicitly *non-blocking*.
 
 ---
 
@@ -120,36 +124,60 @@ gate-flip noise; this regen pays for measured recall on every presence-fragile a
 
 ---
 
-## 5. What the regen produces, and what comes after
+## 5. What the regen produces, and the three-phase tail
 
-- **Produces:** a **trustworthy multi-field master** — revenue / growth / paying-count / funding captured at
-  measured recall, funding stage deterministically mapped, secondary signals routed.
-- **Then the scoring track resumes** (separate from this regen): classifier **live test vs the fixture**, the
-  gate/gradient spine, the Background Fit rewording, and **calibration against the 55 on trustworthy data**.
-- **BARRED:** calibration on pre-regen data. The whole point of the regen is to replace the untrustworthy
-  inputs first; tuning the decision logic against the old noisy master is explicitly not allowed.
+**Phase 1 — the research regen (THIS GO).** Produces the **Step-7 RESEARCH OUTPUT CSV**, written
+line-by-line as each company completes — revenue / growth / paying-count / funding captured at measured
+recall, funding rounds gathered for the deterministic mapper, secondary signals routed. **The master is
+NOT produced here; nothing downstream of Step 7 runs in this regen.** Verified ready by: the data-readiness
+table (§1) + the field-landing smoke test (§1 — 3 companies, real path, every new field lands populated) +
+the notebook-cell drift review.
+
+**Phase 2 — the review gate: pressure-test the framework + set thresholds, against the REAL research
+output.** Run the SOT's scoring logic (gate / gradient / classifier) against the Phase-1 output via
+temporary cells, in this order:
+1. **Pressure-test the SOT framework against actual data** — does the designed gate/gradient/classifier
+   logic hold up on real companies, or does something break / mis-rank that looked fine in design? Tweak the
+   framework as needed. A framework change here is a **FRAMEWORK_VERSION bump (v1.2 → v1.3), doc-first** (the
+   SOT changes first, committed, before any code follows) — same discipline as always, except these
+   revisions are now **evidence-driven from real data**, not design-reasoned.
+2. **THEN set thresholds** against the now-validated framework (thresholds come *after* the framework holds
+   — setting them against a structure that then changes would mean re-setting them). This is where the SOT's
+   **§C markings come due**: the PLACEHOLDER threshold numbers (P0–P3) and the OPEN-DIALs (40/60 split, the
+   ≤7 cap, +1/+2 acceleration, strain max, late-C treatment) are **RESOLVED HERE against real data, never
+   guessed**. They were never permanent ambiguity — Phase 2 is when they close. **Calibration-on-pre-regen-
+   data stays BARRED** — Phase 2 runs against the Phase-1 trustworthy output, which is the whole reason for
+   doing the regen first.
+
+**Phase 3 — post-thresholds: build the scoring/master flow → the master is created.** Update the code + the
+Colab flow with the locked framework + thresholds, build the scoring/master step (gate/gradient spine wired,
+Background Fit rewording, `final_priority_level` populated) — **the master is created here.** This part of
+the Colab flow gets its **own drift review** (the second drift review, at the second autonomous-segment
+boundary — distinct from the Phase-1 Step-7 review).
 
 ---
 
-## 6. Pre-flight checklist for the actual run (the operational gate)
+## 6. Pre-flight checklist for the Phase-1 research regen (the operational gate)
 
-Run through this immediately before the GO — it is the operational gate, separate from the data-readiness
-above:
+Run through this immediately before the GO — it is the operational gate for the **Phase-1 research regen
+to Step 7**, separate from the data-readiness above:
 
 - [ ] **Billing confirmed** — credits present + the monthly auto-recharge cap is high enough for ~1,155
   searches. (A sustained "Rate limit hit … Max retries reached" almost always means OUT OF CREDITS, not
   throttling — **CHECK BILLING FIRST**, per the runbook.)
 - [ ] **Correct branch + version** — research code at `research-search-recovery`; FRAMEWORK_VERSION v1.2;
   the per-field N constants read 5 / 5 / 5 / 2.
-- [ ] **DRY_RUN gate first** — run the dry-run path before the real write; confirm it reports the expected
-  per-company call budget (21 web/company) and writes nothing durable.
+- [ ] **(Phase 3, not this run) DRY_RUN gate before the MASTER write** — the dry-run-before-real-write gate
+  guards the *master* update (Step 12), which runs in **Phase 3**, not this Phase-1 research regen. Phase 1
+  writes only the research-output CSV; its equivalent guard is the field-landing smoke test (§1, green).
 - [ ] **Resume / idempotency intact** — a disconnect mid-run must resume from the last durable per-company
   checkpoint without re-researching completed companies (do NOT unlink the checkpoint on a post-restart
   resume).
-- [ ] **Read-back verifies POPULATION, not just presence** — the first regen's blank-cluster miss came from
-  checking that the workbook *exists* instead of that the cells are *populated*. The completion gate must
-  re-open the artifact and confirm the fields are actually filled across the company set, not merely that a
-  file was written.
+- [ ] **Read-back verifies POPULATION of the research-output CSV, not just presence** — the first regen's
+  blank-cluster miss came from checking that a file *exists* instead of that its cells are *populated*. Phase
+  1's read-back must re-open the **Step-7 research-output CSV** and confirm the fields are actually filled
+  across the company set (exactly what the §1 smoke-test landing table does), not merely that a file was
+  written. (A workbook/master read-back is a Phase-3 concern.)
 - [ ] **Notebook schema cells IMPORT the package list (Step 7 + Step 10A)** — both cells must use
   `required_current_schema_cols = list(REQUIRED_RESEARCH_COLUMNS)`, NOT a hardcoded list. A hardcoded list is
   stale (9 cols) and Step 10A's `df = df[required_current_schema_cols]` would **drop `growth_finding` +
