@@ -369,6 +369,14 @@ calibrates. Calibration on pre-regen data is BARRED (^c10).
 
 # §C — STABILITY MARKINGS (build/calibrate discipline)
 
+> **WHERE THESE CLOSE (forward-pointer; no framework change).** The OPEN-DIAL knobs and PLACEHOLDER
+> numbers below are RESOLVED in **Phase 2** of the regen tail — pressure-test THIS framework against the
+> **Phase-1 research output**, then set thresholds against the validated framework (evidence-driven from
+> real data, never guessed). A framework revision discovered there is a **doc-first FRAMEWORK_VERSION bump
+> (v1.2 → v1.3)** — the SOT changes first, then code. The §C markings were never permanent ambiguity;
+> Phase 2 is when they close. Calibration-on-pre-regen-data stays BARRED. Cross-ref:
+> `PRE_REGEN_READINESS.md` §5 (the regen's three-phase tail). The STABLE items remain safe to build now.
+
 **STABLE — locked as reference; safe to build against:**
 - Gated-then-ranked architecture (3 stages; fact-enters-once). [A1/B0]
 - The no-double-count invariant + enforced instances (growth gate-vs-PMF; reset-vs-strain). [B1]
