@@ -295,3 +295,25 @@ Sword's two misses resolve. (Selection-half refinement to the c3779cc mapper.)
 **N implication:** recall is ~100% with source-direction, so funding N is LOW — **N=2** (1 general + 1
 source-directed, a buffer), NOT N=4. **Cost ~1,155 (N=2)**, not ~1,320. Locks after the mapper-robustness
 fix (validated offline on the re-measure's raw rounds — no credit re-check needed).
+
+### LOCKED (mapper-robustness fix built + N set)
+
+The fix is built and validated offline (full suite 278 passed, zero credits):
+- **Mapper robustness** (`structured_evidence.py`): `_norm_stage` now returns `""` for a non-canonical type
+  (Priced equity round / unknown / secondary sale / financing) and folds `series-X extension`→`series-X`,
+  `seed extension`→`seed`; `funding_stage_from_rounds` selects ONLY rounds whose type is a canonical stage,
+  so the real Series D wins over garbage even when the garbage is later-dated + priced. Validated on the
+  exact re-measure lists: Sword pass-4 (`Series D` + `Priced equity round` + `secondary sale`)→`series-d-plus`;
+  pass-5 (`Series D` + two `unknown`)→`series-d-plus`.
+- **Gate fail-safe (req 1, gate-critical):** an `unknown`/undeterminable mapped stage — from ANY cause,
+  incl. the filter excluding every gathered type — ALWAYS routes to `funding_stage_needs_review` → human
+  review, checked BEFORE the recent-round short-circuit (a recent non-canonical round still flags). The
+  robustness fix can never hide a silent gate pass/fail. The 9 original `c3779cc` asserts still pass.
+- **N LOCKED: `FUNDING_RECOVERY_PASSES = 2`** (1 general + 1 source-directed). Recall ~100%/pass → N=2 is a
+  thin buffer on a gate input, not N=4 (brute-force) and not N=1 (no margin).
+
+**FINAL regen cost — LOCKED at ~1,155 web searches** = 55 companies × **21 web calls/company**
+[revenue 5 + growth 5 + paying 5 + commercial 5 + **funding 1→2 = +1**], + 55 fit-brief synthesis calls
++ per-field presence checks. (Funding 1→2 added +55 over the ~1,100 baseline.) ~2× the first regen; the
+delta is the price of NOT baking untrustworthy multi-field data into a run-once. Funding closing means
+EVERY required research input is validated → see `specs/PRE_REGEN_READINESS.md` (the single GO artifact).
