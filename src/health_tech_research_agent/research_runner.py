@@ -598,10 +598,12 @@ GROWTH_RECOVERY_PASSES = 5
 PAYING_RECOVERY_PASSES = 5
 
 # Per-field pass budget for funding-ROUNDS recovery (always-run-N), source-directed for LATEST-round
-# RECALL (the Sword 2/4 miss). PLACEHOLDER = 3 -- SIZED POST-RE-MEASURE (Step 3): the source-directed
-# per-pass recall p sets N for ~97% (p~85% -> N=2-3). Do NOT treat 3 as final until the re-measure prints.
-# Built against FRAMEWORK_VERSION v1.2.
-FUNDING_RECOVERY_PASSES = 3
+# RECALL. LOCKED = 2 by the source-directed re-measure (audits/all_fields_probe_findings.md §14): per-pass
+# recall is ~100% once source-directed (Sword's Series D/F was gathered in ALL 5 passes; the prior "60%"
+# was a MAPPER artifact on non-canonical types, now fixed by the canonical-stage filter). So N=2 is a thin
+# BUFFER on a GATE input (1 general + 1 source-directed, two shots at the latest round) -- NOT N=4
+# (brute-forcing a non-problem), NOT N=1 (no margin on a gate signal). Built against FRAMEWORK_VERSION v1.2.
+FUNDING_RECOVERY_PASSES = 2
 
 
 def revenue_source_directed_prompt(research_query) -> str:

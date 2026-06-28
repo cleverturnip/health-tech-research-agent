@@ -336,6 +336,27 @@ def test_funding_stage_mapper():
     # tolerates the LLM emitting string booleans ("true"/"false")
     assert se.funding_stage_from_rounds(
         [{"type": "series-b", "date": "2022", "is_priced_equity": "true"}], {"occurred": "false"}) == "series-b"
+    # --- §14 robustness: the REAL messy lists the source-directed re-measure produced (the c3779cc
+    # selection-half gap). The real Series D must win; non-canonical types are excluded even when LATER +
+    # priced -- so N=2 suffices and N=4 (brute-forcing the mapper) is unnecessary.
+    sword_pass4 = [{"type": "Series D", "date": "2021-11", "is_priced_equity": True},
+                   {"type": "Priced equity round", "date": "2023", "is_priced_equity": True},
+                   {"type": "Financing / secondary sale", "date": "2024", "is_priced_equity": True}]
+    assert se.funding_stage_from_rounds(sword_pass4, {"occurred": False}) == "series-d-plus"
+    sword_pass5 = [{"type": "Series C", "date": "2020", "is_priced_equity": True},
+                   {"type": "Series D", "date": "2021", "is_priced_equity": True},
+                   {"type": "unknown", "date": "2023", "is_priced_equity": True},
+                   {"type": "unknown", "date": "2024", "is_priced_equity": True}]
+    assert se.funding_stage_from_rounds(sword_pass5, {"occurred": False}) == "series-d-plus"
+    # suffix folding: extension / variant types normalize to the base canonical stage
+    assert se.funding_stage_from_rounds(
+        [{"type": "series-a extension", "date": "2022", "is_priced_equity": True}], {"occurred": False}) == "series-a"
+    assert se.funding_stage_from_rounds(
+        [{"type": "seed extension", "date": "2021", "is_priced_equity": True}], {"occurred": False}) == "seed"
+    # ALL types non-canonical -> nothing selectable -> "unknown" (req 1 then routes it to review, below)
+    assert se.funding_stage_from_rounds(
+        [{"type": "Priced equity round", "date": "2023", "is_priced_equity": True},
+         {"type": "secondary sale", "date": "2024", "is_priced_equity": True}], {"occurred": False}) == "unknown"
 
 
 def test_funding_stage_failsafe_flag():
@@ -353,6 +374,12 @@ def test_funding_stage_failsafe_flag():
     assert se.funding_stage_needs_review("public", False, company_age_years=20, commercial_signal=3) is False
     # string-bool tolerance (the recall signal may arrive as a stored string)
     assert se.funding_stage_needs_review("series-b", "True", company_age_years=20, commercial_signal=3) is False
+    # req 1 (§14): an UNKNOWN / undeterminable mapped stage ALWAYS routes to review -- never a silent
+    # pass/fail. The middle case is the gate-bug guard: a recent round WAS present but every gathered type
+    # was non-canonical -> mapper returned "unknown" -> must STILL flag (checked before the recent short-circuit).
+    assert se.funding_stage_needs_review("unknown", False) is True
+    assert se.funding_stage_needs_review("unknown", True, company_age_years=2, commercial_signal=0) is True
+    assert se.funding_stage_needs_review("", True) is True
 
 
 def test_has_recent_priced_round():

@@ -130,16 +130,28 @@ def _norm_enum(value) -> str:
 
 
 def _norm_stage(value) -> str:
-    """Normalize funding_stage to the vocab; collapse series-d and beyond to series-d-plus."""
+    """Normalize a funding_stage / round-type to the SOT B4 vocab, or "" for a NON-CANONICAL type so the
+    mapper EXCLUDES garbage ("Priced equity round" / "unknown" / "secondary sale" / "financing"). Folds
+    'seed extension' -> seed and 'series-X extension' / 'series-X1' -> series-X; collapses series-d and
+    beyond -> series-d-plus; keeps 'public'. Returning "" for a non-canonical type is what closes the
+    mapper gap the source-directed re-measure exposed (audits/all_fields_probe_findings.md §14)."""
     text = _norm_enum(value)
     if not text:
         return ""
-    if text in {"pre-seed", "preseed"}:
+    if text == "public":
+        return "public"
+    if text.startswith("pre-seed") or text == "preseed":
         return "pre-seed"
-    # series-d / series-d+ / series-d-plus / series-e / series-f / ... -> series-d-plus
-    if re.match(r"^series-[d-z]", text):
-        return "series-d-plus"
-    return text
+    if text.startswith("seed"):                       # seed / seed-extension / seed-round -> seed
+        return "seed"
+    m = re.match(r"^series-([a-z])", text)            # series-a / series-a-extension / series-b1 -> base letter
+    if m:
+        return "series-d-plus" if m.group(1) >= "d" else f"series-{m.group(1)}"
+    return ""                                         # non-canonical type -> EXCLUDED from stage selection
+
+
+# The canonical PRIVATE-market stages a priced round may map to (public is the IPO branch, not a round).
+_CANONICAL_STAGES = frozenset({"pre-seed", "seed", "series-a", "series-b", "series-c", "series-d-plus"})
 
 
 # ---------------------------------------------------------------------------
@@ -149,11 +161,8 @@ def _norm_stage(value) -> str:
 # PRICED EQUITY round (bridge/extension/SAFE/debt + undated rounds excluded). Emits the SOT B4 vocab.
 # ---------------------------------------------------------------------------
 
-# Raw stage order for the same-date tiebreak (NOT collapsed -- series-d beats series-c on equal dates).
-_STAGE_ORDER = [
-    "pre-seed", "seed", "series-a", "series-b", "series-c",
-    "series-d", "series-e", "series-f", "series-g", "series-h", "series-i",
-]
+# Canonical stage order for the same-date tiebreak: the later stage wins (series-d-plus beats series-c).
+_STAGE_ORDER = ["pre-seed", "seed", "series-a", "series-b", "series-c", "series-d-plus", "public"]
 
 
 def _is_true(value) -> bool:
@@ -180,9 +189,10 @@ def _parse_date(value) -> tuple[int, int]:
 
 
 def _stage_rank(round_type) -> int:
-    """Tiebreak rank for two rounds on the SAME date: the later stage wins (series-d > series-c)."""
+    """Tiebreak rank for two rounds on the SAME date: the later stage wins (series-d > series-c). Ranks the
+    NORMALIZED stage, so 'series-a extension' ranks with series-a; a non-canonical type ranks -1."""
     try:
-        return _STAGE_ORDER.index(_norm_enum(round_type))
+        return _STAGE_ORDER.index(_norm_stage(round_type))
     except ValueError:
         return -1
 
@@ -198,6 +208,7 @@ def funding_stage_from_rounds(funding_rounds, ipo_event) -> str:
     priced = [
         r for r in rounds
         if isinstance(r, dict) and _is_true(r.get("is_priced_equity")) and _has_date(r.get("date"))
+        and _norm_stage(r.get("type")) in _CANONICAL_STAGES   # §14: exclude non-canonical types (Priced equity round / unknown / secondary) from selection
     ]
     if not priced:
         return "unknown"
@@ -268,14 +279,20 @@ def funding_stage_needs_review(
     funding_stage, recent_round_present, *, company_age_years=None, commercial_signal=None
 ) -> bool:
     """Gate fail-safe (flag-don't-gate, Rule 7): a funding RECALL miss can read a too-late company as a
-    passing EARLY stage. Fire ONLY when the recent round is ABSENT (a possible recall miss) AND the early
-    stage is INCONSISTENT with other maturity signals -- NEVER on ABSENT alone (a quiet-but-healthy company
-    that genuinely hasn't raised recently must NOT be flagged for the quiet stretch). The ~24mo presence
-    window (presence check) and the AGE / COMMERCIAL thresholds here are DIALS with conservative defaults;
-    the flag only routes to human review -- it never gates and never alters the mapped stage."""
-    if _is_true(recent_round_present):                               # a recent round WAS gathered -> no recall-miss risk
+    passing EARLY stage. Two routes to review: (req 1, §14) an UNKNOWN / undeterminable mapped stage --
+    from ANY cause, incl. the canonical filter excluding every gathered type -- ALWAYS routes to review, so
+    the robustness fix can never hide a silent gate pass/fail. Otherwise fire ONLY when the recent round is
+    ABSENT (a possible recall miss) AND the early stage is INCONSISTENT with other maturity signals --
+    NEVER on ABSENT alone (a quiet-but-healthy company that genuinely hasn't raised recently must NOT be
+    flagged for the quiet stretch). The ~24mo presence window (presence check) and the AGE / COMMERCIAL
+    thresholds here are DIALS with conservative defaults; the flag only routes to human review -- it never
+    gates and never alters the mapped stage."""
+    stage = _norm_stage(funding_stage)
+    if not stage:                                                   # req 1 (§14): unknown/undeterminable mapper output -> ALWAYS review, never a silent gate pass/fail
+        return True
+    if _is_true(recent_round_present):                              # a recent round WAS gathered -> no recall-miss risk
         return False
-    if _norm_stage(funding_stage) not in _EARLY_STAGES_FOR_FAILSAFE:   # only an early stage can FALSE-PASS a too-late co
+    if stage not in _EARLY_STAGES_FOR_FAILSAFE:                     # only an early stage can FALSE-PASS a too-late co
         return False
     old = company_age_years is not None and company_age_years >= FUNDING_FAILSAFE_AGE_YEARS
     scaled = commercial_signal is not None and commercial_signal >= FUNDING_FAILSAFE_COMMERCIAL
