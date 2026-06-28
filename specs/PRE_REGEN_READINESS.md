@@ -59,6 +59,25 @@ company OR scaled commercial signal) flags for review; never on ABSENT alone (a 
 not flagged). `funding_rounds_json` is persisted (recomputable). 278 tests green, validated offline / zero
 credits on the exact re-measure round-lists.
 
+### Smoke-test confirmation — schema verified on REAL output (2026-06-28)
+
+3 representative companies (function health / sword health / omada health) run through the real
+`run_research_batch` path to a scratch CSV; `failed: {}`. **Every field landed POPULATED on all three:**
+- **All 11 top-level columns** — incl. the two new recovery columns `growth_finding` + `paying_finding`
+  (9.1k–12.3k chars each). Omada's `org_events_finding` is the legit 49-char "none found" (populated-absence).
+- **All 5 nested fit_brief_json fields** — `maturity_evidence.funding_rounds` + `ipo_event`,
+  `commercial_evidence.revenue_per_user` (all DERIVED with inputs shown) + `user_scale_signal` (400k / 112k /
+  886k) + `growth_signal` (DERIVED, with inputs). No BLANK, no MISSING KEY, all `fit_brief_json` parsed.
+- **Funding chain end-to-end across all three mapper branches:** sword → `series-d-plus` (latest-round recall,
+  the hardened case), omada → `public` (IPO-outranks; `ipo_event.occurred` arrived as bool `True` and the
+  mapper's string/bool tolerance handled it), function → `series-b` (mapper correctly picked the latest
+  priced round — a Series B postdating the 2024 Series A; both are early-growth → PASS, so the gate is
+  unaffected). The empty-output guard fired once and recovered at the bumped budget (no failure).
+
+Conclusion: the research-output schema is correct on real output; `growth_finding`/`paying_finding` reach
+the CSV. (GO still requires the notebook's Step 7 + Step 10A schema cells to IMPORT `REQUIRED_RESEARCH_COLUMNS`
+— see the pre-flight checklist — so the columns aren't dropped downstream of Step 7.)
+
 ---
 
 ## 2. Classifier / Option B status (who_uses / who_pays)
