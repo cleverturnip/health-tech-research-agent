@@ -261,3 +261,37 @@ a wrongly-passed Sword gets caught in deep research — but the gate should stil
 
 **Cost impact:** funding is no longer ~1,100. (a) source-directed N=3 → +110 → **~1,210**; (b) plain N=5
 → +220 → **~1,320**. Locks once funding's recovery N is decided.
+
+## 14. Funding source-directed re-measure — recall is EXCELLENT; the misses are a MAPPER gap, not N
+
+Source-directed re-measure (`a434cec`), 4 cos × N=5, per-pass = does the mapper hit the expected bucket:
+
+| company | per-pass | read |
+|---|---|---|
+| Allara (control) | 5/5 (100%) | clean |
+| Hinge | 5/5 (100%) | public (IPO outranks), clean |
+| Transcarent | 5/5 (100%) | clean |
+| Sword | 3/5 (60%) | **both "misses" GATHERED Series D — MAPPER artifacts, not recall misses** |
+
+**Source-direction worked (the B1 win)** — per-pass recall lifted from the generic 50% to 100% on three
+companies, and to a TRUE ~100% on Sword: reading the RAW rounds, the latest real round (Series D / F) was
+GATHERED in ALL 5 Sword passes. The two scored "misses" are the mapper letting a NON-CANONICAL type win
+over the real Series D:
+- pass 4: rounds include "Series D" + a vague "Priced equity round" + "Financing / secondary sale" → the
+  mapper returned "priced-equity-round" (it normalizes an unrecognized type as-is → garbage).
+- pass 5: rounds include "Series D" + two "unknown"-typed rounds → the mapper returned "unknown".
+
+So the source-directed retry gathers RICHER (messier) lists — secondary sales / vague / "unknown" types —
+and the mapper lets a non-canonical type win over the real Series D. **This is a MAPPER ROBUSTNESS gap,
+not a recall problem. N=4 (the mechanical worst-case) would brute-force past it — the anti-pattern we keep
+rejecting.**
+
+**Fix (small, code-only, validated FREE on these exact round-lists):** the mapper selects only rounds whose
+type normalizes to a CANONICAL stage (pre-seed / seed / series-a..c / series-d-plus); non-canonical types
+(Priced equity round, unknown, secondary sale, financing) are EXCLUDED from the stage selection, and
+"series-X extension" normalizes to series-X. Then the latest CANONICAL priced round (Series D) wins →
+Sword's two misses resolve. (Selection-half refinement to the c3779cc mapper.)
+
+**N implication:** recall is ~100% with source-direction, so funding N is LOW — **N=2** (1 general + 1
+source-directed, a buffer), NOT N=4. **Cost ~1,155 (N=2)**, not ~1,320. Locks after the mapper-robustness
+fix (validated offline on the re-measure's raw rounds — no credit re-check needed).
