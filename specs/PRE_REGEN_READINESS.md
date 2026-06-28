@@ -131,6 +131,12 @@ above:
   checking that the workbook *exists* instead of that the cells are *populated*. The completion gate must
   re-open the artifact and confirm the fields are actually filled across the company set, not merely that a
   file was written.
+- [ ] **Notebook schema cells IMPORT the package list (Step 7 + Step 10A)** — both cells must use
+  `required_current_schema_cols = list(REQUIRED_RESEARCH_COLUMNS)`, NOT a hardcoded list. A hardcoded list is
+  stale (9 cols) and Step 10A's `df = df[required_current_schema_cols]` would **drop `growth_finding` +
+  `paying_finding`** and truncate the checkpoint (→ every row reads "incomplete" → full re-research on any
+  disconnect). Run the 10A gate cell right after 10A: `df shape (N, 11)`. (See the runsheet's "Step 10A must
+  IMPORT the schema" section.)
 
 ---
 
