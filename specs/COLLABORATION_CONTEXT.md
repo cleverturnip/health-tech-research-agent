@@ -165,6 +165,17 @@ maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
 
+> **PASS-1 STATE (2026-06-29).** The SECOND (recovery-enabled) regen is COMPLETE — the
+> `v42_full_regen…full56_checkpoint_FINAL` CSV (54 of 55; `firefly health` + `videahealth` deferred). The
+> Phase-2 scoring SPIKE (disposable, clean-room from SOT) is mid Pass-1 review: classifier TRUSTED-for-spike
+> (human-locked B2B floor, SOT §B2 v1.4, + 3 documented overrides); RESET sharpened (SOT §B4 v1.5 —
+> sword/oura/noom excluded, floored 14→17); PMF growth-extraction bug fixed (SOT §B6 v1.6 — the cap-squash
+> was EXTRACTION, not data; cap 34/40→0, PMF now a real ranker). Spike deterministic core: 37 pass gates /
+> 17 floored. **STILL PENDING:** Background-Fit (§B5 LLM, HELD), Pass-1 sign-off, then Pass-2 dial +
+> threshold calibration. Non-normative Pass-1 records in `spike_pass1_notes.md`. The second-regen-gate
+> (below) is SATISFIED — this checkpoint IS the recovery-enabled regen; calibrating Pass-2 against it is
+> consistent (the cap-squash was spike-code, not a data-trust failure; see `spike_pass1_notes.md` §5).
+
 > ⚠️ **STATUS CORRECTED 2026-06-26 — there are TWO run-once regens; do not conflate them.**
 > The 2026-06-24 V4.2 regen (below) is the FIRST. A subsequent **research-layer thread** discovered that
 > the V4.2 master's DATA is not trustworthy (~42% empty revenue, plus recoverable figures missing across
