@@ -70,7 +70,7 @@ MATURITY_EVIDENCE_FIELDS = [
 COMMERCIAL_EVIDENCE_FIELDS = [
     "revenue_or_arr",
     "paying_customer_count",
-    "user_scale_signal",
+    "sponsored_user_scale",
     "revenue_per_user",
     "growth_signal",
     "business_model_type",

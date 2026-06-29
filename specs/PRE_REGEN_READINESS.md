@@ -47,7 +47,7 @@ carried **blind-provisional** into the scoring track:
 - `reset_events` — single-pass; recomputable from `reset_events_json`; multi-event handling already built.
 - capability-fit evidence (A1/A2/A3) — single-pass *gather*; **scored** later in Slice 4 (blind-provisional).
 - operational-strain — single-pass; observational signal, routed (B6.1) not directly scored.
-- `user_scale_signal` — single-pass; **NEW** (B6.1 secondary-signal routing, `5ffbe7e`). Captured + carried;
+- `sponsored_user_scale` — single-pass; **NEW** (B6.1 secondary-signal routing, `5ffbe7e`). Captured + carried;
   **NEVER satisfies revenue presence and NEVER feeds `growth_score`** (blind-provisional — routed to its
   B6.1 slot, scored in the scoring track).
 
@@ -70,7 +70,7 @@ credits on the exact re-measure round-lists.
 - **All 11 top-level columns** — incl. the two new recovery columns `growth_finding` + `paying_finding`
   (9.1k–12.3k chars each). Omada's `org_events_finding` is the legit 49-char "none found" (populated-absence).
 - **All 5 nested fit_brief_json fields** — `maturity_evidence.funding_rounds` + `ipo_event`,
-  `commercial_evidence.revenue_per_user` (all DERIVED with inputs shown) + `user_scale_signal` (400k / 112k /
+  `commercial_evidence.revenue_per_user` (all DERIVED with inputs shown) + `sponsored_user_scale` (400k / 112k /
   886k) + `growth_signal` (DERIVED, with inputs). No BLANK, no MISSING KEY, all `fit_brief_json` parsed.
 - **Funding chain end-to-end across all three mapper branches:** sword → `series-d-plus` (latest-round recall,
   the hardened case), omada → `public` (IPO-outranks; `ipo_event.occurred` arrived as bool `True` and the

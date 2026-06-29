@@ -350,7 +350,7 @@ def test_prompt_has_commercial_evidence_and_four_redflags():
     for field in [
         "revenue_or_arr",
         "paying_customer_count",
-        "user_scale_signal",
+        "sponsored_user_scale",
         "revenue_per_user",
         "growth_signal",
         "business_model_type",
@@ -362,7 +362,7 @@ def test_prompt_has_commercial_evidence_and_four_redflags():
     # funding is structurally excluded; q3 phrased as the counterfactual (Solace catch)
     assert "structurally excluded" in prompt
     assert "setting the funding/valuation story aside" in prompt
-    # user_scale_signal (SOT B6.1 v1.2): secondary signal, structurally barred from the score
+    # sponsored_user_scale (SOT B6.1 v1.3): secondary signal, structurally barred from the score
     assert "NEVER feeds growth_signal OR growth_score" in prompt
 
 
