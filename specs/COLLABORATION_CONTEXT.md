@@ -165,16 +165,16 @@ maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
 
-> **PASS-1 STATE (2026-06-29).** The SECOND (recovery-enabled) regen is COMPLETE — the
+> **PASS-1 SIGNED OFF (2026-06-29).** The SECOND (recovery-enabled) regen is COMPLETE — the
 > `v42_full_regen…full56_checkpoint_FINAL` CSV (54 of 55; `firefly health` + `videahealth` deferred). The
-> Phase-2 scoring SPIKE (disposable, clean-room from SOT) is mid Pass-1 review: classifier TRUSTED-for-spike
-> (human-locked B2B floor, SOT §B2 v1.4, + 3 documented overrides); RESET sharpened (SOT §B4 v1.5 —
-> sword/oura/noom excluded, floored 14→17); PMF growth-extraction bug fixed (SOT §B6 v1.6 — the cap-squash
-> was EXTRACTION, not data; cap 34/40→0, PMF now a real ranker). Spike deterministic core: 37 pass gates /
-> 17 floored. **STILL PENDING:** Background-Fit (§B5 LLM, HELD), Pass-1 sign-off, then Pass-2 dial +
-> threshold calibration. Non-normative Pass-1 records in `spike_pass1_notes.md`. The second-regen-gate
-> (below) is SATISFIED — this checkpoint IS the recovery-enabled regen; calibrating Pass-2 against it is
-> consistent (the cap-squash was spike-code, not a data-trust failure; see `spike_pass1_notes.md` §5).
+> Phase-2 scoring SPIKE (disposable, clean-room from SOT) PASSED Pass-1 framework review: classifier
+> TRUSTED-for-spike (human-locked B2B floor SOT §B2 v1.4 + 3 overrides); RESET sharpened (SOT §B4 v1.5 —
+> sword/oura/noom excluded, floored 14→17); PMF growth-extraction bug fixed (SOT §B6 v1.6 — cap 34/40→0,
+> PMF a real ranker); deterministic core 37 pass / 17 floored. **CURRENT:** Background-Fit (§B5, LLM, STAGED
+> wording → joint-review) is the last component → assemble the full ranked table → **HOLD for Pass-2** (dials
+> + P0–P3 thresholds). Non-normative Pass-1 records: `spike_pass1_notes.md` (on `docs-scoring-sot`).
+> Second-regen-gate SATISFIED — this checkpoint IS the recovery-enabled regen; Pass-2 calibration against it
+> is consistent (the cap-squash was spike-code, not a data-trust failure).
 
 > ⚠️ **STATUS CORRECTED 2026-06-26 — there are TWO run-once regens; do not conflate them.**
 > The 2026-06-24 V4.2 regen (below) is the FIRST. A subsequent **research-layer thread** discovered that

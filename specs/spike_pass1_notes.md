@@ -72,3 +72,30 @@ failure (the growth data is present, 52/54). Caveats for Pass-2: (a) calibrate o
 scores, not the buggy capped ones; (b) the spike's scoring logic (zero-baseline/derived scoring, the fence,
 reset v1.5) must be carried into the hardened scorer or calibrated thresholds won't transfer.
 **Katelynd's call — flagged, not overridden.**
+
+## 6. HARDENING REQUIREMENTS (load-bearing — the biggest risk to Pass-2 transfer)
+These are **requirements**, not notes. Pass-2 dials and thresholds will be calibrated against the spike's
+scores; if the hardened Phase-3 scorer's extraction or gate logic drifts from the spike's, **those Pass-2
+thresholds become INVALID** (they were fit to different numbers). Therefore:
+
+**R1 — Carry the spike's scoring LOGIC into the hardened Phase-3 scorer, intact.** Specifically, the
+hardened scorer MUST reproduce:
+- **Zero-baseline scoring** ($0→$N scored on revenue magnitude × stage, not treated as missing) — SOT §B6 v1.6.
+- **Derived-figure scoring** (credible third-party / Sacra/Latka/Growjo / "estimate" growth SCORES; it is not
+  "undisclosed") — SOT §B6 v1.6.
+- **The §B6.1 revenue-growth fence** (member / patient / covered-lives / download / headcount / utilization /
+  partner / funding / valuation counts are SCALE, never growth_score).
+- **Reset §B4 v1.5 substance + confidence rules** (substance-over-label; IPO-prep non-qualifying; `opening`
+  must be a clear `yes`; growth-support exec adds do not fire; N unclears do not sum).
+- **The PATH gates** (Test A B2B floor-fail; Test B B2C/B2B2C aliveness via revenue/scale/growth or a real
+  institutional channel) and the **human-locked B2B floor** (SOT §B2 v1.4) + the 3 documented overrides.
+Any deviation in these is a calibration-invalidating change and MUST trigger re-calibration, not a silent ship.
+
+**R2 — The hardened (LLM-based) growth extractor MUST handle these specific cases** that the spike's regex
+extractor gets wrong (logged §3), because Pass-2 reads their spike scores with asterisks:
+- `pomelo care` — must NOT count **covered-lives +50%** as revenue growth (spike LEAKS it → inflated).
+- `outcomes4me` — must NOT count **patient +485%** as revenue growth (spike LEAKS it → inflated, grw=10).
+- `season health` — must FIND the **~53.7%** revenue growth buried in the raw finding (spike MISSES it →
+  scores qualitative 6, under-extracted).
+The permanent extractor should be a robust parser or an LLM growth-presence judgment that reliably separates
+revenue/$ growth from member/patient/covered-lives counts. Treat these three as named regression fixtures.
