@@ -1,7 +1,7 @@
 # Scoring & Priority Framework — SOURCE OF TRUTH
 
-**FRAMEWORK_VERSION: v1.3 (2026-06-29)**
-**Changelog:** v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
+**FRAMEWORK_VERSION: v1.4 (2026-06-29)**
+**Changelog:** v1.4 — B2B floor is now a MAINTAINED HUMAN-LOCKED LIST (6: openevidence, cohere health, zus health, om1, medically home, linus health) that OVERRIDES the classifier (gate-critical; the classifier can't reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team `who_uses` boundary — medically home oscillated across 3 tuning rounds). Mapper logic UNCHANGED; the floor is an override layer. Also synced the stale §B2 inline fixture block to v1.3 truth (6/8/41; angle→B2B2C; dropped angle/outcomes4me asserts). v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
 **Status:** canonical. This is the ONE doc the design chats AND Claude Code point at for the scoring +
 priority framework. If a decision about scoring logic isn't here, it isn't locked. When scoring logic
 changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
@@ -180,6 +180,19 @@ This is the invariant A1 describes, made concrete. Each must hold in the build:
   ```
 - `who_uses == professional` floors to B2B REGARDLESS of who_pays (the OpenEvidence fix — a professional-
   operated product can't be rescued by who-pays).
+- **B2B FLOOR — MAINTAINED HUMAN-LOCKED LIST (authoritative; takes precedence over the classifier).** The
+  B2B floor is a maintained list of behind-the-scenes professional/enablement products that must NEVER
+  enter scoring. It is **human-locked, not classifier-emitted**: for any company on this list,
+  `business_model` is FORCED to `B2B` regardless of the classifier's output. Rationale: the floor is
+  gate-critical (a floor company wrongly admitted to scoring is the worst gate error) and the classifier
+  cannot reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team boundary
+  (medically home oscillated across three tuning rounds). The classifier is therefore NOT expected to emit
+  the floor, and a classifier floor-miss on a listed company is a **NON-FAILURE by design**.
+  - **The locked floor (6):** `openevidence`, `cohere health`, `zus health`, `om1`, `medically home`, `linus health`.
+  - **Maintenance:** adding/removing a floor company is a **doc-first edit to THIS list** (human judgment),
+    NOT a classifier change. The classifier still runs on all companies and still emits B2B via the mapper
+    when it reads `who_uses=professional`; the locked list is an OVERRIDE that guarantees these 6 are B2B
+    even if the classifier reads them consumer.
 - `who_pays == mixed` with consumer user → B2B2C (a real institutional channel exists; cash-pay strength
   surfaces later in PMF, not here).
 - **`who_uses_confidence == low` → set `business_model_needs_review = True`, route to human gate (flag,
@@ -190,19 +203,33 @@ This is the invariant A1 describes, made concrete. Each must hold in the build:
   and the derived business_model (written by the mapper).
 - **Replaces** old `business_model_type` (revenue-mechanism axis) as the PATH signal. Keep the old field
   only if other code reads it; it is NO LONGER the gate signal.
-- **REGRESSION FIXTURE — the locked 55 (classifier MUST reproduce):** B2B-floor **7** / B2C **11** /
-  B2B2C **37**; `needs_review` expected **0** (>1–2 to review ⇒ prompt logic is off, fix before accepting).
-  Canonical asserts: openevidence→B2B (was mislabeled B2B2C); nourish→B2B2C; zoe→B2C; medically-home→B2B;
-  headway/rula/grow-therapy→B2B2C; angle-health→B2B; outcomes4me→B2C.
-  - B2B-floor (7): openevidence, cohere health, zus health, om1, medically home, linus health, angle health.
-  - (full B2C-11 / B2B2C-37 lists live in business_model_classifier_spec.md §4 — fixture is the assert.)
+- **REGRESSION FIXTURE — the locked 55 (v1.3 truth; `business_model_classifier_fixture.md`, commit
+  `72cc199`, is the AUTHORITATIVE regression target — this is the summary):** B2B-floor **6** / B2C **8** /
+  B2B2C **41** = 55 (re-run target with `firefly health` deferred: **6/8/40 = 54**); `needs_review`
+  expected **0** (>1–2 ⇒ prompt logic is off). NOT the v1.2-era 7/11/37.
+  Canonical asserts (**7**): openevidence→B2B (was mislabeled B2B2C); nourish→B2B2C; zoe→B2C;
+  medically-home→B2B; headway→B2B2C; rula→B2B2C; grow-therapy→B2B2C. (Dropped in v1.3: `angle-health→B2B`
+  and `outcomes4me→B2C` — both reclassified **B2B2C**.)
+  - **B2B-floor (6, = the human-locked list above):** openevidence, cohere health, zus health, om1,
+    medically home, linus health. (`angle health` left the floor in v1.3: member login = consumer uses
+    Angle's own product → B2B2C.)
+  - Full per-bucket lists live in `business_model_classifier_fixture.md` (the locked source).
+  - **Spike classifier overrides (documented; scored via locked-fixture truth, NOT a fixture change):** the
+    spike classifier self-classifies 50/54; four are scored from locked truth — `medically home`→B2B (now
+    covered by the human-locked floor above), `noom med`→B2C, `signos`→B2C (minor employer-page `who_pays`
+    over-read as mixed), `counsel health`→B2B2C (evidence-thin input gap, Rule 8). **HARDENING flags:**
+    (a) provider-tool / hospital-at-home vs own-care-team `who_uses` — handled in the spike by the
+    human-locked floor, permanent solution TBD; (b) minor-channel `who_pays` (single-proof-point employer
+    page over-reading as mixed) — tighten in hardening.
 - **Classifier PROMPT wording is STAGED** — live Colab test vs this fixture before final-merge. Mapper +
   fixture are LOCKED.
 
 ## B3. PATH-TO-SCALE GATE (Item #2) — runs on classifier output; two sequential tests
 **Test A — is there a consumer end-user? (deterministic)**
 ```
-if business_model == "B2B":  GATE_FAIL     # no consumer end-user
+# Apply the B2B floor list FIRST (§B2 human-locked list): if company in LOCKED_B2B_FLOOR,
+#   business_model := "B2B" (override the classifier).
+if business_model == "B2B":  GATE_FAIL     # no consumer end-user (locked-floor companies fail here by the override)
 else:                        proceed to Test B   # B2C and B2B2C both have a consumer user
 ```
 **Test B — is the engine viable? (TWO-TIER, loose "engine alive" floor only)**
