@@ -1,7 +1,7 @@
 # Scoring & Priority Framework — SOURCE OF TRUTH
 
-**FRAMEWORK_VERSION: v1.4 (2026-06-29)**
-**Changelog:** v1.4 — B2B floor is now a MAINTAINED HUMAN-LOCKED LIST (6: openevidence, cohere health, zus health, om1, medically home, linus health) that OVERRIDES the classifier (gate-critical; the classifier can't reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team `who_uses` boundary — medically home oscillated across 3 tuning rounds). Mapper logic UNCHANGED; the floor is an override layer. Also synced the stale §B2 inline fixture block to v1.3 truth (6/8/41; angle→B2B2C; dropped angle/outcomes4me asserts). v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
+**FRAMEWORK_VERSION: v1.5 (2026-06-29)**
+**Changelog:** v1.5 — §B4 RESET sharpened (Pass-1 found the emitter over-fired on Series-D+ via 3 patterns): (1) SUBSTANCE-over-label — a business-model/pricing/product-strategy change is a strategic-pivot and NEVER fires, even if labeled "declared-transformation" (sword); (2) IPO-prep / S-1 / public-market-readiness is NON-QUALIFYING, added to the NEVER-fire list (oura); (3) CONFIDENCE bar — an "unclear"/low-confidence event does NOT fire, and N unclear events do not sum to a fire (noom). Mapper + maturity buckets + Rule-7 single-emitter UNCHANGED. v1.4 — B2B floor is now a MAINTAINED HUMAN-LOCKED LIST (6: openevidence, cohere health, zus health, om1, medically home, linus health) that OVERRIDES the classifier (gate-critical; the classifier can't reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team `who_uses` boundary — medically home oscillated across 3 tuning rounds). Mapper logic UNCHANGED; the floor is an override layer. Also synced the stale §B2 inline fixture block to v1.3 truth (6/8/41; angle→B2B2C; dropped angle/outcomes4me asserts). v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
 **Status:** canonical. This is the ONE doc the design chats AND Claude Code point at for the scoring +
 priority framework. If a decision about scoring logic isn't here, it isn't locked. When scoring logic
 changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
@@ -270,10 +270,25 @@ Series D+             -> late-stage   -> FAIL unless reset fired
 Public / pre-IPO      -> mature       -> FAIL unless reset fired
 Seed / pre-seed       -> too-early    -> FAIL (no reset rescue)
 ```
-- **RESET (already built, ZOE-validated):** fires on a qualifying event — leadership change, declared
-  transformation, founder transition, post-failure rebuild, restructuring/layoffs — creating a forward-
-  looking high-agency opening. **Strategic-pivot and M&A-integration NEVER fire.** Reset flips a maturity-
-  FAIL (D+, public/pre-IPO) to PASS. Reset does NOT rescue seed/pre-seed (too-early ≠ reopened window).
+- **RESET (ZOE-validated; SHARPENED v1.5):** fires on a qualifying event — genuine leadership change,
+  founder transition (clean handoff), post-failure rebuild, restructuring/layoffs, or a declared-
+  transformation that is NOT a relabeled pivot/IPO-prep — creating a forward-looking high-agency opening.
+  Reset flips a maturity-FAIL (D+, public/pre-IPO) to PASS. Reset does NOT rescue seed/pre-seed (too-early
+  ≠ reopened window). **Strategic-pivot, M&A-integration, AND IPO-prep NEVER fire.** Three sharpenings
+  (v1.5 — Pass-1 found the emitter over-fired on D+ via each; the test reads the event's SUBSTANCE +
+  CONFIDENCE, never the synthesis's label):
+  - **Substance over label (sword):** an event whose substance is a business-model / pricing /
+    product-strategy change is a **strategic-pivot and NEVER fires, even if labeled "declared-
+    transformation."** (Sword's "Outcome Pricing" + "Sword Intelligence evolution" — both relabeled
+    pivots — is the regression case.)
+  - **IPO-prep is NON-QUALIFYING (oura):** IPO preparation, an S-1 / draft registration statement, or
+    public-market-readiness is **not** a reopened window — it is a mature-trajectory event, the opposite of
+    a reset. It joins strategic-pivot + M&A-integration on the NEVER-fire list. (Oura's confidential S-1.)
+  - **Confidence bar — "unclear" does not fire (noom):** a reset fires ONLY on a CLEARLY qualifying
+    opening. An event the synthesis self-assesses `unclear` / low-confidence does NOT fire, and **N unclear
+    events do NOT sum to a fire.** A routine growth-support exec addition (e.g. adding a CMO "to support
+    expansion") is a growth move, not a reopening. (Noom — a partial founder reconfig + a growth-support
+    exec expansion — is the regression case.)
 - **Reset mechanism (Rule-7):** search GATHERS events; synthesis EMITS the canonical reset_events (SINGLE
   emitter); the deterministic rule DECIDES firing. Synthesis must NOT re-derive/override the opening.
   Multi-event: evaluate each event's opening SEPARATELY so a loud pivot can't bury a co-occurring
