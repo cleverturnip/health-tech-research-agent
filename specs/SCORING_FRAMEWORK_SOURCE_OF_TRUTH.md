@@ -1,7 +1,7 @@
 # Scoring & Priority Framework — SOURCE OF TRUTH
 
-**FRAMEWORK_VERSION: v1.2 (2026-06-27)**
-**Changelog:** v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `user_scale_signal`), with STRUCTURAL enforcement (no score-consumer reads `user_scale_signal`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
+**FRAMEWORK_VERSION: v1.3 (2026-06-29)**
+**Changelog:** v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
 **Status:** canonical. This is the ONE doc the design chats AND Claude Code point at for the scoring +
 priority framework. If a decision about scoring logic isn't here, it isn't locked. When scoring logic
 changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
@@ -311,10 +311,10 @@ field and fenced out of growth-rate. Three categories already have homes; one ne
 - **funding growth → existing `funding_evidence`** (context-only; already structurally excluded from the
   commercial signal).
 - **non-paying digital user-scale (total/registered/active users, MAU, downloads/installs) + its growth →
-  NEW captured field `user_scale_signal`** (in `commercial_evidence` next to `paying_customer_count`,
+  NEW captured field `sponsored_user_scale`** (in `commercial_evidence` next to `paying_customer_count`,
   persisted via structured_evidence.py). The one genuine gap: `paying_customer_count` is paid-only,
   `growth_signal` is barred, and `scale_signal_assessment` holds assessments not raw counts — yet §B3
-  `has_meaningful_user_scale` + the §B6 user-scale proxy are meant to read exactly this. `user_scale_signal`
+  `has_meaningful_user_scale` + the §B6 user-scale proxy are meant to read exactly this. `sponsored_user_scale`
   fills a gap the framework already assumes is filled (not scope creep).
 
 **The bar (fixed):** every routed signal is captured + carried + tagged as the secondary signal it is;
@@ -323,9 +323,9 @@ user / download / MAU / partner-count / funding growth OUT of `growth_rate_sourc
 `growth_rate_presence_check`, so `growth_signal` / `growth_score` stay revenue/paid-only.
 
 **Enforcement is STRUCTURAL, not just instructional:** the bar holds because `revenue_presence_check` reads
-the revenue union and `growth_score` reads `growth_signal` — neither reads `user_scale_signal` — so
+the revenue union and `growth_score` reads `growth_signal` — neither reads `sponsored_user_scale` — so
 misfiling into this field cannot reach revenue presence or growth_score without a deliberate, visible edit
-to a consumer. A future change cannot quietly wire `user_scale_signal` into the score; it would have to
+to a consumer. A future change cannot quietly wire `sponsored_user_scale` into the score; it would have to
 change what a consumer reads, which is a reviewable edit.
 
 ## B7. STRAIN + FLOOR + FINAL ASSEMBLY (Item #7) — LOCKED
@@ -399,8 +399,8 @@ calibrates. Calibration on pre-regen data is BARRED (^c10).
 - FLOOR rule: P0/P1 require BOTH gradients > 4. [B7]
 - **Secondary user-scale signal ROUTING (LOCKED v1.2)** — three categories to existing homes
   (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`),
-  non-paying user-scale→new `user_scale_signal`; STRUCTURALLY barred from revenue presence + growth_score
-  (no score-consumer reads `user_scale_signal`). [B6.1]
+  non-paying user-scale→new `sponsored_user_scale`; STRUCTURALLY barred from revenue presence + growth_score
+  (no score-consumer reads `sponsored_user_scale`). [B6.1]
 - North Star; Rule 7; Rule 8; carry-and-rate; calibrate-on-trusted-data-only.
 
 **OPEN-DIAL — build the mechanism, EXPOSE the knob, do NOT treat the number as final:**
