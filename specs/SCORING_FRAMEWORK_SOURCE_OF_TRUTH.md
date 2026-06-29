@@ -1,7 +1,7 @@
 # Scoring & Priority Framework — SOURCE OF TRUTH
 
-**FRAMEWORK_VERSION: v1.6 (2026-06-29)**
-**Changelog:** v1.6 — §B6 GROWTH-EXTRACTION SCOPE clarified (Pass-1 found the spike's PMF cap-squash was an EXTRACTION bug, not a data gap — 34/40 capped → 0): zero-baseline ($0→$N, scored on revenue-magnitude × stage, an OPEN DIAL) and DERIVED/third-party growth MUST be SCORED; the missing-data cap is ONLY for genuinely-absent revenue-growth; §B6.1 fence preserved (counts — covered-lives/patient/member — are scale, not growth). Non-normative Pass-1 records (reset regressions, emitter wording, extraction known-issue) live in `spike_pass1_notes.md`. v1.5 — §B4 RESET sharpened (Pass-1 found the emitter over-fired on Series-D+ via 3 patterns): (1) SUBSTANCE-over-label — a business-model/pricing/product-strategy change is a strategic-pivot and NEVER fires, even if labeled "declared-transformation" (sword); (2) IPO-prep / S-1 / public-market-readiness is NON-QUALIFYING, added to the NEVER-fire list (oura); (3) CONFIDENCE bar — an "unclear"/low-confidence event does NOT fire, and N unclear events do not sum to a fire (noom). Mapper + maturity buckets + Rule-7 single-emitter UNCHANGED. v1.4 — B2B floor is now a MAINTAINED HUMAN-LOCKED LIST (6: openevidence, cohere health, zus health, om1, medically home, linus health) that OVERRIDES the classifier (gate-critical; the classifier can't reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team `who_uses` boundary — medically home oscillated across 3 tuning rounds). Mapper logic UNCHANGED; the floor is an override layer. Also synced the stale §B2 inline fixture block to v1.3 truth (6/8/41; angle→B2B2C; dropped angle/outcomes4me asserts). v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
+**FRAMEWORK_VERSION: v1.7 (2026-06-29)**
+**Changelog:** v1.7 — §B5 BACKGROUND-FIT promoted STAGED → LOCKED: the bg_fit gradient wording was validated this session (Colab, 37/37 gate-passed; the Nourish "periodic"-mislabel regression PASSED at bg_fit=8; the data-feedback-loop flag fired only on the metabolic/tracking loops levels/signos/oova/9amhealth). The literal validated prompt is now embedded as the locked gradient prompt (data-feedback-loop top-of-scale amplifier 9–10; 6–8 floor-protection band for strong-habit-without-loop; bottom "do NOT under-score / periodic-trap" guard). Recorded the FUNCTION / low-frequency override note (audit trail, Rule 6): the gradient DELIBERATELY scores low-frequency engagement low (2×/year lab products → ~4) and this is CORRECT and intended; Function Health is a known REVIEW-TIME human-override candidate (revenue+complexity unicorn exception), NOT a scoring-logic change. Structure (gradient 1–10, errors recoverable, `who_uses==consumer` precondition, `data_feedback_loop` emitted as a separate flag) UNCHANGED. v1.6 — §B6 GROWTH-EXTRACTION SCOPE clarified (Pass-1 found the spike's PMF cap-squash was an EXTRACTION bug, not a data gap — 34/40 capped → 0): zero-baseline ($0→$N, scored on revenue-magnitude × stage, an OPEN DIAL) and DERIVED/third-party growth MUST be SCORED; the missing-data cap is ONLY for genuinely-absent revenue-growth; §B6.1 fence preserved (counts — covered-lives/patient/member — are scale, not growth). Non-normative Pass-1 records (reset regressions, emitter wording, extraction known-issue) live in `spike_pass1_notes.md`. v1.5 — §B4 RESET sharpened (Pass-1 found the emitter over-fired on Series-D+ via 3 patterns): (1) SUBSTANCE-over-label — a business-model/pricing/product-strategy change is a strategic-pivot and NEVER fires, even if labeled "declared-transformation" (sword); (2) IPO-prep / S-1 / public-market-readiness is NON-QUALIFYING, added to the NEVER-fire list (oura); (3) CONFIDENCE bar — an "unclear"/low-confidence event does NOT fire, and N unclear events do not sum to a fire (noom). Mapper + maturity buckets + Rule-7 single-emitter UNCHANGED. v1.4 — B2B floor is now a MAINTAINED HUMAN-LOCKED LIST (6: openevidence, cohere health, zus health, om1, medically home, linus health) that OVERRIDES the classifier (gate-critical; the classifier can't reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team `who_uses` boundary — medically home oscillated across 3 tuning rounds). Mapper logic UNCHANGED; the floor is an override layer. Also synced the stale §B2 inline fixture block to v1.3 truth (6/8/41; angle→B2B2C; dropped angle/outcomes4me asserts). v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
 **Status:** canonical. This is the ONE doc the design chats AND Claude Code point at for the scoring +
 priority framework. If a decision about scoring logic isn't here, it isn't locked. When scoring logic
 changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
@@ -297,14 +297,53 @@ Seed / pre-seed       -> too-early    -> FAIL (no reset rescue)
 - **OPEN DIAL — late-Series-C / late-stage treatment:** clean pass vs soft pass that also lowers the final
   score. Build as CLEAN PASS; expose a flag so calibration can switch it. (§C OPEN-DIAL.)
 
-## B5. BACKGROUND FIT GRADIENT (1–10) (Item #4) — STAGED (LLM-facing)
-- A GRADIENT, not a gate. Reword A1/A3 to the consumer-end-user test (reuse the classifier `who_uses`:
-  `who_uses == consumer` is the precondition; the gradient then scores HOW CLOSE the consumer-habit model
-  is to the mobile-games loop). Data-feedback loop (consumer sees body data → acts → sees it reflected) =
-  top-of-scale amplifier; a strong consumer-health company lacking that loop still scores solidly, not
-  floored.
-- **STAGED:** wording designed jointly + Colab-tested before lock (Nourish "periodic" mislabel is the
-  regression case). Structure (gradient, errors recoverable) is LOCKED; the rewording is STAGED.
+## B5. BACKGROUND FIT GRADIENT (1–10) (Item #4) — LOCKED (v1.7; wording validated 2026-06-29)
+- A GRADIENT, not a gate. **Precondition:** `who_uses == consumer` (reuse the classifier field; every
+  gate-passed company meets it — `professional` was floored at PATH Test A). The gradient then scores HOW
+  CLOSE the consumer-habit model is to the high-frequency "mobile-games loop." Errors are recoverable
+  (re-runnable per company). It emits `background_fit` (int 1–10) AND a separate `data_feedback_loop`
+  ("yes"/"no") flag, so the top-of-scale amplifier is visible per company.
+- **Scale (locked):** a DATA-FEEDBACK LOOP (consumer sees their OWN body data → acts → sees it reflected →
+  repeats) = top-of-scale amplifier (9–10, `data_feedback_loop="yes"`). A strong consumer-health company
+  LACKING that loop still scores SOLIDLY (6–8), not floored. Genuine episodic/intermittent engagement =
+  3–5. Near-zero recurring consumer surface = 1–2.
+- **VALIDATED + LOCKED:** Colab-tested this session over the 37 gate-passed companies (37/37; the Nourish
+  "periodic" mislabel regression PASSED — Nourish read as a strong consumer habit = **8**, not floored;
+  the data-loop flag fired only on the metabolic/tracking loops: levels/signos/oova/9amhealth). The LITERAL
+  locked prompt (a Python `str.format` template — note the doubled `{{ }}` for the emitted JSON braces):
+
+```text
+You score BACKGROUND FIT for a CONSUMER-facing health company: HOW CLOSE its consumer-engagement model is to the "mobile-games loop" -- habitual, high-frequency, retention-driven engagement the consumer keeps returning to on their own. This is a GRADIENT (1-10), not a pass/fail. (Precondition already met upstream: the consumer is the end-user of the company's OWN product/service.)
+
+Output ONE JSON object and nothing else:
+{{"background_fit": <integer 1-10>,
+  "data_feedback_loop": "yes" or "no",
+  "basis": "<one line describing the consumer's ACTUAL ongoing engagement>"}}
+
+SCALE:
+- 9-10 = a tight DATA-FEEDBACK LOOP: the consumer sees their OWN body/health data -> acts on it -> sees the result reflected back -> repeats. The habitual self-tracking loop (metabolic / CGM / wearable / biomarker / continuous activity or glucose tracking). This loop is the top-of-scale AMPLIFIER -> set data_feedback_loop = "yes".
+- 6-8 = a STRONG consumer-habit model WITHOUT that tight data-loop: frequent, retention-driven engagement the consumer actively sustains (recurring coaching / therapy / care they personally show up for, a consumer app with real habitual use, an ongoing condition-management relationship). A strong consumer-health company that simply LACKS the data-feedback loop STILL SCORES SOLIDLY HERE -- do NOT floor it merely for lacking the loop.
+- 3-5 = a genuinely EPISODIC / intermittent consumer relationship: the consumer engages around a discrete need or event and then largely leaves, with little sustained habit.
+- 1-2 = almost no recurring consumer-engagement surface.
+
+DO NOT under-score (the "periodic" trap): judge the consumer's ACTUAL ongoing engagement with the company's OWN product/service. Care delivered through the company's employed clinicians/coaches, or paid for by an employer/health-plan, is STILL the consumer's own habit -- do not label it "periodic" for that reason. A serious or medically-driven condition is NOT automatically low-frequency: a daily nutrition program, an ongoing therapy relationship, or continuous condition management is HABITUAL even when the underlying need is medical. Score 3-5 ONLY when the engagement is genuinely one-off / intermittent.
+
+Company: {company}
+Evidence:
+{evidence}
+```
+
+- **FUNCTION / low-frequency override note (audit trail — Rule 6).** The gradient DELIBERATELY scores
+  low-frequency engagement low: a twice-a-year lab-testing product (e.g. **Function Health**, InsideTracker)
+  scores ~4 even with elite PMF, because it is NOT the high-frequency loop. This is CORRECT and INTENDED —
+  every 2×/year product must score the same, so the gradient is consistent. **Function Health is a known
+  HUMAN-OVERRIDE CANDIDATE at review time:** Katelynd may manually relax Function's background-fit decision
+  vector, justified by exceptional revenue strength + problem complexity (a unicorn exception). That is a
+  REVIEW-TIME HUMAN OVERRIDE (Rule 6: human override beats the automated value), NOT a scoring-logic change.
+  The gradient KEEPS scoring low-frequency low; recording this here makes the later Function override a
+  documented exception rather than an apparent inconsistency. (`who_uses == consumer` precondition, the
+  gradient structure, and errors-recoverable behavior were LOCKED before this; only the wording was STAGED,
+  now LOCKED.)
 
 ## B6. PMF GRADIENT (1–10) (Item #5) — assembly LOCKED
 ```
