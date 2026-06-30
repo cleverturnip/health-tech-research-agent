@@ -959,3 +959,133 @@ def flatten_background_fit_fields(parsed) -> dict:
         "data_feedback_loop": loop,
         "background_fit_basis": _safe_text(block.get("basis", "")),
     }
+
+
+# ---------------------------------------------------------------------------
+# PMF gradient (§B6) — Commit 5a. Deterministic SCORING (Scale A + Scale B + geometric interp + assembly).
+#
+# Ported verbatim from SOT §B6 v1.8 (parity confirmed, plan D5) + the v1.12 ratified behaviors
+# (single-absent-half neutral = 4; unknown-stage -> series-b row; cap@7 inert in the growth-absent path).
+# NO acceleration (removed/parked v1.8). The growth-RATE EXTRACTION (raw text -> a structured growth read)
+# is the LLM step (Commit 5b, research_runner) — this layer SCORES a structured read. The §B6.1 fence is
+# provided here as a deterministic helper for the extractor (revenue/$ growth only; counts are SCALE).
+# ---------------------------------------------------------------------------
+
+# SCALE A — representative ARR ($M) at score 1..10 per stage (SOT §B6 v1.8 LOCKED).
+ARR_SCALE = {
+    "seed":          [0.10, 0.178, 0.316, 0.562, 1.0, 1.4, 1.9, 2.6, 3.6, 5.0],
+    "series-a":      [5, 6.6, 8.7, 11.4, 15, 19.1, 24.3, 30.9, 39.3, 50],
+    "series-b":      [15, 20.3, 27.4, 37, 50, 54.9, 60.3, 66.3, 72.8, 80],
+    "series-c":      [30, 38.3, 49, 62.6, 80, 104, 136, 177, 230, 300],
+    "series-d-plus": [50, 65.8, 86.6, 114, 150, 191, 243, 309, 393, 500],
+    "public":        [100, 126, 158, 199, 250, 330, 435, 574, 758, 1000],
+}
+# SCALE B — % YoY growth at score 1..10 per stage (engine-agnostic; SOT §B6 v1.8 LOCKED).
+GROWTH_SCALE = {
+    "seed":     [25, 30, 45, 65, 90, 120, 160, 210, 280, 350],
+    "series-a": [30, 45, 60, 80, 100, 125, 155, 200, 280, 400],
+    "series-b": [25, 35, 45, 60, 75, 90, 110, 135, 170, 200],
+    "series-c": [15, 22, 30, 38, 48, 58, 70, 90, 120, 150],
+    "public":   [10, 15, 20, 27, 35, 42, 50, 62, 80, 100],
+}
+
+PMF_LEVEL_WEIGHT = 0.4          # 40/60 level:growth split (§B7 LOCKED — near-inert on this roster)
+PMF_GROWTH_WEIGHT = 0.6
+PMF_MISSING_CAP = 7            # cap@7 on GENUINE growth absence (estimate-only can't hit best-in-class)
+PMF_NEUTRAL_HALF = 4          # single-absent-half neutral (v1.12 — ratified from the spike)
+
+# No-quantified-rate qualitative fallbacks (§B6/§B7 dials): growing=5 neutral-mid (don't gate on absence).
+_QUALITATIVE_GROWTH_SCORE = {"declining": 1, "flat": 3, "growing": 5}
+
+# §B6.1 FENCE — terms that mark a NON-revenue COUNT (scale, not growth): these must NOT feed growth_score.
+_FENCE_RE = re.compile(
+    r"headcount|employee|staff|download|install|\bmau\b|\busers?\b|user-scale|registered|active users|"
+    r"app(?:\s|-)?(?:download|install)|partner|client-count|funding round|valuation|utilization|"
+    r"covered lives|covered-lives|\bpatients?\b|member reach",
+    re.I,
+)
+_MONEY_RE = re.compile(r"\$?\s*([\d.]+)\s*(b|m)\b", re.I)
+
+
+def is_fenced_count_context(text) -> bool:
+    """§B6.1: True if the text denotes a NON-revenue COUNT (covered-lives / patient / member / headcount /
+    download / MAU / partner / funding / valuation). Such a figure is SCALE, not revenue growth — the
+    growth extractor (Commit 5b) must NOT read it as a growth rate."""
+    return bool(_FENCE_RE.search(_norm(text)))
+
+
+def _arr_stage(stage) -> str:
+    """Scale-A stage normalization: pre-seed -> seed; unknown -> series-b (v1.12 ratified)."""
+    s = _norm_stage(stage)
+    return s if s in ARR_SCALE else ("seed" if s == "pre-seed" else "series-b")
+
+
+def _growth_stage(stage) -> str:
+    """Scale-B stage map: series-d-plus + public -> the PUBLIC row; seed/a/b/c 1:1; unknown -> series-b."""
+    s = _norm_stage(stage)
+    if s in ("series-d-plus", "public"):
+        return "public"
+    return s if s in GROWTH_SCALE else ("seed" if s == "pre-seed" else "series-b")
+
+
+def scale_interp(v, pts) -> int:
+    """Geometric, round-half-up interpolation on an ascending 10-point scale; clamp 1-10 (SOT §B6 v1.8)."""
+    if v <= pts[0]:
+        return 1
+    if v >= pts[-1]:
+        return 10
+    for s in range(1, 10):                       # s = lower score: lo=pts[s-1]@s, hi=pts[s]@s+1
+        lo, hi = pts[s - 1], pts[s]
+        if lo <= v <= hi:
+            return max(1, min(10, int(math.floor(s + math.log(v / lo) / math.log(hi / lo) + 0.5))))
+    return 10
+
+
+def _money(text):
+    """Max $ value parsed from text (m -> 1e6, b -> 1e9), or None."""
+    vals = [float(m.group(1)) * (1e9 if m.group(2).lower() == "b" else 1e6) for m in _MONEY_RE.finditer(_norm(text))]
+    return max(vals) if vals else None
+
+
+def arr_level_score(revenue_text, stage):
+    """Scale-A ARR-level score (1-10) from a revenue/ARR figure in text, or None if no $ figure."""
+    arr = _money(revenue_text)
+    if arr is None:
+        return None
+    return scale_interp(arr / 1e6, ARR_SCALE[_arr_stage(stage)])
+
+
+def score_growth(growth_read, stage):
+    """Score a STRUCTURED growth read (emitted by the Commit-5b LLM extractor) on Scale B / Scale A.
+    Returns ``(score_or_None, note)``. The read's ``kind``:
+      "rate"          -> Scale B at the stage (rate_pct YoY); a multiple is pre-converted to % by the extractor.
+      "zero_baseline" -> Scale A on the magnitude reached ($M) — the arr=growth collapse (a $0->$N launch).
+      "qualitative"   -> the no-quantified-rate fallback (declining=1 / flat=3 / growing=5).
+      "absent"        -> None (genuine revenue-growth absence -> the pmf cap@7 fires).
+    NO acceleration is applied (removed/parked v1.8)."""
+    read = growth_read if isinstance(growth_read, dict) else {}
+    kind = _norm_enum(read.get("kind"))
+    if kind == "rate" and read.get("rate_pct") is not None:
+        return scale_interp(float(read["rate_pct"]), GROWTH_SCALE[_growth_stage(stage)]), f"{read['rate_pct']:g}%@{_growth_stage(stage)}"
+    if kind == "zero-baseline" and read.get("magnitude_usd_m") is not None:   # _norm_enum folds the '_' to '-'
+        sc = scale_interp(float(read["magnitude_usd_m"]), ARR_SCALE[_arr_stage(stage)])
+        return sc, f"zero-baseline ${read['magnitude_usd_m']:g}M => {sc} (ScaleA)"
+    if kind == "qualitative":
+        q = _norm_enum(read.get("qualitative"))
+        if q in _QUALITATIVE_GROWTH_SCORE:
+            return _QUALITATIVE_GROWTH_SCORE[q], f"{q}(no-rate)"
+    return None, "no revenue-growth figure"
+
+
+def pmf_score(arr_level, growth):
+    """Assemble PMF (§B6/§B7): pmf = round(0.4*arr + 0.6*growth). A SINGLE absent half is filled with the
+    neutral 4 (v1.12); cap@7 fires ONLY on genuine GROWTH absence (growth is None). Returns ``(pmf, capped)``.
+    Note (v1.12): with growth absent the 60%-weight half is held at 4 -> raw <= 6.4 -> the cap@7 NEVER binds
+    (it is redundant-but-harmless given the fill)."""
+    al = arr_level if arr_level is not None else PMF_NEUTRAL_HALF
+    g = growth if growth is not None else PMF_NEUTRAL_HALF
+    val = round(PMF_LEVEL_WEIGHT * al + PMF_GROWTH_WEIGHT * g)
+    capped = growth is None
+    if capped:
+        val = min(val, PMF_MISSING_CAP)
+    return val, capped
