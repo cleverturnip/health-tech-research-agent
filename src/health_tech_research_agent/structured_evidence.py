@@ -1140,3 +1140,39 @@ def flatten_growth_read(parsed) -> dict:
         "growth_source": read["source"],
         "growth_basis": read["basis"],
     }
+
+
+# ---------------------------------------------------------------------------
+# STRAIN modifier (§B7) — Commit 6. Deterministic, 0..+2 (max LOCKED +2).
+#
+# Logic-faithful to the spike strain: the structured A2 capability score (>=70 -> +2 STRONG; >=55 -> +1
+# MODERATE) plus a speed-of-scale TEXT signal (e.g. "headcount 100 -> 500 in ~6mo" -> +1). Default LOW
+# (0 WEAK) when neither fires -- absence-is-a-finding (strain is a small capped RANK modifier, B7; it
+# cannot move a company across a tier alone, and is separated from reset so the same event can't
+# double-count, B1). Strength-tagged output (STRONG / MODERATE / WEAK).
+# ---------------------------------------------------------------------------
+
+STRAIN_MAX = 2                               # §B7 LOCKED max bump (calibrated 2026-06-29)
+STRAIN_A2_STRONG = 70                        # a2 >= 70 -> +2
+STRAIN_A2_MODERATE = 55                      # a2 >= 55 -> +1
+# Speed-of-scale: a "<N>0 -> <N>" jump (e.g. 100->500), or "in ~6" (months), or "doubled".
+_SPEED_OF_SCALE_RE = re.compile(r"\d0{1,3}\s*(?:->|→|to)\s*\d")
+
+
+def strain_score(a2_score, operating_characteristics) -> tuple[int, str, str]:
+    """The §B7 STRAIN modifier (0..+2). Returns ``(score, strength, basis)``.
+
+      a2 >= 70                          -> (2, "STRONG",   "a2=<n>")
+      a2 >= 55  OR  speed-of-scale text -> (1, "MODERATE", "a2=<n>" / "speed-of-scale")
+      otherwise                         -> (0, "WEAK",     "default-low")   # absence-is-a-finding
+
+    Speed-of-scale is read from the operating-characteristics text as STRUCTURAL evidence (B1-structural),
+    e.g. "headcount 100 -> 500 in ~6 months". The max is LOCKED at +2 (a high a2 cannot exceed it)."""
+    a2 = _score_or_none(a2_score)
+    op = _norm(operating_characteristics)
+    speed = bool(_SPEED_OF_SCALE_RE.search(op)) or "in ~6" in op or "doubled" in op
+    if a2 is not None and a2 >= STRAIN_A2_STRONG:
+        return STRAIN_MAX, "STRONG", f"a2={int(a2)}"
+    if (a2 is not None and a2 >= STRAIN_A2_MODERATE) or speed:
+        return 1, "MODERATE", (f"a2={int(a2)}" if a2 is not None else "speed-of-scale")
+    return 0, "WEAK", "default-low"
