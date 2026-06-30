@@ -165,16 +165,18 @@ maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
 
-> **PASS-1 SIGNED OFF (2026-06-29).** The SECOND (recovery-enabled) regen is COMPLETE — the
-> `v42_full_regen…full56_checkpoint_FINAL` CSV (54 of 55; `firefly health` + `videahealth` deferred). The
-> Phase-2 scoring SPIKE (disposable, clean-room from SOT) PASSED Pass-1 framework review: classifier
-> TRUSTED-for-spike (human-locked B2B floor SOT §B2 v1.4 + 3 overrides); RESET sharpened (SOT §B4 v1.5 —
-> sword/oura/noom excluded, floored 14→17); PMF growth-extraction bug fixed (SOT §B6 v1.6 — cap 34/40→0,
-> PMF a real ranker); deterministic core 37 pass / 17 floored. **CURRENT:** Background-Fit (§B5, LLM, STAGED
-> wording → joint-review) is the last component → assemble the full ranked table → **HOLD for Pass-2** (dials
-> + P0–P3 thresholds). Non-normative Pass-1 records: `spike_pass1_notes.md` (on `docs-scoring-sot`).
-> Second-regen-gate SATISFIED — this checkpoint IS the recovery-enabled regen; Pass-2 calibration against it
-> is consistent (the cap-squash was spike-code, not a data-trust failure).
+> **PASS-2 COMPLETE — Phase-2 spike retired (2026-06-29).** The SECOND (recovery-enabled) regen CSV
+> (`v42_full_regen…full56_checkpoint_FINAL`, 54 of 55; `firefly health` + `videahealth` deferred) was scored
+> by the disposable Phase-2 SPIKE; the framework is now fully pressure-tested, calibrated, and committed to
+> the SOT (**v1.11**): classifier TRUSTED (human-locked B2B floor §B2 v1.4 + 3 overrides); RESET §B4 v1.5;
+> bg_fit §B5 v1.7 LOCKED (Nourish regression passed); PMF Scale A + Scale B + geometric interp §B6 v1.8
+> (acceleration removed); stage rule §B4 v1.10 (designated-series); THRESHOLDS + dials §B7 v1.11 LOCKED
+> (P0 ≥18 / P1 15-17 / P2 13-14 / P3 <13, floor-rule-gates-first). Final tiered deliverable:
+> `SPIKE_FINAL_RANKING.md` (P0=4 / P1=6 / P2=6 / P3=38 = 54; SPIKE OUTPUT — disposable). 2 human decisions
+> recorded (Function P1-override; Angle/Oula P3-by-floor). **NEXT = Phase-3 hardening:** build the scorer as
+> committed package code per R1 + `spike_pass1_notes.md §9` (carry the spike's logic intact, then RE-VALIDATE
+> thresholds against the hardened scorer). The spike is NOT the system. Non-normative records:
+> `spike_pass1_notes.md` (on `docs-scoring-sot`).
 
 > ⚠️ **STATUS CORRECTED 2026-06-26 — there are TWO run-once regens; do not conflate them.**
 > The 2026-06-24 V4.2 regen (below) is the FIRST. A subsequent **research-layer thread** discovered that
