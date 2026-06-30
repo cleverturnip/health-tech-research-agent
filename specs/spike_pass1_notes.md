@@ -89,6 +89,11 @@ hardened scorer MUST reproduce:
   must be a clear `yes`; growth-support exec adds do not fire; N unclears do not sum).
 - **The PATH gates** (Test A B2B floor-fail; Test B B2C/B2B2C aliveness via revenue/scale/growth or a real
   institutional channel) and the **human-locked B2B floor** (SOT §B2 v1.4) + the 3 documented overrides.
+- **The committed PMF scales (SOT §B6 v1.8):** Scale A (ARR-by-stage) + Scale B (growth-by-stage, engine-
+  agnostic, `series-d-plus`→public row) + the shared GEOMETRIC round-half-up interpolation rule — NOT the
+  spike's prior improvised `round(10·√(mag/ARR_BEST))` ARR curve or the stage-blind growth % bands.
+- **NO acceleration bonus** (REMOVED + PARKED, SOT §B6 v1.8): growth_score is the BASE Scale-B value only;
+  do not re-introduce +1/+2 unless a separate accelerating-at-scale metric is deliberately re-designed.
 Any deviation in these is a calibration-invalidating change and MUST trigger re-calibration, not a silent ship.
 
 **R2 — The hardened (LLM-based) growth extractor MUST handle these specific cases** that the spike's regex
@@ -99,3 +104,31 @@ extractor gets wrong (logged §3), because Pass-2 reads their spike scores with 
   scores qualitative 6, under-extracted).
 The permanent extractor should be a robust parser or an LLM growth-presence judgment that reliably separates
 revenue/$ growth from member/patient/covered-lives counts. Treat these three as named regression fixtures.
+
+## 7. PMF improvised-curve bugs + acceleration provenance (FIXED v1.8; hardening regressions)
+Pass-2 found BOTH halves of PMF were on §C-PLACEHOLDER curves the spike improvised (same root cause as the
+§B6 growth-extraction bug — placeholder values invited improvisation):
+- **ARR (Scale A):** the spike used `round(10·√(mag/ARR_BEST))` — a single sqrt curve that over-credited by
+  2–4 pts vs the committed piecewise per-stage Scale A. FIXED → committed Scale A (SOT §B6 v1.8).
+- **GROWTH (Scale B):** the spike used hardcoded STAGE-BLIND % bands (≥150→10, ≥80→8, ≥40→6, ≥15→4),
+  ignoring that the bar must DECLINE across stages (100% YoY is a 5 at Series-A but a 10 at Pre-IPO).
+  FIXED → committed stage-relative Scale B (SOT §B6 v1.8).
+- **ACCELERATION (+1/+2):** provenance suspect (not a designed rule) and self-validating — its "+1 accel"
+  anchors (Hinge/Omada/Maven) were exactly the base-7/7/4 companies it inflated to the cited 8/8/5. REMOVED
+  from scoring + PARKED (SOT §B6 v1.8). The hardened scorer must NOT fire it.
+- **Impact of the v1.8 fix** (deterministic re-run; bg_fit/strain unchanged): floor-eligible 20→15; five
+  floor flips (9amhealth / allara / culina / oshi / summer → fail); FINAL distribution compressed downward
+  (top 16-cluster 6→3). **Prior Step-B zero-baseline dial options are VOID** — recompute on the corrected
+  scale.
+- **Residual anchors investigated (reported, NOT overridden):**
+  - **Rula** ~100% YoY / SerC → Scale-B base **8** (anchor expected 10). The dated rate IS ~100% (Sacra
+    $235M→$471M). The anchor-10 reading only holds on the PUBLIC growth row, and Rula's **$471M revenue is
+    public-scale** — a possible stage-LABEL artifact, not a scale error. Rula's pmf=**9 is STABLE** across
+    series-c (arr10/grw8) vs public (arr7/grw10) — immaterial to ranking. No change.
+  - **Cohere** +20% / SerC (anchor 3) → the spec's +20% input is **STALE**: the actual research shows
+    **>60% YoY** (company-reported 2024) + ~9.1x over 2021–24 → Scale-B base **6**, not 2/3. Cohere is
+    B2B-floored (ranking-moot) regardless. No change. Both confirm Scale B is sound.
+- **Stage-label sensitivity (research-quality flag).** The committed scales are strongly stage-driven (the
+  Series-B ARR row tops at $80M=10 while Series-C starts at $30M=1 — deliberate overlap), so a NOISY stage
+  label swings arr_level 2–5 pts (zoe/bicycle/function/nourish/oula are the largest swings). Accurate
+  research-layer stage assignment is now load-bearing; noisy labels are a Pass-2 review item, not a scale fix.
