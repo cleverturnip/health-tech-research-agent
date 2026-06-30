@@ -165,6 +165,15 @@ maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
 
+> **MASTER REDESIGN RECONCILED + COMMITTED (2026-06-30).** `MASTER_REDESIGN_SPEC.md` (RECONCILED v1) is the
+> committed target: the master becomes the **GATE-2 scoring-review ledger** (Option 2), with a clean
+> from-scratch priority model (`model_priority`/`human_override`/`final_priority`/override-only `provenance`/
+> `history`/`framework_version`/`taxonomy_override`), the GATE INVARIANT + Rule-6/8 clause, §B-supersedes-
+> candidate_priority, and the cards+summary review packet (extends `build_review_packet`, honors Rule 3).
+> **NEXT = Phase-3 hardening** builds the §B scorer (per `spike_pass1_notes.md` R1/§9) → then the ledger →
+> then the dashboard, all against this spec. (Cross-branch: this annotation + the Commit-5/6 supersession +
+> the CLAUDE.md status update live on `docs-scoring-sot`; sync to `research-search-recovery` when adopted.)
+
 > **PASS-2 COMPLETE — Phase-2 spike retired (2026-06-29).** The SECOND (recovery-enabled) regen CSV
 > (`v42_full_regen…full56_checkpoint_FINAL`, 54 of 55; `firefly health` + `videahealth` deferred) was scored
 > by the disposable Phase-2 SPIKE; the framework is now fully pressure-tested, calibrated, and committed to
@@ -198,6 +207,18 @@ How it landed (gate all ✅): `slice4-capability-fit` merged to main (PR #38); S
 (9-col); research via inline-list → `run_research_batch` (WAIT=120 + item-8 guard); STEP 12 dry-run HARD
 GATE passed; one-way `DRY_RUN` flip → single real write → read-back. Full play-by-play in
 `regen_execution_runsheet.md`.
+
+> ⚠️ **COMMIT 5 / COMMIT 6 SUPERSEDED by the ledger (`MASTER_REDESIGN_SPEC.md`, RECONCILED v1, 2026-06-30).**
+> The master is now the **GATE-2 scoring-review ledger** (Option 2 — the ONE master, superseding the V4.2/V1
+> data master; raw research data lives durably in the research output). The **§B scoring system** (not
+> `candidate_priority`) is the master's priority source → `model_priority`; **Commit 5's "wire candidate →
+> `final_priority_level`" is OBSOLETE**, and the old six priority columns retire in favor of a clean
+> from-scratch model (`model_priority` / `human_override` / `final_priority` / override-only `provenance` /
+> `history` / `framework_version` / `taxonomy_override`). **GATE 2 = the ledger review.** Two hard rules now
+> stated in the redesign spec: **(Rule-6/8 clause)** the decision block edits PRIORITY + TAXONOMY only (Rule
+> 6); scores + research data are write-once, never hand-edited (Rule 8, fix via upstream regen). **(GATE
+> INVARIANT)** presence in the dashboard ⟹ the entry passed GATE-2 review — nothing reaches the dashboard
+> un-gated (this is what makes override-only provenance unambiguous). The blocks below are HISTORICAL.
 
 **Immediate next is NO LONGER "Commit 5 → calibrate" — it is the research-layer thread, THEN a second
 regen, THEN Commit 5/calibration.** The engine/calibration track below is still the eventual path, but it

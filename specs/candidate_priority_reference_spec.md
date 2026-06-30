@@ -1,5 +1,14 @@
 # Candidate Priority Engine — Reconciled Reference Spec
 
+> ⚠️ **SUPERSEDED (in part) by `MASTER_REDESIGN_SPEC.md` (RECONCILED v1, 2026-06-30).** The **§B scoring
+> system** (`SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md`) — not this V4.2 engine — is now the **master's priority
+> source**. Consequences: the **Commit 5/6 plan** (§10 — wire `candidate_priority` → `final_priority_level`)
+> is **OBSOLETE**; §10's sticky `reviewed_priority` + auto-seed is replaced by the ledger's **explicit
+> override-only `provenance`** (the auto-seed/inference is RETIRED); the old six priority columns retire (the
+> ledger uses a clean from-scratch priority model). This engine **retires, or recasts as GATE-1 candidate
+> discovery** (its own `candidate_priority_level` — "does a company merit research?", a separate concern from
+> the ledger's priority). Kept for historical reference; do NOT build the master's priority from it.
+
 This is the consolidated, internally-consistent specification for `candidate_priority.py`,
 reconciled from four conflicting notebook generations. It resolves the scale-path
 vocabulary mismatch, strips hardcoded company values, and integrates the new

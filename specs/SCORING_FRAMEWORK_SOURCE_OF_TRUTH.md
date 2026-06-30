@@ -7,6 +7,12 @@ priority framework. If a decision about scoring logic isn't here, it isn't locke
 changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
 anything that depends on it (see DISCIPLINE, bottom).
 
+> **DESTINATION — the master ledger (`MASTER_REDESIGN_SPEC.md`, RECONCILED v1).** This §B scoring system is
+> the master's priority source: §B FINAL → §B7 threshold = `model_priority`, written **write-once** into the
+> GATE-2 scoring-review ledger with a **per-entry `framework_version`** staleness stamp (no re-scoring; no
+> drift flag). Human priority/taxonomy overrides live in the ledger's decision block (Rule 6); scores are
+> never hand-edited (Rule 8). §B SUPERSEDES the `candidate_priority` V4.2 engine as the master's priority.
+
 **How to read this doc — three layers, on purpose:**
 1. **NARRATIVE / WHY** (§A) — what changed from the old model and the reasoning behind each change.
    Preserved verbatim-in-spirit from the old-vs-new diff. If we ever reopen the scoring logic, START

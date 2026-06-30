@@ -34,6 +34,17 @@ These are non-negotiable. If a requested change would break one of these, stop a
 
 ## Priority model
 
+> ⚠️ **REDESIGNED — see `specs/MASTER_REDESIGN_SPEC.md` (RECONCILED v1, 2026-06-30).** The master is now the
+> **GATE-2 scoring-review ledger** (the ONE master; supersedes the V4.2/V1 data master — raw research data
+> lives in the research output). Priority comes from the **§B scoring system**
+> (`specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md`), not `candidate_priority`. The **six columns below RETIRE**;
+> the ledger uses a clean from-scratch model: `model_priority` (§B tier) · `human_override` (+`reason`) ·
+> `final_priority` (override else model; DERIVED) · `provenance` (override-only; DERIVED) · `history`
+> (append-only) · `framework_version` (per-entry staleness) · `taxonomy_override` (+`reason`). `code`/`rank`
+> derive on read; domain is now **P0–P3** (no P4). The **decision block edits PRIORITY + TAXONOMY only (Rule
+> 6); scores + research data are write-once, never hand-edited (Rule 8)**. The descriptions below are
+> HISTORICAL (the old data-master model).
+
 | Priority | Meaning |
 |----------|---------|
 | P0 | Highest-priority target / active pursuit |
