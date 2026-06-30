@@ -1,7 +1,7 @@
 # Scoring & Priority Framework — SOURCE OF TRUTH
 
-**FRAMEWORK_VERSION: v1.7 (2026-06-29)**
-**Changelog:** v1.7 — §B5 BACKGROUND-FIT promoted STAGED → LOCKED: the bg_fit gradient wording was validated this session (Colab, 37/37 gate-passed; the Nourish "periodic"-mislabel regression PASSED at bg_fit=8; the data-feedback-loop flag fired only on the metabolic/tracking loops levels/signos/oova/9amhealth). The literal validated prompt is now embedded as the locked gradient prompt (data-feedback-loop top-of-scale amplifier 9–10; 6–8 floor-protection band for strong-habit-without-loop; bottom "do NOT under-score / periodic-trap" guard). Recorded the FUNCTION / low-frequency override note (audit trail, Rule 6): the gradient DELIBERATELY scores low-frequency engagement low (2×/year lab products → ~4) and this is CORRECT and intended; Function Health is a known REVIEW-TIME human-override candidate (revenue+complexity unicorn exception), NOT a scoring-logic change. Structure (gradient 1–10, errors recoverable, `who_uses==consumer` precondition, `data_feedback_loop` emitted as a separate flag) UNCHANGED. v1.6 — §B6 GROWTH-EXTRACTION SCOPE clarified (Pass-1 found the spike's PMF cap-squash was an EXTRACTION bug, not a data gap — 34/40 capped → 0): zero-baseline ($0→$N, scored on revenue-magnitude × stage, an OPEN DIAL) and DERIVED/third-party growth MUST be SCORED; the missing-data cap is ONLY for genuinely-absent revenue-growth; §B6.1 fence preserved (counts — covered-lives/patient/member — are scale, not growth). Non-normative Pass-1 records (reset regressions, emitter wording, extraction known-issue) live in `spike_pass1_notes.md`. v1.5 — §B4 RESET sharpened (Pass-1 found the emitter over-fired on Series-D+ via 3 patterns): (1) SUBSTANCE-over-label — a business-model/pricing/product-strategy change is a strategic-pivot and NEVER fires, even if labeled "declared-transformation" (sword); (2) IPO-prep / S-1 / public-market-readiness is NON-QUALIFYING, added to the NEVER-fire list (oura); (3) CONFIDENCE bar — an "unclear"/low-confidence event does NOT fire, and N unclear events do not sum to a fire (noom). Mapper + maturity buckets + Rule-7 single-emitter UNCHANGED. v1.4 — B2B floor is now a MAINTAINED HUMAN-LOCKED LIST (6: openevidence, cohere health, zus health, om1, medically home, linus health) that OVERRIDES the classifier (gate-critical; the classifier can't reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team `who_uses` boundary — medically home oscillated across 3 tuning rounds). Mapper logic UNCHANGED; the floor is an override layer. Also synced the stale §B2 inline fixture block to v1.3 truth (6/8/41; angle→B2B2C; dropped angle/outcomes4me asserts). v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
+**FRAMEWORK_VERSION: v1.8 (2026-06-29)**
+**Changelog:** v1.8 — §B6 PMF SCALES COMMITTED + ACCELERATION REMOVED. Both halves of PMF were on §C-PLACEHOLDER curves the spike improvised: ARR used `round(10·√(mag/ARR_BEST))` (over-credited 2–4 pts) and growth used stage-blind % bands. Replaced with the committed-intent **Scale A — ARR-by-stage** and **Scale B — growth-rate-by-stage** (engine-agnostic; declining bar across stages by design) tables, both LOCKED, plus a shared **geometric round-half-up INTERPOLATION RULE**. Stage maps: ARR "Series D/E"→series-d-plus, "Pre-IPO/Public"→public; growth series-d-plus→public row (no separate D/E growth row), seed/a/b/c 1:1. **ACCELERATION (+1/+2) REMOVED from scoring and PARKED** (open question) — provenance suspect + self-validating (its "+1 accel" anchors Hinge/Omada/Maven were exactly the base-7/7/4 companies it inflated to 8/8/5). growth_score is now the BASE Scale-B value only. Zero-baseline still scores the magnitude reached via Scale A (arr=growth collapse stays, numbers corrected); §B6.1 fence + missing-data cap@7 + derived-figure scoring UNCHANGED. Two residual anchors (Rula +100%/SerC base 8 vs anchor 10; Cohere +20%/SerC base 2 vs anchor 3) flagged for investigation, not overridden. v1.7 — §B5 BACKGROUND-FIT promoted STAGED → LOCKED: the bg_fit gradient wording was validated this session (Colab, 37/37 gate-passed; the Nourish "periodic"-mislabel regression PASSED at bg_fit=8; the data-feedback-loop flag fired only on the metabolic/tracking loops levels/signos/oova/9amhealth). The literal validated prompt is now embedded as the locked gradient prompt (data-feedback-loop top-of-scale amplifier 9–10; 6–8 floor-protection band for strong-habit-without-loop; bottom "do NOT under-score / periodic-trap" guard). Recorded the FUNCTION / low-frequency override note (audit trail, Rule 6): the gradient DELIBERATELY scores low-frequency engagement low (2×/year lab products → ~4) and this is CORRECT and intended; Function Health is a known REVIEW-TIME human-override candidate (revenue+complexity unicorn exception), NOT a scoring-logic change. Structure (gradient 1–10, errors recoverable, `who_uses==consumer` precondition, `data_feedback_loop` emitted as a separate flag) UNCHANGED. v1.6 — §B6 GROWTH-EXTRACTION SCOPE clarified (Pass-1 found the spike's PMF cap-squash was an EXTRACTION bug, not a data gap — 34/40 capped → 0): zero-baseline ($0→$N, scored on revenue-magnitude × stage, an OPEN DIAL) and DERIVED/third-party growth MUST be SCORED; the missing-data cap is ONLY for genuinely-absent revenue-growth; §B6.1 fence preserved (counts — covered-lives/patient/member — are scale, not growth). Non-normative Pass-1 records (reset regressions, emitter wording, extraction known-issue) live in `spike_pass1_notes.md`. v1.5 — §B4 RESET sharpened (Pass-1 found the emitter over-fired on Series-D+ via 3 patterns): (1) SUBSTANCE-over-label — a business-model/pricing/product-strategy change is a strategic-pivot and NEVER fires, even if labeled "declared-transformation" (sword); (2) IPO-prep / S-1 / public-market-readiness is NON-QUALIFYING, added to the NEVER-fire list (oura); (3) CONFIDENCE bar — an "unclear"/low-confidence event does NOT fire, and N unclear events do not sum to a fire (noom). Mapper + maturity buckets + Rule-7 single-emitter UNCHANGED. v1.4 — B2B floor is now a MAINTAINED HUMAN-LOCKED LIST (6: openevidence, cohere health, zus health, om1, medically home, linus health) that OVERRIDES the classifier (gate-critical; the classifier can't reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team `who_uses` boundary — medically home oscillated across 3 tuning rounds). Mapper logic UNCHANGED; the floor is an override layer. Also synced the stale §B2 inline fixture block to v1.3 truth (6/8/41; angle→B2B2C; dropped angle/outcomes4me asserts). v1.3 — renamed `user_scale_signal` → `sponsored_user_scale` for clarity (institutionally-sponsored end-user reach; routing + structural bar unchanged). v1.2 — B6.1 LOCKED: secondary user-scale signal routing (headcount→A2 strain, partner/client-count→`institutional_distribution_signal`, funding→`funding_evidence`, non-paying user-scale→new `sponsored_user_scale`), with STRUCTURAL enforcement (no score-consumer reads `sponsored_user_scale`). v1.1 — added B6.1 (secondary user-scale signal routing) as a reserved OPEN slot. v1 — initial canonical capture.
 **Status:** canonical. This is the ONE doc the design chats AND Claude Code point at for the scoring +
 priority framework. If a decision about scoring logic isn't here, it isn't locked. When scoring logic
 changes, it changes HERE first (version bumps), and Claude Code commits the doc-update BEFORE building
@@ -350,10 +350,55 @@ Evidence:
 pmf_raw = 0.4 * arr_level_score + 0.6 * growth_score     # 40/60 split is an OPEN DIAL
 pmf     = round_even_bands(pmf_raw)                       # 8.4->8, 8.5->9
 ```
-- Two scales: **ARR-by-stage** + **growth-by-stage** (stage-relative benchmarks — built + roster-
-  validated as STRUCTURE; specific per-stage cutoff VALUES are calibration-adjacent, §C).
-- **ACCELERATION BONUS:** +1 to +2 on the growth score for accelerating-at-scale (rides on the growth
-  sub-score, not the weights). Magnitude is a dial.
+- **SCALE A — ARR-by-stage (LOCKED v1.8).** Representative ARR in $M at each score 1–10 (engine-shared —
+  one table). Look up the company's ARR at its stage and interpolate (rule below). Replaces the prior §C
+  PLACEHOLDER (and the spike's improvised `round(10·√(mag/ARR_BEST))` curve, which over-credited 2–4 pts).
+
+| stage | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| seed | 0.10 | 0.178 | 0.316 | 0.562 | 1.0 | 1.4 | 1.9 | 2.6 | 3.6 | 5.0 |
+| series-a | 5 | 6.6 | 8.7 | 11.4 | 15 | 19.1 | 24.3 | 30.9 | 39.3 | 50 |
+| series-b | 15 | 20.3 | 27.4 | 37 | 50 | 54.9 | 60.3 | 66.3 | 72.8 | 80 |
+| series-c | 30 | 38.3 | 49 | 62.6 | 80 | 104 | 136 | 177 | 230 | 300 |
+| series-d-plus | 50 | 65.8 | 86.6 | 114 | 150 | 191 | 243 | 309 | 393 | 500 |
+| public | 100 | 126 | 158 | 199 | 250 | 330 | 435 | 574 | 758 | 1000 |
+
+  Stage map: "Series D/E" → `series-d-plus`; "Pre-IPO / Public" → `public`. Asserts: SerA $24M→7, $50M→10,
+  $4M→1, $39.3M→9; every published point → its own index.
+
+- **SCALE B — growth-rate by stage (LOCKED v1.8).** % YoY growth at each score 1–10. ENGINE-AGNOSTIC — ONE
+  table for D2C + B2B2C (unlike ARR). score-1 cell = "< that %", score-10 = "> that %", interpolate between.
+  Replaces the prior §C PLACEHOLDER (and the spike's improvised stage-blind % bands).
+
+| stage | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| seed | 25 | 30 | 45 | 65 | 90 | 120 | 160 | 210 | 280 | 350 |
+| series-a | 30 | 45 | 60 | 80 | 100 | 125 | 155 | 200 | 280 | 400 |
+| series-b | 25 | 35 | 45 | 60 | 75 | 90 | 110 | 135 | 170 | 200 |
+| series-c | 15 | 22 | 30 | 38 | 48 | 58 | 70 | 90 | 120 | 150 |
+| public | 10 | 15 | 20 | 27 | 35 | 42 | 50 | 62 | 80 | 100 |
+
+  Stage map (LOCKED): `series-d-plus` → reads the **public** row (no separate D/E growth row; late-stage =
+  late-stage); seed/a/b/c map 1:1. **DESIGN INTENT:** the bar DECLINES across stages deliberately (law of
+  large numbers — 100% YoY is a 5 at Series-A but a 10 at Pre-IPO); a mature company at "only" 50–60% may be
+  a 7–8 FOR ITS STAGE — do NOT read raw % stage-blind. Asserts (NO acceleration): Function +450%/SerB→10,
+  Fay +200%/SerB→10, Hinge +51%/public→7, Omada +53%/public→7, Maven +26%/D+(→public)→4. **TWO RESIDUAL
+  ANCHORS UNDER INVESTIGATION** (not silently fixed): Rula +100%/SerC → base **8** vs spec-anchor 10; Cohere
+  +20%/SerC → base **2** vs spec-anchor 3 (B2B-floored, ranking-moot, but a scale data point). Check the
+  actual dated rates vs the round numbers; the Series-C row may warrant a look. Report, don't override.
+
+- **INTERPOLATION RULE (LOCKED v1.8 — same for BOTH scales).** For value `v` at a stage with published
+  points `p[1..10]`: if `v ≤ p[1]` → 1; if `v ≥ p[10]` → 10; else find the bracketing points `lo` (score s)
+  and `hi` (score s+1) with `lo ≤ v ≤ hi`, then `score = round_half_up( s + ln(v/lo) / ln(hi/lo) )`, clamp
+  1–10. GEOMETRIC because both ARR and growth scale multiplicatively; round-half-up (distinct from the
+  `pmf` round-even step).
+
+- **ACCELERATION — REMOVED + PARKED (v1.8, open question).** The prior +1/+2 acceleration bonus is REMOVED
+  from scoring — it does NOT fire. Provenance was suspect (not a designed rule) and it was self-validating:
+  the spec's "+1 accel" anchors (Hinge +51%/public, Omada +53%/public, Maven +26%/D+) are exactly the
+  companies whose BASE Scale-B values (7/7/4) it inflated to the cited 8/8/5 — the bonus was baked into its
+  own validation points. growth_score is now the BASE Scale-B value only. PARKED as an open question
+  (revisit later whether a separate accelerating-at-scale metric is warranted — not deleted from history).
 - **MISSING-DATA CAP (^c10):** when revenue/growth genuinely undisclosed after the recovery pass, fall
   back to subscriber/user-scale + funding context as a WEAKER proxy and CAP pmf at 7 (can't hit best-in-
   class on estimates alone). Cap MECHANISM stable; the value 7 is a dial.
@@ -361,7 +406,8 @@ pmf     = round_even_bands(pmf_raw)                       # 8.4->8, 8.5->9
   present-but-non-standard growth forms MUST be SCORED, never routed to the cap as if undisclosed —
   (1) **zero-baseline:** a launch-from-zero trajectory ($0 → $N ARR) has an undefined %, so score it on the
   **absolute revenue magnitude reached × stage** ($0→$112M at Series-C is top-of-scale growth, not missing
-  data); the magnitude→stage mapping is an **OPEN DIAL** (§C). (2) **DERIVED / third-party** figures
+  data); the magnitude→stage mapping is now **Scale A (LOCKED v1.8)** — the arr=growth collapse stays, only
+  the underlying numbers change. (2) **DERIVED / third-party** figures
   (Sacra / Latka / Growjo / "DERIVED:") are real growth evidence and SCORE (a credible estimate is not
   "undisclosed"). The **§B6.1 FENCE is preserved**: growth_score is **revenue/$-growth only** — headcount /
   download / MAU / partner-count / funding growth AND non-$ COUNTS (covered-lives / patient / member counts)
