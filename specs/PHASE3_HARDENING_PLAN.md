@@ -458,17 +458,116 @@ Ranked by likelihood of invalidating the R1 threshold transfer if mishandled:
    correct in the package (`derive_reset_signal`); the work is an LLM-facing EMITTER prompt change (→
    joint-review). If the emitter doesn't classify substance, sword/oura/noom wrongly fire and 3 D+ companies
    get scored instead of floored.
-4. **G2 single-absent-half neutral + G1 unknown-stage PMF policy.** Medium. Two SOT-silent decisions the
-   hardened extractor WILL hit (the spike didn't). Cheap to close now in SOT §B6; expensive to discover
-   mid-Commit-5.
+4. **G2 single-absent-half neutral + G1 unknown-stage PMF policy.** ✅ **RESOLVED doc-first in SOT v1.12**
+   (`docs-scoring-sot`, 2026-06-30): §B6 now states the single-absent-half neutral = 4 (RATIFIED, with the
+   cap@7 interaction made explicit — the cap never binds in the growth-absent path, so neutral-4 and cap@7 do
+   NOT double-penalize) and the unknown-stage policy (RATIFY series-b for R1; route-to-review/cap improvement
+   DEFERRED post-R1). Both gate Commit 5; landed before it.
 5. **D6 — strain a2 vs full B1/B2.** Low-medium. Keep a2/speed-driven for R1 (changing it invalidates the +2
    dial); defer any B2-reported expansion. Flag so it isn't "improved" mid-build.
 
-**Build-phase prerequisite (restated):** paste FULL SOT v1.11 + fixture v1.3 text back into chat before
-Commit 1 — the chat-side reviewer needs the SOT in context to verify §-based reasoning.
+**Build-phase prerequisite (restated):** paste FULL **SOT v1.12** (not v1.11 — the three pre-build edits are
+in it) + fixture v1.3 text back into chat before Commit 1 — the chat-side reviewer needs the SOT in context to
+verify §-based reasoning.
 
 ---
 
-*Phase-3 scoping deliverable — read-only. No scorer code, no logic commits. Branch `phase3-scoping` off
-`docs-scoring-sot`; `main` untouched; nothing self-merged. HOLD for Katelynd's approval before Section-3
-commit #1. The spike is not the system.*
+# Section 5 — Gate-2 review surface (PHASE-4 CONTEXT — doc-only durability capture)
+
+> **Scope: this section gates NOTHING in Phase-3.** The review surface is built AFTER hardening + the master
+> (Phase-4, per `MASTER_REDESIGN_SPEC.md`). It is recorded here only so the Gate-2 review design — the
+> thinnest-documented piece of the system, worked out in chat 2026-06-30 — survives the chat boundary. It
+> **EXTENDS / SUPERSEDES** the earlier review-experience notes in `MASTER_REDESIGN_SPEC.md` §4: two
+> corrections below take precedence over that section's phrasing. No scorer code; no build commit.
+
+## 5.1 The structural principle (state it once, explicitly)
+**The ledger is UNIFORM; the review packet is DIFFERENTIATED.** Every company in the batch is a full scored
+entry in the scoring-review ledger — gate-floored or not, same schema, same scoring. What differs is the
+**review packet**: cards for the companies needing judgment, summary rows for everyone, one-line floor
+reasons for the gate-floored. **Same underlying data, three altitudes of attention.** The front end renders
+all of it as a VIEW over the structured per-company ledger entry the scoring pipeline emits — **cards are not
+hand-built**; card-eligibility is a render-time predicate over stored data, never a filter on what gets
+scored.
+
+## 5.2 Correction 1 — floor governs the REVIEW SURFACE, not whether a company is scored
+- **Every company gets a full scored + stored ledger entry — including gate-floored ones.** Floor status
+  changes only HOW a company is surfaced at Gate 2, never WHETHER it is scored or stored. The hardened ledger
+  scores and stores all 54.
+- **The spike's "floor before scoring → em-dash the components" was an LLM-CALL OPTIMIZATION, NOT the ledger
+  spec.** In the spike, the 17 floored companies are short-circuited before bg_fit/pmf/strain run (to save
+  ~17 LLM calls) and rendered with `—` components in `SPIKE_FINAL_RANKING.md`. **Do NOT carry that
+  floor-before-scoring shortcut into the hardened ledger as if it were the design.** Card-eligibility is a
+  render-time predicate over the FULL stored entry. (Same tiers either way; different LEDGER CONTENTS — and
+  the ledger is the thing that has to be right.)
+- **Build/R1 implication:** R1 re-validation and the eventual master build must NOT em-dash floored
+  components in the ledger. The floored set's components may be computed lazily for cost, but the ledger
+  schema and any persisted entry must hold the full scored entry for all 54.
+
+## 5.3 Correction 2 — card-eligibility predicate (supersedes "all floor-eligible scored companies")
+```
+card  ⟺  model_tier ∈ {P0, P1, P2}   OR   override_candidate == true
+```
+- **NOT** "all floor-eligible scored companies." A floor-PASS company whose FINAL lands it at model-tier P3
+  (e.g. bf=5, pmf=5, strain=0 → FINAL 10, floor-PASS but P3) gets **no card** — it is a summary row like any
+  other P3. The card surface is "everything that needs human judgment" = the three real tiers PLUS the
+  model's flagged override candidates.
+- **Override candidates ALWAYS get a card, even at model-tier P3.** Live example: **Function Health** is
+  P3-by-rule (floor-FAIL, bg_fit=4, 2×/yr lab cadence) but a **P1-override candidate** → it gets a card. The
+  card is where the accept-vs-override judgment happens, so a flagged override candidate must surface there
+  regardless of model-tier.
+- This **sharpens** `MASTER_REDESIGN_SPEC.md` §4's "Cards — floor-eligible scored companies + override
+  candidates": the precise predicate is model-tier-based (P0/P1/P2), not floor-eligibility-based.
+
+## 5.4 The three altitudes of attention (over the one uniform ledger)
+- **Cards** — the eligibility predicate above (P0/P1/P2 ∪ override candidates). The deliberate accept-or-
+  override surface. Each card carries:
+  - the model's **recommended tier** and where it **diverges from the rule** (e.g. Function: rule P3,
+    recommended override → P1);
+  - the **four scores** (`bg_fit` / `pmf` / `strain` / `FINAL`), each with a **one-line rationale pulled from
+    the research** — the "why" travels with the number;
+  - the **flags / caveats surfaced-not-buried, with a severity** (`fence_leak` / `under_extract` / `data_gap`
+    / `evidence_thin` / `override_candidate` / `leak_discounted` — the §3.5 controlled vocabulary);
+  - the **decision controls** `[accept]` / `[override → reason]`.
+- **Summary table** — EVERY company in the batch, one row each: `company · model · stage · tier · FINAL ·
+  key flags`. The triage layer: scannable on one screen, sortable / filterable by tier.
+- **One-line floor reasons** — the gate-floored P3s appear ONLY on the summary table, as a one-line floor
+  reason (e.g. "medically home — B2B floor"; "hinge — agency floor, public"), **no card**. Surfaced
+  specifically so a WRONG floor is catchable (glance-and-confirm), not a black hole. **The floor is
+  reviewable, not hidden.**
+
+## 5.5 Review routing — `recommended_action` makes a full batch reviewable in one sitting
+Per-company pre-sort of attention:
+- **`accept`** — clear-cut (strong P0, clean P3-floor) → bulk-approvable.
+- **`review_override`** — override candidates + borderline cases → where real judgment time goes.
+- **`normal`** — confirm.
+
+So a 54-company batch is reviewable in one sitting: bulk-accept the obvious, spend judgment where it matters.
+
+## 5.6 How input is captured (decision rules)
+- **Override reason is strongly prompted, NOT blocked** — saves without one (the user's rigor, not system
+  enforcement).
+- **The decision changes PRIORITY / TIER only; scores are write-once and never touched** (Rule 8). **Taxonomy**
+  (B2B/B2C/B2B2C) is overridable the same way (the counsel/diana-type human corrections, Rule 6).
+- **Provenance is OVERRIDE-ONLY, leaning on the GATE INVARIANT** (dashboard presence ⟹ gate-reviewed): "no
+  override" automatically means "reviewed and accepted." The user can scan the master and instantly see what
+  they changed vs. what the model produced.
+- **Every change is append-only HISTORY with dates + reasons** — a later move (e.g. P2→P1 three weeks on) is
+  recorded alongside the original call, never overwriting it.
+
+## 5.7 Build-time note (Phase-4, not now) + ledger reconciliation
+- Card-eligibility (`model_tier ∈ {P0,P1,P2} OR override_candidate`) is a **render-time predicate**; the
+  ledger stores the **full scored entry for all 54** regardless (Correction 1).
+- **Cross-reference to `MASTER_REDESIGN_SPEC.md` §3.1 ledger columns** so the review surface and the ledger
+  schema stay reconciled when the master is built: `model_priority` (= model_tier) · `decision.human_override`
+  · `decision.override_reason` · `final_priority` (derived: override else model) · `provenance` (derived,
+  OVERRIDE-ONLY) · `decision.history` (append-only) · `framework_version` (per-entry staleness) ·
+  `decision.taxonomy_override` (+ reason). The card renders `model_priority` + the divergence + scores +
+  flags; the decision controls write `human_override` / `override_reason` / `taxonomy_override` and append to
+  `history`; `final_priority` / `provenance` derive on read.
+
+---
+
+*Phase-3 scoping deliverable (Sections 1–4 + Highest-risk) — read-only; no scorer code, no logic commits.
+Section 5 is appended Phase-4 context (the Gate-2 review surface), doc-only, gating nothing in Phase-3.
+Branch `phase3-scoping` off `docs-scoring-sot`; `main` untouched; nothing self-merged. HOLD for Katelynd's
+approval before Section-3 commit #1. The spike is not the system.*
