@@ -713,3 +713,114 @@ def flatten_business_model_fields(parsed, *, company=None) -> dict:
         "business_model": label,
         "business_model_needs_review": needs_review,
     }
+
+
+# ---------------------------------------------------------------------------
+# PATH-TO-SCALE gate (§B3) — Commit 2. Runs on the Commit-1 classifier output + evidence.
+#
+# Built clean from SOT §B2/§B3 (FRAMEWORK_VERSION v1.13), logic-faithful to the spike
+# (spike_scoring_spine.py path_gate). Two sequential tests:
+#   Test A  is there a consumer end-user?  business_model == "B2B" -> GATE_FAIL (no consumer).
+#   Test B  is the engine viable? (loose "engine alive" floor ONLY — strength is PMF's job, B1):
+#             B2C   -> alive if revenue OR meaningful user-scale OR positive growth (no-revenue
+#                      fallback ^c10: missing revenue != dead).
+#             B2B2C -> pass iff a REAL durable institutional channel exists.
+#
+# EMPLOYER-DIRECT SCOPE FIX (§B3, the Function Health gap): the institutional-channel check
+# covers EMPLOYER-DIRECT (e.g. "Function for Work"), not payer-reimbursed only — an insurance-free
+# employer channel is still a real B2B2C channel. The check stays a LOOSE floor (real customers /
+# covered lives / scaled adoption), NOT pilots/positioning.
+# ---------------------------------------------------------------------------
+
+# Robust "$ figure present ANYWHERE in the text" detector (findings lead with hedges like
+# "No company-reported ARR, but Sacra estimates $100M" — a prefix check false-floors them).
+_DOLLAR_FIGURE_RE = re.compile(r"\$\s*[\d.]+\s*(?:k|m|b|million|billion)\b", re.I)
+_PLAIN_MAGNITUDE_RE = re.compile(r"\b\d[\d,]*\s*(?:k|m|million|billion)\b", re.I)
+_GROWTH_PCT_RE = re.compile(r"\d+\s*%")
+_NAMED_PAYER_RE = re.compile(
+    r"aetna|blue cross|bcbs|anthem|unitedhealth|\buhc\b|cigna|oscar|humana|medicaid|medicare|"
+    r"\bcms\b|commonspirit|essence|baptist",
+    re.I,
+)
+_INSTITUTIONAL_STRUCTURAL_RE = re.compile(
+    r"covered lives|in-?network|\d[\d,]*\s*(?:members|covered|lives)\b", re.I
+)
+_EMPLOYER_DIRECT_KEYS = ("partner", "client", "benefit", "self-insured", "for work", "sponsored", "funds")
+_HEALTH_PLAN_KEYS = ("partner", "contract", "client", "relationship")
+
+
+def _row_get(row, key) -> str:
+    """Read a column from a dict / pandas-Series row, tolerant of missing key / NaN / None -> ''."""
+    try:
+        value = row.get(key, "")
+    except AttributeError:
+        value = ""
+    return _safe_text(value)
+
+
+def _has_money_figure(text) -> bool:
+    t = _norm(text)
+    return bool(_DOLLAR_FIGURE_RE.search(t)) or bool(_PLAIN_MAGNITUDE_RE.search(t))
+
+
+def has_any_revenue(row) -> bool:
+    """A revenue/ARR figure present anywhere in revenue_or_arr (company-reported OR estimated)."""
+    return _has_money_figure(_row_get(row, "revenue_or_arr"))
+
+
+def has_meaningful_user_scale(row) -> bool:
+    """A real user/customer-scale figure: sponsored_user_scale OR paying_customer_count."""
+    return _has_money_figure(_row_get(row, "sponsored_user_scale")) or _has_money_figure(
+        _row_get(row, "paying_customer_count")
+    )
+
+
+def has_positive_growth_signal(row) -> bool:
+    """A POSITIVE growth signal present (loose gate presence check only — strength is scored in PMF).
+    A 'declining' signal does not count."""
+    g = _norm(_row_get(row, "growth_signal"))
+    if not g or "declin" in g:
+        return False
+    return (
+        "grow" in g
+        or bool(_GROWTH_PCT_RE.search(g))
+        or "x over" in g
+        or "tripl" in g
+        or "doubl" in g
+    )
+
+
+def has_real_institutional_channel(row) -> bool:
+    """A REAL durable institutional/B2B2C channel (named payers / covered lives / scaled employer
+    or health-plan relationship / value-based contract), NOT pilots/positioning. Covers EMPLOYER-
+    DIRECT, not payer-reimbursed only (§B3 scope fix — the Function Health gap). Reads the
+    payer_institutional_finding + business_model_type evidence."""
+    blob = _norm(_row_get(row, "payer_institutional_finding") + " " + _row_get(row, "business_model_type"))
+    if _NAMED_PAYER_RE.search(blob) or _INSTITUTIONAL_STRUCTURAL_RE.search(blob):
+        return True
+    if "employer" in blob and any(k in blob for k in _EMPLOYER_DIRECT_KEYS):
+        return True  # employer-direct channel (insurance-free) still counts (the scope fix)
+    if "health plan" in blob and any(k in blob for k in _HEALTH_PLAN_KEYS):
+        return True
+    return "value-based" in blob or "outcomes-based contract" in blob
+
+
+def path_gate(business_model, row) -> tuple[bool, str]:
+    """The §B3 PATH-to-scale gate. Returns ``(passed, reason)``.
+
+    Test A — B2B floor: business_model == "B2B" -> FAIL (no consumer end-user; the locked floor
+    companies fail here via the Commit-1 override). Test B — engine-alive (loose floor): B2C alive
+    on revenue OR user-scale OR positive growth; B2B2C alive on a real institutional channel. An
+    unmapped / empty business_model -> FAIL (do not silently pass an undeterminable company)."""
+    bm = _safe_text(business_model).upper()
+    if bm == "B2B":
+        return False, "Test A: B2B floor — no consumer end-user"
+    if bm == "B2C":
+        if has_any_revenue(row) or has_meaningful_user_scale(row) or has_positive_growth_signal(row):
+            return True, "Test B (B2C): engine alive — revenue / user-scale / growth"
+        return False, "Test B (B2C): DEAD — no revenue, user-scale, or growth signal"
+    if bm == "B2B2C":
+        if has_real_institutional_channel(row):
+            return True, "Test B (B2B2C): real institutional channel"
+        return False, "Test B (B2B2C): no real institutional channel"
+    return False, f"unmapped business_model: {business_model!r}"
