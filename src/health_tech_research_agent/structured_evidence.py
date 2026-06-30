@@ -586,3 +586,129 @@ def flatten_capability_fields(parsed) -> dict:
         "capability_a3_score": _score_or_none(cap.get("a3_score")),
         "capability_a3_basis": _safe_text(cap.get("a3_basis", "")),
     }
+
+
+# ---------------------------------------------------------------------------
+# Business-model classifier (§B2) — the PATH-gate linchpin (Commit 1).
+#
+# Built clean from SOT SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md §B2 (FRAMEWORK_VERSION v1.13),
+# regression target business_model_classifier_fixture.md (v1.3). Rule 7: the LLM extracts
+# who_uses / who_pays (gathers evidence — see research_runner.build_business_model_prompt);
+# THIS deterministic mapper emits the B2B / B2B2C / B2C label. The LLM never emits the label.
+#
+# Two human-authoritative override layers sit ABOVE the mapper (Rule 6 — human decisions take
+# precedence over an automated value): the human-locked B2B FLOOR, and the documented spike
+# overrides. A forced label ignores the classifier read entirely.
+# ---------------------------------------------------------------------------
+
+BUSINESS_MODELS = frozenset({"B2B", "B2C", "B2B2C"})
+WHO_USES_VALUES = frozenset({"consumer", "professional"})
+WHO_PAYS_VALUES = frozenset({"consumer", "institution", "mixed"})
+
+# Human-locked B2B FLOOR (SOT §B2 v1.4): AUTHORITATIVE over the classifier. For any company
+# here, business_model is FORCED to "B2B" regardless of the read, because the classifier cannot
+# reliably hold the provider-tool / hospital-at-home-enablement vs own-care-team who_uses
+# boundary (medically home oscillated across three tuning rounds). A classifier floor-MISS on a
+# listed company is a NON-FAILURE by design — the override catches it. The load-bearing property
+# is that the floor fires EVEN WHEN the classifier reads the company consumer (adversarial input).
+# MAINTENANCE: adding/removing a floor company is a doc-first edit to SOT §B2, NOT a code change.
+LOCKED_B2B_FLOOR = frozenset(
+    {"openevidence", "cohere health", "zus health", "om1", "medically home", "linus health"}
+)
+
+# Documented spike-era overrides (SOT §B2): forced to their locked-truth label regardless of the
+# read. noom med / signos = minor-channel who_pays over-read; counsel health = evidence-thin input
+# gap (Rule 8). NOTE: the v1.13 EVIDENCE-ONLY prompt now reads `signos` correctly (gate-B
+# validated 2026-06-30), so its override is redundant-but-harmless; kept for documented parity
+# pending a reviewer decision to retire it (see specs/classifier_prompt_flags.md). The mapper
+# applies these to the FINAL label; the live classifier's RAW read is still persisted (who_pays)
+# so an evidence-thin under-read (e.g. counsel raw=B2C) stays VISIBLE while the final label is the
+# locked truth.
+DOCUMENTED_BUSINESS_MODEL_OVERRIDES = {
+    "noom med": "B2C",
+    "signos": "B2C",
+    "counsel health": "B2B2C",
+}
+
+# Persisted Rule-7 columns from the classifier block (raw extraction carried + derived label).
+BUSINESS_MODEL_FIELDS = [
+    "who_uses",
+    "who_uses_basis",
+    "who_pays",
+    "who_pays_basis",
+    "who_uses_confidence",
+    "business_model",
+    "business_model_needs_review",
+]
+
+
+def _norm_company(value) -> str:
+    """Company key for floor / override lookups: trimmed lowercase, whitespace collapsed."""
+    return re.sub(r"\s+", " ", _norm(value))
+
+
+def map_business_model(who_uses, who_pays) -> str:
+    """The LOCKED §B2 mapper (who_uses / who_pays -> label); the LLM never emits the label.
+
+        professional                 -> "B2B"     # PATH Test A floor, regardless of who_pays
+        consumer + consumer-pays     -> "B2C"
+        consumer + institution/mixed -> "B2B2C"
+
+    A consumer user with an unrecognized / undeterminable who_pays returns "" so the caller can
+    flag for review rather than silently guess a label (Rule 8 — absence isn't filled in)."""
+    wu = _norm_enum(who_uses)
+    wp = _norm_enum(who_pays)
+    if wu == "professional":
+        return "B2B"
+    if wp == "consumer":
+        return "B2C"
+    if wp in ("institution", "mixed"):
+        return "B2B2C"
+    return ""
+
+
+def business_model_for(company, who_uses, who_pays, who_uses_confidence=None) -> tuple[str, bool]:
+    """Resolve the FINAL business_model + needs_review for one company (Rule 6/7 precedence).
+
+    Order, highest precedence first:
+      1. human-locked B2B FLOOR    -> "B2B"  (forced; the classifier read is ignored)
+      2. documented spike override -> its locked label (forced)
+      3. the §B2 mapper on the classifier's who_uses / who_pays read
+
+    needs_review fires ONLY on a NON-forced company that is either undeterminable (mapper -> "")
+    or carries who_uses_confidence == "low" (flag, don't gate — SOT §B2). A forced company needs
+    no review: the human already decided, so confidence is moot."""
+    key = _norm_company(company)
+    if key in LOCKED_B2B_FLOOR:
+        return "B2B", False
+    if key in DOCUMENTED_BUSINESS_MODEL_OVERRIDES:
+        return DOCUMENTED_BUSINESS_MODEL_OVERRIDES[key], False
+    label = map_business_model(who_uses, who_pays)
+    needs_review = label == "" or _norm_enum(who_uses_confidence) == "low"
+    return label, needs_review
+
+
+def flatten_business_model_fields(parsed, *, company=None) -> dict:
+    """Flatten the classifier block into persisted Rule-7 columns: the RAW who_uses / who_pays
+    extraction (carried, recomputable) PLUS the derived business_model (mapper / floor / override).
+    The raw read is preserved even when an override forces a different final label, so an
+    evidence-thin or floor-missed read stays auditable. Tolerant of a missing / non-dict block.
+
+    Reads ``parsed["business_model_classifier"]`` (the LLM JSON object) and the company (passed in
+    or ``parsed["company"]``)."""
+    block = parsed.get("business_model_classifier") if isinstance(parsed, dict) else None
+    block = block if isinstance(block, dict) else {}
+    co = company if company is not None else (parsed.get("company") if isinstance(parsed, dict) else "")
+    who_uses = _norm_enum(block.get("who_uses"))
+    who_pays = _norm_enum(block.get("who_pays"))
+    confidence = _norm_enum(block.get("who_uses_confidence"))
+    label, needs_review = business_model_for(co, who_uses, who_pays, confidence)
+    return {
+        "who_uses": who_uses,
+        "who_uses_basis": _safe_text(block.get("who_uses_basis", "")),
+        "who_pays": who_pays,
+        "who_pays_basis": _safe_text(block.get("who_pays_basis", "")),
+        "who_uses_confidence": confidence,
+        "business_model": label,
+        "business_model_needs_review": needs_review,
+    }

@@ -1436,6 +1436,73 @@ def run_company_fit_brief(
 
 
 # =============================================================================
+# Business-model classifier (§B2) — Commit 1.
+# The LLM extracts who_uses / who_pays (Rule 7); the deterministic mapper in
+# structured_evidence.business_model_for emits the label. Prompt = SOT §B2 v1.13
+# (the gate-B-validated EVIDENCE-ONLY + FREE-TO-CONSUMER wording, 2026-06-30).
+# Pure builder so the prompt is asserted in tests without an API key.
+# =============================================================================
+
+BUSINESS_MODEL_PROMPT_TEMPLATE = """You classify a HEALTH company on TWO INDEPENDENT axes so a downstream deterministic mapper can label it B2B / B2B2C / B2C. You do NOT emit the label -- you emit ONLY the two axis reads, their bases, and a confidence. (A separate locked mapper turns these into the label; a human-locked floor overrides you for a few known cases. Your only job is an honest, evidence-grounded read of the two axes.)
+
+Output ONE JSON object and nothing else:
+{{"who_uses": "consumer" or "professional",
+  "who_uses_basis": "<one line: who actually operates/interacts with THIS company's OWN product/service>",
+  "who_pays": "consumer" or "institution" or "mixed",
+  "who_pays_basis": "<one line: who MATERIALLY pays for that use>",
+  "who_uses_confidence": "high" or "low"}}
+
+AXIS 1 -- who_uses. The ONLY question: who is the END-USER of THIS company's OWN product/service?
+- "consumer" = a regular person (patient / member / individual) personally interacts with the company's own product or service -- even when a clinician or coach is part of the service, and even when an institution pays. Care delivered THROUGH the company's own employed clinicians/coaches to a person is STILL consumer use (the person is the end-user of the company's service).
+- "professional" = the product is operated BEHIND THE SCENES by a professional (clinician, hospital/care-team staff, developer) as a tool / infrastructure / enablement layer / data product; the consumer never personally uses THIS company's product. Provider-facing tools, hospital-at-home enablement platforms, clinical-evidence/data products, and back-office APIs are "professional".
+- FREQUENCY FIREWALL: usage frequency is IRRELEVANT to who_uses. A clinician using a professional tool every day is STILL "professional"; a patient using a consumer app only occasionally is STILL "consumer". Do NOT let high professional-usage frequency pull a professional tool into "consumer".
+- If you genuinely cannot tell whether the consumer is the end-user or the product runs behind the scenes, set who_uses_confidence = "low".
+
+AXIS 2 -- who_pays. The question: who MATERIALLY pays for the consumer's use?
+- "consumer" = the individual pays out of pocket / cash-pay / a consumer subscription is the PRIMARY, material revenue path (even if a tiny employer or pilot channel also exists).
+- "institution" = an employer, health plan, payer, health system, government, or pharma/sponsor materially pays; the consumer receives it free or heavily subsidized.
+- "mixed" = BOTH a real consumer-pay path AND a real institutional-pay path are MATERIAL and established (not a single mention).
+- MATERIALITY BAR (do NOT over-read a minor proof-point): a SINGLE employer page, one pilot, one "ask your employer" mention, or one small partnership does NOT make who_pays "mixed" or "institution". Require a MATERIAL, established institutional payment channel -- named payers / covered lives / a scaled employer book / a health-system JV -- before moving off "consumer". When the consumer cash-pay path is clearly primary and the institutional path is a single minor proof-point, answer "consumer".
+- EVIDENCE-ONLY (do NOT use outside knowledge): base who_pays ONLY on payment channels MATERIALLY ESTABLISHED IN THE EVIDENCE BELOW. Do NOT infer an institutional channel from general or background knowledge about the company. If the Evidence does not materially establish an institutional payment channel, the consumer cash-pay path governs -> "consumer" -- even if you believe the company has institutional deals elsewhere.
+- FREE-TO-CONSUMER: a product that is FREE to the individual has NO consumer-pay path. If the consumer pays nothing and an institution (pharma / sponsor / employer / payer) materially pays, answer "institution", not "mixed". "mixed" requires BOTH a real consumer-PAYMENT path AND a real institutional one.
+
+Company: {company}
+Evidence:
+{evidence}"""
+
+
+def build_business_model_prompt(company_name, evidence) -> str:
+    """Build the §B2 who_uses / who_pays classifier prompt (gate-B-validated wording, SOT v1.13).
+
+    Pure function: no LLM call, no I/O. The LLM emits ONLY the two axis reads + bases + confidence;
+    the deterministic label comes from ``structured_evidence.business_model_for``.
+    """
+    return BUSINESS_MODEL_PROMPT_TEMPLATE.format(company=company_name, evidence=evidence)
+
+
+def run_company_business_model(
+    company_name,
+    evidence,
+    *,
+    client,
+    model: str = DEFAULT_MODEL,
+    max_output_tokens: int = 300,
+):
+    """Run the §B2 classifier extraction for one company: build the prompt, call the model with
+    web search OFF, return the raw model text (expected to be one JSON object). Parsing + the
+    deterministic mapper run downstream (``structured_evidence.flatten_business_model_fields`` /
+    ``business_model_for``). The classifier reads STORED evidence (Rule 7) — no web search."""
+    prompt = build_business_model_prompt(company_name, evidence)
+    return call_openai(
+        prompt,
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+# =============================================================================
 # STEP 7 - Batch runner loop (per-company checkpointing + error recovery)
 # =============================================================================
 
