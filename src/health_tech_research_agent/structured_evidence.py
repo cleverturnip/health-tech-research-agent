@@ -1374,3 +1374,151 @@ def assemble_priority(company, *, business_model, path_passed, path_reason,
         "floor_reason": floor_reason,
         "layer": layer,
     }
+
+
+# ---------------------------------------------------------------------------
+# END-TO-END SCORING + R1 RE-VALIDATION (§B) — Commit 8. Ports the spike `run()` loop as an importable
+# orchestrator, plus the honest R1 distribution check.
+#
+# `score_company` runs ONE company-run end-to-end DETERMINISTICALLY off the persisted/emitted columns —
+# classifier (§B2 floor/override/mapper) -> PATH (§B3) -> AGENCY (§B4, persisted stage + human override +
+# deterministic reset) -> PMF (§B6) + strain (§B7) -> assemble_priority (§B7). The ONE LLM-variable input,
+# background_fit, is passed in (or read from the row) so the R1 harness can re-run it N times. Growth is the
+# Commit-5b structured read off the persisted columns (R2 cases already resolved at extraction).
+#
+# `revalidate_r1` is the §B7 v1.20 STABILITY MACHINERY at roster scale: given N independent run-rosters, it
+# resolves each company's FINAL priority — an overridden company keeps its terminal override; every other
+# company is resolved by `tier_stability` over its N per-run model_priority values (post-floor: a floor-FAIL
+# run reads P3, so a company wobbling at the floor is correctly flagged, not silently dropped). It tallies
+# the resolved finals, compares to the R1 target, and returns a structured report (per-company vectors, the
+# tally, pass/fail, the tier_variance set, drift discrepancies). It does NOT force the target — a tally that
+# only hits 4/6/6/38 by a quiet threshold nudge is a FAILED R1; the honest report surfaces the drift.
+# ---------------------------------------------------------------------------
+
+# The R1 named-company target — reproduce the spike tiering (the live-54: firefly + videahealth deferred).
+R1_TARGET = {"P0": 4, "P1": 6, "P2": 6, "P3": 38}
+
+
+def score_company(row, *, background_fit=None) -> dict:
+    """End-to-end §B deterministic scoring for ONE company-run (ports the spike `run()` per-company loop).
+    Reads the persisted/emitted columns; ``background_fit`` (the §B5 LLM read, re-run per R1 pass) is taken
+    from the argument when given, else ``row['background_fit']``. Returns the `assemble_priority` record
+    augmented with the intermediates (business_model, funding_stage, pmf, background_fit, strain). A floored
+    company still computes scores (harmless — assemble routes it to the floor layer)."""
+    company = _row_get(row, "company")
+    key = _norm_company(company)
+
+    # §B2 classifier — floor / override / mapper on the persisted who_uses / who_pays read (Rule 6/7).
+    business_model, _ = business_model_for(
+        company, _row_get(row, "who_uses"), _row_get(row, "who_pays"), _row_get(row, "who_uses_confidence"))
+
+    # §B3 PATH gate.
+    path_passed, path_reason = path_gate(business_model, row)
+
+    # §B4 AGENCY — the persisted deterministic funding_stage + the v1.14 human-locked override; reset is the
+    # deterministic per-event derive off the persisted reset_events_json.
+    stage = _norm_stage(_row_get(row, "funding_stage"))
+    if key in DOCUMENTED_STAGE_OVERRIDES:
+        stage = DOCUMENTED_STAGE_OVERRIDES[key]
+    reset_fired = derive_reset_signal(row)
+    agency_passed, agency_reason, _late_c = agency_gate(stage, reset_fired, ipo_status=_row_get(row, "ipo_status"))
+
+    # §B6 PMF — deterministic ARR-level (Scale A) + the Commit-5b structured growth read (Scale B / qual).
+    arr_level = arr_level_score(_row_get(row, "revenue_or_arr"), stage)
+    growth_read = normalize_growth_read({
+        "kind": _row_get(row, "growth_kind"),
+        "rate_pct": _row_get(row, "growth_rate_pct"),
+        "magnitude_usd_m": _row_get(row, "growth_magnitude_usd_m"),
+        "qualitative": _row_get(row, "growth_qualitative"),
+        "source": _row_get(row, "growth_source"),
+    })
+    growth, _gnote = score_growth(growth_read, stage)
+    pmf, _capped = pmf_score(arr_level, growth)
+
+    # §B7 strain — deterministic (a2 + speed-of-scale text).
+    strain, _sttag, _stwhy = strain_score(
+        _row_get(row, "capability_a2_score"), _row_get(row, "operating_characteristics"))
+
+    # §B5 background_fit — the ONE LLM-variable input (re-run per R1 pass).
+    bf = _bg_score_or_none(background_fit if background_fit is not None else _row_get(row, "background_fit"))
+
+    reset_detail = (f"reset events [{_row_get(row, 'reset_event_types') or 'none'}]; "
+                    + ("fired" if reset_fired else "none fired"))
+
+    rec = assemble_priority(
+        company, business_model=business_model, path_passed=path_passed, path_reason=path_reason,
+        agency_passed=agency_passed, agency_reason=agency_reason,
+        background_fit=bf, pmf=pmf, strain=strain, reset_detail=reset_detail)
+    rec.update(business_model=business_model, funding_stage=stage, background_fit=bf,
+               pmf=pmf, strain=strain, arr_level=arr_level, growth=growth)
+    return rec
+
+
+def revalidate_r1(per_run_rosters, *, target=R1_TARGET) -> dict:
+    """Resolve the N-run §B7 v1.20 R1 re-validation. ``per_run_rosters`` is a list of N rosters; each roster
+    is the list of `score_company` records for that run (same company set each run). Returns a report:
+
+      passed                — the resolved tally EXACTLY matches ``target`` (counts AND total)
+      tally / target        — resolved-final counts vs the R1 target
+      vectors               — company -> its N per-run model_priority values (the movement, visible)
+      resolved              — company -> {final_priority, tier_variance}
+      tier_variance         — the flagged straddlers (sorted)
+      discrepancies         — per-tier (target vs actual) where they differ — the drift, surfaced
+      inconsistent_companies— companies that did not appear in all N runs (a run/data fault, not a tier)
+
+    Resolution per company: an overridden company keeps its terminal override (deterministic); every other
+    company is resolved by `tier_stability` over its N per-run model_priority values."""
+    runs = list(per_run_rosters or [])
+    if not runs:
+        raise ValueError("revalidate_r1 requires at least one run roster")
+    n = len(runs)
+
+    vectors, overrides = {}, {}
+    order = []
+    for run in runs:
+        for rec in run:
+            co = _norm_company(rec.get("company"))
+            if co not in vectors:
+                vectors[co] = []
+                order.append(co)
+            vectors[co].append(rec.get("model_priority"))
+            if rec.get("human_override"):
+                overrides[co] = rec["human_override"]
+
+    resolved, flagged, inconsistent = {}, [], []
+    for co in order:
+        tiers = vectors[co]
+        if len(tiers) != n:
+            inconsistent.append(co)
+        if co in overrides:
+            resolved[co] = (overrides[co], False)
+            continue
+        final, variance = tier_stability(tiers)
+        resolved[co] = (final, variance)
+        if variance:
+            flagged.append(co)
+
+    tally = {}
+    for final, _ in resolved.values():
+        tally[final] = tally.get(final, 0) + 1
+
+    target = dict(target)
+    discrepancies = {
+        tier: {"target": target.get(tier, 0), "actual": tally.get(tier, 0)}
+        for tier in sorted(set(target) | set(tally))
+        if target.get(tier, 0) != tally.get(tier, 0)
+    }
+    passed = (not discrepancies and not inconsistent
+              and sum(tally.values()) == sum(target.values()))
+
+    return {
+        "passed": passed,
+        "n_runs": n,
+        "tally": tally,
+        "target": target,
+        "vectors": {co: list(vectors[co]) for co in order},
+        "resolved": {co: {"final_priority": fp, "tier_variance": var} for co, (fp, var) in resolved.items()},
+        "tier_variance": sorted(flagged),
+        "discrepancies": discrepancies,
+        "inconsistent_companies": sorted(inconsistent),
+    }
