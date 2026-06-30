@@ -31,6 +31,11 @@ unaffected.
      `mixed`-vs-`institution` distinction. Cause: a FREE-TO-CONSUMER **use-vs-pay conflation** in the prompt
      (the model read "direct-to-consumer *use*" as a consumer-*payment* path).
    - **Disposition:** ACCEPTED + carried. The fix is shelved below (apply when the prompt is next edited).
+   - **Live-54 update (2026-06-30):** on the full-roster run `outcomes4me` read `who_pays=institution`
+     (vs `mixed` in the 7-case slice) — **same prompt, same evidence bytes.** That is LLM run-to-run
+     variance, and both reads map to **B2B2C**, which **confirms this flag is genuinely cosmetic**
+     (non-deterministic + label-immaterial). The shelved clause would pin it to `institution`; still
+     fold-at-next-edit, not a dedicated run.
 
 2. **`allara health` — basis reads `who_pays=mixed` on evidenced "in-network in some states"; the named
    payers the fixture justification cited are NOT in this evidence slice.**
@@ -58,3 +63,34 @@ use-vs-pay-explicit version:
 Expected effect when applied: `outcomes4me` → `who_pays=institution` (label stays B2B2C); the other six
 stable. No label change anywhere on the 54 (mapper-immaterial), so it does **not** require a fresh
 calibration or a dedicated validation run — fold it into the next prompt-touch and re-confirm in that run.
+
+## Live-54 fixture regression — Commit 1, 2026-06-30 (the durable record)
+
+The committed classifier (`phase3-commit1-classifier`) was run over the full 54-company roster (firefly +
+videahealth deferred), prompt → deterministic mapper/floor/overrides. **Clean PASS, reviewed by bucket
+membership (not just totals):**
+
+- **Counts: B2B 6 / B2C 8 / B2B2C 40 = 54** — exact fixture-v1.3 match. The **7 canonical asserts** all
+  pass; **`needs_review` = 0**.
+- **Bucket membership confirmed** — every company in the correct bucket (the check that catches
+  compensating errors: right totals, wrong companies inside). The v1.3 hard cases land right:
+  `angle`→B2B2C (wrongful-B2B-floor avoided), `allara`/`tia`/`outcomes4me`→B2B2C.
+- **The human layers did real corrective work on LIVE reads** — classifier-alone scored **51/54**; the
+  floor + overrides corrected the 3 it missed:
+  - **`medically home` — the floor fired on a live raw-`B2B2C` MISS.** The classifier read it
+    `consumer/institution` → raw label B2B2C (wrong); the floor forced **B2B**. This is the exact
+    oscillation the floor was human-locked for — the adversarial local test predicted this *specific*
+    company. The floor earned its keep, not hypothetically.
+  - **`noom med` + `counsel health` overrides — both LOAD-BEARING.** noom raw `consumer/mixed` → B2B2C
+    (the minor-channel who_pays over-read persists) corrected to **B2C**; counsel raw `consumer/consumer`
+    → B2C (evidence-thin) corrected to **B2B2C**, with the raw read still surfaced (tolerated). The prompt
+    fixes neither.
+  - **`signos` override — RETIRED.** Live raw read `consumer/consumer` → B2C **equals** the override's
+    value, so the override was **INERT** on live evidence. A redundant override would MASK a future prompt
+    regression on signos, so it was removed (commit on `phase3-commit1-classifier`); signos now rides the
+    mapper, where its correctness is visible + testable (same principle as the adversarial floor test).
+    `DOCUMENTED_BUSINESS_MODEL_OVERRIDES` now holds only `noom med` + `counsel health`.
+- Local deterministic suite: **35/35** (incl. the adversarial floor); full suite **313** — no regression.
+
+**Net:** the classifier (prompt → deterministic layer) reproduces fixture v1.3 end-to-end; the two
+remaining overrides + the floor are proven load-bearing on live reads, not carried on faith.
