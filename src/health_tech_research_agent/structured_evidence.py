@@ -82,13 +82,16 @@ COMMERCIAL_EVIDENCE_FIELDS = [
 ]
 
 # Reset / restructure (Slice 3 + 3.5 multi-event) vocab.
-# The seven recognized event types (no "none" — absence of events is the empty list).
+# The recognized event types (no "none" — absence of events is the empty list). `ipo-prep` was added
+# v1.13 (§B4 faithful-fix): an emitted ipo-prep event is RECOGNIZED (not routed to reset_needs_review)
+# and NEVER-fires (it is on RESET_NEVER_FIRE) — oura's confidential S-1 excludes cleanly, firing
+# outcome unchanged. The emitter + this set must agree (SOT §B4 v1.13).
 RESET_EVENT_TYPES = frozenset(
     {"leadership-change", "declared-transformation", "founder-transition",
-     "post-failure-rebuild", "restructuring-layoffs", "strategic-pivot", "ma-integration"}
+     "post-failure-rebuild", "restructuring-layoffs", "strategic-pivot", "ma-integration", "ipo-prep"}
 )
 # Recognized types that can NEVER fire reset (not high-agency openings).
-RESET_NEVER_FIRE = frozenset({"strategic-pivot", "ma-integration"})
+RESET_NEVER_FIRE = frozenset({"strategic-pivot", "ma-integration", "ipo-prep"})
 # Recognized types that CAN fire (with opening == yes). An unrecognized type is in NEITHER
 # set: it does not fire and is surfaced via reset_needs_review (Slice 3.5 Flag 4).
 RESET_FIREABLE_TYPES = frozenset(RESET_EVENT_TYPES - RESET_NEVER_FIRE)
@@ -188,32 +191,86 @@ def _parse_date(value) -> tuple[int, int]:
         return (0, 0)
 
 
-def _stage_rank(round_type) -> int:
-    """Tiebreak rank for two rounds on the SAME date: the later stage wins (series-d > series-c). Ranks the
-    NORMALIZED stage, so 'series-a extension' ranks with series-a; a non-canonical type ranks -1."""
+# §B4 v1.14 HUMAN-LOCKED STAGE OVERRIDE (the §B4 analogue of the §B2 B2B floor) — AUTHORITATIVE over the
+# deterministic discriminator. signos/bicycle were TYPED series-c by the regen; the same-series-vs-new-
+# series correction to series-b is human judgment NOT in the round record (SOT §B4 v1.14). 9amhealth needs
+# NO entry (the discriminator gets series-b right). MAINTENANCE: doc-first edit to SOT §B4, not here.
+DOCUMENTED_STAGE_OVERRIDES = {"signos": "series-b", "bicycle health": "series-b"}
+
+
+def _round_series(r) -> str:
+    """The round's DESIGNATED canonical series: an explicit ``series_designation`` when the synthesis
+    provides one (v1.10 — honor an explicit designation), else the round ``type``. Normalized to the SOT
+    B4 vocab ('' for a non-canonical / undesignated type, e.g. bridge / SAFE / 'Priced equity round')."""
+    if not isinstance(r, dict):
+        return ""
+    return _norm_stage(r.get("series_designation")) or _norm_stage(r.get("type"))
+
+
+def _stage_order_index(stage) -> int:
+    """Index of a normalized stage in _STAGE_ORDER (later stage = higher); -1 if non-canonical."""
     try:
-        return _STAGE_ORDER.index(_norm_stage(round_type))
+        return _STAGE_ORDER.index(stage)
     except ValueError:
         return -1
 
 
+def _designated_rounds(rounds) -> list:
+    """Priced, dated rounds carrying a canonical series DESIGNATION — the candidates for stage."""
+    return [
+        r for r in (rounds if isinstance(rounds, list) else [])
+        if isinstance(r, dict) and _is_true(r.get("is_priced_equity")) and _has_date(r.get("date"))
+        and _round_series(r) in _CANONICAL_STAGES
+    ]
+
+
 def funding_stage_from_rounds(funding_rounds, ipo_event) -> str:
     """Deterministic funding_stage from the LLM-gathered dated rounds (Rule 7 -- the LLM never picks it).
-    public-outranks (SOT B4 refinement 2); else the latest-dated PRICED EQUITY round (refinement 1:
-    bridge/extension/SAFE/debt and undated rounds excluded). Returns the SOT B4 vocab, or 'unknown'."""
-    rounds = funding_rounds if isinstance(funding_rounds, list) else []
+    SOT §B4 v1.10 DESIGNATED-SERIES discriminator: public outranks; else the LAST DESIGNATED canonical
+    series by date -- a SAME-SERIES later round keeps the stage at that series (it carries the same
+    designation, so it does not advance), and a non-canonical / undesignated / undated / bridge / SAFE /
+    debt round does NOT advance it. Honors an explicit per-round ``series_designation`` when present (else
+    the round ``type``). Returns the SOT B4 vocab, or 'unknown'. The §B4 v1.14 human-locked override is
+    applied by ``resolve_funding_stage``, NOT here -- this stays the pure deterministic read."""
     ipo = ipo_event if isinstance(ipo_event, dict) else {}
     if _is_true(ipo.get("occurred")) and _has_date(ipo.get("date")):
         return "public"
-    priced = [
-        r for r in rounds
-        if isinstance(r, dict) and _is_true(r.get("is_priced_equity")) and _has_date(r.get("date"))
-        and _norm_stage(r.get("type")) in _CANONICAL_STAGES   # §14: exclude non-canonical types (Priced equity round / unknown / secondary) from selection
-    ]
-    if not priced:
+    designated = _designated_rounds(funding_rounds)
+    if not designated:
         return "unknown"
-    latest = max(priced, key=lambda r: (_parse_date(r.get("date")), _stage_rank(r.get("type"))))
-    return _norm_stage(latest.get("type")) or "unknown"
+    latest = max(designated, key=lambda r: (_parse_date(r.get("date")), _stage_order_index(_round_series(r))))
+    return _round_series(latest) or "unknown"
+
+
+def funding_stage_with_confidence(funding_rounds, ipo_event) -> tuple[str, str]:
+    """``(stage, stage_confidence)`` — SOT §B4 v1.10. stage_confidence == 'low' when a PRICED, DATED round
+    is dated AFTER the last designated round but is NOT a canonical designation (an undesignated later
+    round: we keep the last CONFIRMED designated series, but the most-recent capital is ambiguous -- flag,
+    don't guess, Rule 8). Otherwise 'high'. public / unknown -> 'high' (handled elsewhere)."""
+    stage = funding_stage_from_rounds(funding_rounds, ipo_event)
+    if stage in ("public", "unknown"):
+        return stage, "high"
+    designated = _designated_rounds(funding_rounds)
+    last_date = max(_parse_date(r.get("date")) for r in designated)
+    rounds = funding_rounds if isinstance(funding_rounds, list) else []
+    undesignated_later = any(
+        isinstance(r, dict) and _is_true(r.get("is_priced_equity")) and _has_date(r.get("date"))
+        and _round_series(r) not in _CANONICAL_STAGES
+        and _parse_date(r.get("date")) > last_date
+        for r in rounds
+    )
+    return stage, ("low" if undesignated_later else "high")
+
+
+def resolve_funding_stage(company, funding_rounds, ipo_event) -> str:
+    """The FINAL funding_stage with the §B4 v1.14 HUMAN-LOCKED override applied (AUTHORITATIVE over the
+    deterministic discriminator — the §B4 analogue of the §B2 floor). A company in
+    DOCUMENTED_STAGE_OVERRIDES returns its locked series regardless of the round data (signos / bicycle).
+    Every other company (incl. rula, 9amhealth) gets the deterministic discriminator."""
+    key = _norm_company(company)
+    if key in DOCUMENTED_STAGE_OVERRIDES:
+        return DOCUMENTED_STAGE_OVERRIDES[key]
+    return funding_stage_from_rounds(funding_rounds, ipo_event)
 
 
 def _has_real_evidence(value) -> bool:
@@ -824,3 +881,38 @@ def path_gate(business_model, row) -> tuple[bool, str]:
             return True, "Test B (B2B2C): real institutional channel"
         return False, "Test B (B2B2C): no real institutional channel"
     return False, f"unmapped business_model: {business_model!r}"
+
+
+# ---------------------------------------------------------------------------
+# AGENCY gate (§B4) — Commit 3c. Deterministic from funding_stage + reset.
+#
+# Built clean from SOT §B4 (v1.10/v1.13), logic-faithful to the spike agency_gate. Maturity is FACTUAL
+# only (funding stage); the LLM never adds a parallel "timing" judgment (B1). Reset (the deterministic
+# derive_reset_signal — type ∈ FIREABLE AND opening=="yes") flips a maturity FAIL -> PASS for a mature
+# company whose build-window reopened. The funding_stage passed in should be the RESOLVED stage
+# (resolve_funding_stage — override applied) so the §B4 v1.14 lock is honored.
+# ---------------------------------------------------------------------------
+
+def agency_gate(funding_stage, reset_fired, *, ipo_status=None) -> tuple[bool, str, bool]:
+    """The §B4 AGENCY maturity gate. Returns ``(passed, reason, late_c_flag)``.
+
+      public / pre-IPO / series-d-plus  -> PASS iff reset fired, else FAIL (too-late unless reopened)
+      seed / pre-seed                   -> FAIL (too-early — reset does NOT rescue a not-yet-open window)
+      series-a / series-b / series-c    -> PASS
+
+    ``late_c_flag`` exposes the OPEN-DIAL (series-c is a clean PASS in this build; calibration can switch
+    it to a soft pass that lowers the score). An unknown / undeterminable stage -> FAIL (never a silent
+    pass)."""
+    stage = _norm_stage(funding_stage)
+    ipo = _norm_enum(ipo_status)
+    rf = bool(reset_fired)
+    late_c = stage == "series-c"
+    if ipo == "public" or stage == "public":
+        return rf, f"public/{stage or '?'} mature" + (" +reset" if rf else " (no reset)"), late_c
+    if stage == "series-d-plus":
+        return rf, f"{stage} late-stage" + (" +reset" if rf else " (no reset)"), late_c
+    if stage in ("seed", "pre-seed"):
+        return False, f"{stage} too-early (no reset rescue)", late_c
+    if stage in ("series-a", "series-b", "series-c"):
+        return True, f"{stage} -> PASS" + (" [late-C clean-pass, dial]" if late_c else ""), late_c
+    return False, f"{stage or 'unknown'} undeterminable", late_c
