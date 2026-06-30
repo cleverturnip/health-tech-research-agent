@@ -616,17 +616,18 @@ LOCKED_B2B_FLOOR = frozenset(
     {"openevidence", "cohere health", "zus health", "om1", "medically home", "linus health"}
 )
 
-# Documented spike-era overrides (SOT §B2): forced to their locked-truth label regardless of the
-# read. noom med / signos = minor-channel who_pays over-read; counsel health = evidence-thin input
-# gap (Rule 8). NOTE: the v1.13 EVIDENCE-ONLY prompt now reads `signos` correctly (gate-B
-# validated 2026-06-30), so its override is redundant-but-harmless; kept for documented parity
-# pending a reviewer decision to retire it (see specs/classifier_prompt_flags.md). The mapper
-# applies these to the FINAL label; the live classifier's RAW read is still persisted (who_pays)
-# so an evidence-thin under-read (e.g. counsel raw=B2C) stays VISIBLE while the final label is the
-# locked truth.
+# Documented spike-era overrides (SOT §B2): forced to their locked-truth label regardless of the read.
+# Both remaining entries are proven LOAD-BEARING on the live-54 run (the prompt does NOT fix either):
+#   noom med      = minor-channel who_pays over-read (live raw consumer/mixed -> B2B2C; corrected to B2C)
+#   counsel health = evidence-thin input gap (live raw consumer/consumer -> B2C; corrected to B2B2C, Rule 8)
+# `signos` was RETIRED 2026-06-30: the v1.13 EVIDENCE-ONLY prompt reads it correctly (live raw
+# consumer/consumer -> B2C == the override's value, so the override was INERT). A redundant override would
+# MASK a future prompt regression on signos, so signos now rides the mapper, where its correctness is
+# visible + testable (same principle as the adversarial floor test). See specs/classifier_prompt_flags.md.
+# The mapper applies these to the FINAL label; the live classifier's RAW read is still persisted (who_pays)
+# so an evidence-thin under-read (e.g. counsel raw=B2C) stays VISIBLE while the final label is the locked truth.
 DOCUMENTED_BUSINESS_MODEL_OVERRIDES = {
     "noom med": "B2C",
-    "signos": "B2C",
     "counsel health": "B2B2C",
 }
 

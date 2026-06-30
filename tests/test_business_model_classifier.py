@@ -86,7 +86,7 @@ def test_floor_fires_through_persistence_layer():
 
 @pytest.mark.parametrize(
     "company, expected",
-    [("noom med", "B2C"), ("signos", "B2C"), ("counsel health", "B2B2C")],
+    [("noom med", "B2C"), ("counsel health", "B2B2C")],  # signos RETIRED — now rides the mapper
 )
 def test_documented_overrides_force_locked_label(company, expected):
     # feed a read that DISAGREES with the locked label; the override must win.
@@ -95,6 +95,18 @@ def test_documented_overrides_force_locked_label(company, expected):
     )
     assert label == expected
     assert needs_review is False  # forced -> no review
+
+
+def test_signos_override_retired_rides_the_mapper():
+    """signos was retired from the overrides (2026-06-30): the v1.13 prompt reads it correctly, and a
+    redundant override would MASK a future prompt regression. signos now rides the mapper — its correct
+    read maps to B2C, and (unlike a forced override) a WRONG read would change the label, keeping the
+    prompt's correctness visible + testable."""
+    assert "signos" not in se.DOCUMENTED_BUSINESS_MODEL_OVERRIDES
+    label, _ = se.business_model_for("signos", "consumer", "consumer")  # the correct live read
+    assert label == "B2C"  # reached via the mapper, not an override
+    # not papered over: a (hypothetical) professional misread would now flip it — proof it rides the prompt
+    assert se.business_model_for("signos", "professional", "institution")[0] == "B2B"
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +199,7 @@ def test_flatten_tolerates_missing_block():
 def test_flatten_company_arg_overrides_parsed_company():
     parsed = {"business_model_classifier": {"who_uses": "consumer", "who_pays": "consumer"}}
     cols = se.flatten_business_model_fields(parsed, company="signos")
-    assert cols["business_model"] == "B2C"         # signos documented override (consumer-consistent here)
+    assert cols["business_model"] == "B2C"         # signos via the mapper now (override retired)
 
 
 # ---------------------------------------------------------------------------
