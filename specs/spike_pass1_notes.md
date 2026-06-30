@@ -132,3 +132,20 @@ Pass-2 found BOTH halves of PMF were on §C-PLACEHOLDER curves the spike improvi
   Series-B ARR row tops at $80M=10 while Series-C starts at $30M=1 — deliberate overlap), so a NOISY stage
   label swings arr_level 2–5 pts (zoe/bicycle/function/nourish/oula are the largest swings). Accurate
   research-layer stage assignment is now load-bearing; noisy labels are a Pass-2 review item, not a scale fix.
+
+## 8. STAGE-ASSIGNMENT: DESIGNATED-SERIES discriminator (SOT §B4 v1.10; hardening requirement)
+The STEP-0 stage audit surfaced a RULE GAP, not 3 separate errors: v1.9 excluded extensions/bridges/SAFE/debt
+but did NOT cover a CLOSED, PRICED venture round under the SAME existing series, so the audit leaned toward
+advancing on any real closed round. SOT §B4 v1.10 adds the **DESIGNATED-SERIES discriminator**: the series
+letter advances ONLY on a round explicitly designated the next series; same-series capital (incl. a sizable
+closed priced venture round) keeps the last designated series; undesignated later round → last confirmed
+series + `stage_confidence=low`. Resolved 3 spike corrections (Katelynd): **signos** series-c→**series-b**
+($20M 2026 = same-series venture round), **bicycle** series-c→**series-b** (later funding, no designated
+Series C), **9amhealth** stays **series-b** (Series B was clean in the research output; the audit MISREAD it
+as a Series A extension — a reading error on correctly-captured data).
+- **HARDENING REQUIREMENT (adds to R1):** the hardened `funding_stage` mapper/synthesis MUST implement the
+  v1.10 designated-series discriminator (a same-series round does not promote). The 9amhealth case shows the
+  audit/extraction can MISREAD a correctly-captured label, so the hardened stage assignment must make the
+  **designated-series signal explicit** (capture the round's series designation, not just "a later priced
+  round exists"). Until then, stage corrections are applied as a spike STAGE_OVERRIDE (Katelynd-approved),
+  the disposable analogue of the §B2 human-locked floor.
