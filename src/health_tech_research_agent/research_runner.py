@@ -1570,6 +1570,76 @@ def run_company_background_fit(
 
 
 # =============================================================================
+# Growth extractor (§B6 / §B6.1) — Commit 5b (the last LLM-facing prompt).
+# Replaces the spike's regex with an LLM REVENUE-growth-presence judgment that emits a STRUCTURED growth
+# read; the deterministic scorer (structured_evidence.score_growth) maps it (the LLM never scores). The
+# §B6.1 fence (revenue/$ only; counts are SCALE), the same-measure derive guard, and the determinate
+# qualitative-vs-absent rule are the signed-off wording (co-drafted + pinned vs the 3 R2 cases 2026-06-30:
+# pomelo/outcomes4me -> qualitative "growing"; season -> rate ≈ 53.7 derived). Pure builder so it is
+# asserted in tests without an API key.
+# =============================================================================
+
+GROWTH_EXTRACTOR_PROMPT_TEMPLATE = """You extract the REVENUE-GROWTH signal for a health company, for a downstream stage-relative growth score. Read the evidence and emit ONE structured growth read. The deterministic scorer maps it -- you do NOT score.
+
+Output ONE JSON object and nothing else:
+{{"kind": "rate" | "zero_baseline" | "qualitative" | "absent",
+  "rate_pct": <number: YoY % revenue growth> or null,
+  "magnitude_usd_m": <number: $M revenue reached from a $0 launch> or null,
+  "qualitative": "declining" | "flat" | "growing" or null,
+  "source": "company-reported" | "derived",
+  "basis": "<one line: the exact figures you used>"}}
+
+REVENUE / $ GROWTH ONLY -- the FENCE (the most important rule):
+- Score ONLY revenue / ARR / $ growth. NON-revenue COUNTS -- covered lives, patients, members, users, downloads, MAU, headcount, partners -- are SCALE, NOT growth. NEVER emit a count's growth as rate_pct. ("Covered lives rose 50%" or "patients grew 485%" is NOT revenue growth -- do NOT set rate_pct from it.)
+- Do NOT manufacture a rate from a count to avoid "absent"/"qualitative". A fenced count is not a fallback for a missing revenue rate.
+
+How to read each kind:
+- "rate" -- a revenue/$ YoY growth %: either a company-reported "X% YoY" (source="company-reported"), OR one YOU DERIVE from two dated revenue figures (source="derived").
+  A DERIVE IS VALID ONLY IF ALL THREE HOLD. If ANY fails, the figures give NO usable rate -- do NOT derive (go to qualitative/absent):
+    (1) SAME MEASURE -- both annual revenue, or both ARR (NOT funding-amount vs revenue; NOT run-rate vs trailing/annual).
+    (2) SAME SOURCE -- both from the SAME company report or the SAME single estimator's dated series. Figures from TWO DIFFERENT estimators (e.g. one Latka figure + one Growjo figure) are independent guesses that often conflict and can even point opposite directions -- they do NOT form a series; NEVER compute a rate between them.
+    (3) CORRECT TIME ORDER -- baseline = the earlier-dated figure, endpoint = the later-dated figure.
+  When all three hold, COMPUTE the YoY % -- and a hedge in the text ("a rate could not be computed") does NOT block a derive that meets (1)-(3): a real same-source series like "$8.0M revenue in 2022 -> $12.3M in 2023 (one estimator's dated series)" IS usable.
+  Third-party estimates (Sacra / Latka / Growjo / CB Insights) ARE real revenue evidence -- but a derive needs ONE estimator's OWN dated series (two dated points from the SAME estimator); two different estimators' single figures are NOT a series.
+- "zero_baseline" -- a launch-from-$0 revenue trajectory ($0 -> $N ARR) has an undefined %; set magnitude_usd_m to the $M reached.
+- "qualitative" vs "absent" -- DETERMINATE, decided by ONE test: is there an affirmative statement about REVENUE direction, SEPARATE from any count?
+  - "qualitative" -- the evidence AFFIRMATIVELY describes REVENUE as growing / flat / declining (a statement about REVENUE itself, not a count) but gives no usable rate, two-point series, or zero-baseline. Set qualitative to that direction.
+  - "absent" -- NO revenue-growth signal at all: the only growth in the evidence is a FENCED count (covered-lives / patients / members / users), with no affirmative statement about REVENUE direction.
+
+Company: {company}
+Evidence:
+{evidence}"""
+
+
+def build_growth_extractor_prompt(company_name, evidence) -> str:
+    """Build the §B6/§B6.1 LLM growth-extractor prompt (signed-off wording). Pure function: no LLM call,
+    no I/O. The LLM emits ONLY a structured growth read; the deterministic
+    ``structured_evidence.score_growth`` maps it to a Scale-B / Scale-A score."""
+    return GROWTH_EXTRACTOR_PROMPT_TEMPLATE.format(company=company_name, evidence=evidence)
+
+
+def run_company_growth(
+    company_name,
+    evidence,
+    *,
+    client,
+    model: str = DEFAULT_MODEL,
+    max_output_tokens: int = 280,
+):
+    """Run the §B6 growth extraction for one company: build the prompt, call the model with web search
+    OFF, return the raw model text (expected to be one JSON growth read). Parsing + scoring run downstream
+    (``structured_evidence.flatten_growth_read`` / ``score_growth``). Reads STORED evidence (Rule 7)."""
+    prompt = build_growth_extractor_prompt(company_name, evidence)
+    return call_openai(
+        prompt,
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+# =============================================================================
 # STEP 7 - Batch runner loop (per-company checkpointing + error recovery)
 # =============================================================================
 

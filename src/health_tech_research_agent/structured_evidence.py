@@ -1089,3 +1089,54 @@ def pmf_score(arr_level, growth):
     if capped:
         val = min(val, PMF_MISSING_CAP)
     return val, capped
+
+
+# Growth-read columns persisted from the Commit-5b extractor (Rule-7: the structured read is carried).
+GROWTH_READ_FIELDS = ["growth_kind", "growth_rate_pct", "growth_magnitude_usd_m",
+                      "growth_qualitative", "growth_source", "growth_basis"]
+_GROWTH_KINDS = frozenset({"rate", "zero-baseline", "qualitative", "absent"})
+
+
+def _float_or_none(value):
+    """Parse a number to float, or None if absent / unparseable."""
+    text = _norm(value)
+    if not text or text in _SCORE_NULL_SENTINELS:
+        return None
+    try:
+        return float(text)
+    except (ValueError, TypeError):
+        return None
+
+
+def normalize_growth_read(block) -> dict:
+    """Normalize the Commit-5b extractor JSON into the structured read ``score_growth`` consumes:
+    ``kind`` (rate / zero-baseline / qualitative / absent; '_' folded to '-'), ``rate_pct``,
+    ``magnitude_usd_m``, ``qualitative``, ``source``, ``basis``. An unrecognized kind -> 'absent'
+    (Rule 8: a malformed read is genuine-absence, never a guessed rate)."""
+    block = block if isinstance(block, dict) else {}
+    kind = _norm_enum(block.get("kind"))
+    if kind not in _GROWTH_KINDS:
+        kind = "absent"
+    qual = _norm_enum(block.get("qualitative"))
+    return {
+        "kind": kind,
+        "rate_pct": _float_or_none(block.get("rate_pct")),
+        "magnitude_usd_m": _float_or_none(block.get("magnitude_usd_m")),
+        "qualitative": qual if qual in ("declining", "flat", "growing") else "",
+        "source": _norm_enum(block.get("source")),
+        "basis": _safe_text(block.get("basis", "")),
+    }
+
+
+def flatten_growth_read(parsed) -> dict:
+    """Flatten the extractor's growth read (``parsed["growth_read"]``) into persisted Rule-7 columns.
+    Tolerant of a missing / non-dict block (-> kind 'absent')."""
+    read = normalize_growth_read(parsed.get("growth_read") if isinstance(parsed, dict) else None)
+    return {
+        "growth_kind": read["kind"],
+        "growth_rate_pct": read["rate_pct"],
+        "growth_magnitude_usd_m": read["magnitude_usd_m"],
+        "growth_qualitative": read["qualitative"],
+        "growth_source": read["source"],
+        "growth_basis": read["basis"],
+    }
