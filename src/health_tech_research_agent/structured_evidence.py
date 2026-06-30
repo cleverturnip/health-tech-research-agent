@@ -916,3 +916,46 @@ def agency_gate(funding_stage, reset_fired, *, ipo_status=None) -> tuple[bool, s
     if stage in ("series-a", "series-b", "series-c"):
         return True, f"{stage} -> PASS" + (" [late-C clean-pass, dial]" if late_c else ""), late_c
     return False, f"{stage or 'unknown'} undeterminable", late_c
+
+
+# ---------------------------------------------------------------------------
+# Background-fit gradient (§B5) — Commit 4. The LLM emits background_fit (1-10) + data_feedback_loop off
+# the LOCKED §B5 v1.7 prompt (research_runner.build_background_fit_prompt); this layer enforces the
+# who_uses==consumer PRECONDITION and persists the Rule-7 columns. A GRADIENT, not a gate — errors only
+# lower a score, never floor (A5/B5). Score clamped 1-10; data_feedback_loop normalized to yes/no.
+# ---------------------------------------------------------------------------
+
+BACKGROUND_FIT_FIELDS = ["background_fit", "data_feedback_loop", "background_fit_basis"]
+
+
+def background_fit_applies(who_uses) -> bool:
+    """§B5 precondition: background-fit is scored ONLY for a consumer end-user (who_uses == consumer).
+    Every gate-passed company meets it — a `professional` company was floored at PATH Test A — so this is
+    a guard, not a gate (it prevents scoring a professional company that should never reach here)."""
+    return _norm_enum(who_uses) == "consumer"
+
+
+def _bg_score_or_none(value):
+    """Parse background_fit to an int clamped 1-10, or None if absent / unparseable."""
+    text = _norm(value)
+    if not text or text in _SCORE_NULL_SENTINELS:
+        return None
+    try:
+        return max(1, min(10, int(round(float(text)))))
+    except (ValueError, TypeError):
+        return None
+
+
+def flatten_background_fit_fields(parsed) -> dict:
+    """Flatten the background-fit block into persisted Rule-7 columns. Reads ``parsed["background_fit"]``
+    (the LLM JSON object: background_fit / data_feedback_loop / basis). Score clamped 1-10 (None if
+    absent); data_feedback_loop normalized to 'yes'/'no' ('' if absent). Tolerant of a missing block."""
+    block = parsed.get("background_fit") if isinstance(parsed, dict) else None
+    block = block if isinstance(block, dict) else {}
+    loop = _norm_enum(block.get("data_feedback_loop"))
+    loop = loop if loop in ("yes", "no") else ""
+    return {
+        "background_fit": _bg_score_or_none(block.get("background_fit")),
+        "data_feedback_loop": loop,
+        "background_fit_basis": _safe_text(block.get("basis", "")),
+    }

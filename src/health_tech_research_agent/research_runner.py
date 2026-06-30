@@ -1511,6 +1511,65 @@ def run_company_business_model(
 
 
 # =============================================================================
+# Background-fit gradient (§B5) — Commit 4.
+# The LOCKED §B5 v1.7 prompt (validated 2026-06-29; byte-faithful to the SOT and the spike). A GRADIENT
+# 1-10, NOT a gate; errors are recoverable (re-runnable per company). Precondition: who_uses == consumer
+# (every gate-passed company meets it — professional was floored at PATH Test A). Emits background_fit
+# (int 1-10) + data_feedback_loop ("yes"/"no"). The frozen BG_FIT dict (spike bg_fit_scores.py) is the
+# VALIDATION REFERENCE — the hardened step RE-RUNS this prompt and should reproduce it within tolerance;
+# the frozen scores are NOT wired in as the scorer's output.
+# =============================================================================
+
+BACKGROUND_FIT_PROMPT_TEMPLATE = """You score BACKGROUND FIT for a CONSUMER-facing health company: HOW CLOSE its consumer-engagement model is to the "mobile-games loop" -- habitual, high-frequency, retention-driven engagement the consumer keeps returning to on their own. This is a GRADIENT (1-10), not a pass/fail. (Precondition already met upstream: the consumer is the end-user of the company's OWN product/service.)
+
+Output ONE JSON object and nothing else:
+{{"background_fit": <integer 1-10>,
+  "data_feedback_loop": "yes" or "no",
+  "basis": "<one line describing the consumer's ACTUAL ongoing engagement>"}}
+
+SCALE:
+- 9-10 = a tight DATA-FEEDBACK LOOP: the consumer sees their OWN body/health data -> acts on it -> sees the result reflected back -> repeats. The habitual self-tracking loop (metabolic / CGM / wearable / biomarker / continuous activity or glucose tracking). This loop is the top-of-scale AMPLIFIER -> set data_feedback_loop = "yes".
+- 6-8 = a STRONG consumer-habit model WITHOUT that tight data-loop: frequent, retention-driven engagement the consumer actively sustains (recurring coaching / therapy / care they personally show up for, a consumer app with real habitual use, an ongoing condition-management relationship). A strong consumer-health company that simply LACKS the data-feedback loop STILL SCORES SOLIDLY HERE -- do NOT floor it merely for lacking the loop.
+- 3-5 = a genuinely EPISODIC / intermittent consumer relationship: the consumer engages around a discrete need or event and then largely leaves, with little sustained habit.
+- 1-2 = almost no recurring consumer-engagement surface.
+
+DO NOT under-score (the "periodic" trap): judge the consumer's ACTUAL ongoing engagement with the company's OWN product/service. Care delivered through the company's employed clinicians/coaches, or paid for by an employer/health-plan, is STILL the consumer's own habit -- do not label it "periodic" for that reason. A serious or medically-driven condition is NOT automatically low-frequency: a daily nutrition program, an ongoing therapy relationship, or continuous condition management is HABITUAL even when the underlying need is medical. Score 3-5 ONLY when the engagement is genuinely one-off / intermittent.
+
+Company: {company}
+Evidence:
+{evidence}"""
+
+
+def build_background_fit_prompt(company_name, evidence) -> str:
+    """Build the §B5 v1.7 LOCKED background-fit gradient prompt (validated wording). Pure function:
+    no LLM call, no I/O. Emits background_fit (1-10) + data_feedback_loop + basis; the deterministic
+    persistence is ``structured_evidence.flatten_background_fit_fields``."""
+    return BACKGROUND_FIT_PROMPT_TEMPLATE.format(company=company_name, evidence=evidence)
+
+
+def run_company_background_fit(
+    company_name,
+    evidence,
+    *,
+    client,
+    model: str = DEFAULT_MODEL,
+    max_output_tokens: int = 220,
+):
+    """Run the §B5 background-fit gradient for one company: build the locked prompt, call the model with
+    web search OFF, return the raw model text (expected to be one JSON object). The caller enforces the
+    who_uses == consumer precondition (``structured_evidence.background_fit_applies``) and parses via
+    ``flatten_background_fit_fields``. Reads STORED evidence (Rule 7) — no web search."""
+    prompt = build_background_fit_prompt(company_name, evidence)
+    return call_openai(
+        prompt,
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+# =============================================================================
 # STEP 7 - Batch runner loop (per-company checkpointing + error recovery)
 # =============================================================================
 
