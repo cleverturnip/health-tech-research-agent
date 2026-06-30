@@ -1047,20 +1047,28 @@ Commercial evidence — gather FACTS and answer the four red-flag questions. Do 
   - When MULTIPLE revenue figures are present, set q4_evidence_quality to the STRONGEST quality among them: "company-reported" if any figure is company-reported; else "credible-estimate" if any is a named third-party estimate; else "unverified-promotional". Multiple weak or single-source figures do NOT promote q4 — if no figure is company-reported and none is a credible third-party estimate, q4 stays "unverified-promotional" however many weak figures exist. (More corroboration may raise evidence_confidence_score, but it NEVER lifts q4's source-type bucket.)
 
 Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
-A company may be doing SEVERAL of these at once (e.g. pivoting its business model AND restructuring its team). List EACH distinct event as its own object in reset_events, and answer the opening question PER EVENT, on that event's own terms. Do NOT let one event's nature determine another's — a strategic pivot does not make a coexisting restructuring an opening, and a loud pivot must NOT hide a restructuring that IS an opening. If you find no reset/restructure events, return an empty list [].
-The events, their types, and their per-event high-agency-opening reads come from the dedicated "Recent org / leadership events" section of the research findings above. Transcribe them into reset_events — emit one object per event and carry each event's event_type and opening read through; do NOT re-derive or override the opening here. The per-event definitions below are the shared criteria that search applied (use them only for consistent classification and citation); the deterministic rule downstream decides what fires.
+A company may be doing SEVERAL of these at once. List EACH distinct event as its own object in reset_events, answer the opening question PER EVENT on its own terms, and do NOT let one event's nature determine another's. If you find no reset/restructure events, return an empty list [].
+
+CLASSIFY BY SUBSTANCE, NOT PRESS FRAMING. Judge each event on what ACTUALLY changed, never on the company's label for it. "Transformation," "evolution," "pivotal," "next chapter" are marketing words — they do not decide event_type. You are the single emitter: classify event_type and read the opening from the underlying facts, even when that means re-classifying how the source framed it. (The per-event reads in the "Recent org / leadership events" findings are inputs to weigh, not labels to transcribe.)
+
 For each event:
-- event_type:
-  - leadership-change — new CEO / senior exec layer brought in to build or turn the company around.
-  - declared-transformation — an OPERATIONAL rebuild that creates a builder mandate (rebuilding HOW the company operates). Reserve this for an operating-model rebuild, NOT a change of what the company sells.
+- event_type — choose by SUBSTANCE:
+  - leadership-change — a new CEO / senior exec brought in to BUILD or TURN AROUND the company (a reopened operating window). NOT a routine functional hire to staff ongoing growth (see the opening rule).
   - founder-transition — founder stepping back / bringing in professional leadership to scale.
   - post-failure-rebuild — rebuilding after a stumble, with a forward mandate.
-  - restructuring-layoffs — restructuring / layoffs. This can be EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question for THIS event decides.
-  - strategic-pivot — a change of business model / go-to-market (e.g. D2C -> payer / B2B). A business-model or go-to-market change is strategic-pivot EVEN IF the company frames it as a "transformation". ("Changed what we sell" = strategic-pivot; "rebuilding how we operate" = declared-transformation.)
+  - restructuring-layoffs — restructuring / layoffs. EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question for THIS event decides.
+  - declared-transformation — an OPERATING-MODEL rebuild: rebuilding HOW the company runs INTERNALLY (its operating systems, org, processes). Reserve STRICTLY for an internal operating rebuild. A change to WHAT the company sells, its product line, its pricing, or its go-to-market is NOT this.
+  - strategic-pivot — a change to the BUSINESS MODEL, PRODUCT STRATEGY, PRICING, or GO-TO-MARKET: e.g. D2C -> payer / B2B; a new product category or an "evolution" into a different kind of product; a pricing-model change (engagement-based -> outcome-based); expansion into a new clinical / product area. This is strategic-pivot EVEN IF framed as a "transformation," "evolution," or "pivotal" moment. ("Changed/added what we sell or how we price/sell it" = strategic-pivot; "rebuilding how we operate internally" = declared-transformation.)
   - ma-integration — merger / acquisition integration work.
+  - ipo-prep — IPO preparation: an S-1 / draft (incl. confidential) registration statement, public-market-readiness, or "going public" activity. A MATURE-TRAJECTORY event, the OPPOSITE of a reopened build-window. Classify ALL IPO / S-1 / public-market-readiness events here, even when framed as a "transformation" or "next chapter."
 - basis — cite the source + date for THIS event.
-- creates_high_agency_opening — for THIS event: "yes" only when THIS event creates a FORWARD-LOOKING MANDATE for a senior operator to BUILD (the company is actively rebuilding / transforming and needs operators to do it); "no" when THIS event is a DEFENSIVE reaction (a pivot under competitive pressure, a contraction toward survival/decline, or routine integration); "unclear" when the evidence doesn't let you tell.
-  - Example: a company simultaneously (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures its team to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
+- creates_high_agency_opening — for THIS event, by HONEST confidence:
+  - "yes" ONLY when THIS event CLEARLY reopens a high-agency window (the company is actively rebuilding / turning around and needs a senior operator to BUILD). Do NOT round up to "yes" when uncertain.
+  - "no" when THIS event is a DEFENSIVE reaction (a pivot under pressure, a contraction toward survival/decline, routine integration) or a MATURE-trajectory event (ipo-prep).
+  - "unclear" when the evidence doesn't let you tell.
+  - EXEC ADD — read the opening by STRUCTURAL ROLE, not the company's growth framing: a senior exec ADDED to SUPPORT / DRIVE / SCALE an existing growth / expansion / partnerships / commercial motion (a CMO, CRO, or similar growth / commercial hire — "expanding the executive team" to fuel growth) -> "unclear". This is the common scaling-company case and is NOT a reopened build-window, EVEN when the title is senior. Emit "yes" for an exec add ONLY for a CLEAR structural reset — a NEW CEO replacing the prior CEO, a founder stepping back for professional leadership, OR a FIRST-EVER / NEWLY-CREATED C-suite seat that stands up a function the company did NOT previously have (e.g. its FIRST CFO building finance / operating discipline). The test: does this BUILD a missing operating function (-> "yes") or STAFF an existing growth thrust (-> "unclear")?
+  - Example: a company that (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
+(The deterministic rule downstream fires ONLY when event_type is a firing type AND creates_high_agency_opening == "yes". strategic-pivot, ma-integration, and ipo-prep NEVER fire; "unclear" / "no" never fire; multiple "unclear" events do NOT sum to a fire. Your job is an honest per-event SUBSTANCE classification + an honest opening read — the deterministic code decides what fires.)
 
 Capability-fit — score THREE company-SHAPE attributes (A1, A2, A3), each 0-100 within the
 bands below, each with a one-line basis. These measure how closely the company matches the
@@ -1334,7 +1342,7 @@ Use this JSON schema exactly:
   "reset_evidence": {{
     "reset_events": [
       {{
-        "event_type": "leadership-change / declared-transformation / founder-transition / post-failure-rebuild / restructuring-layoffs / strategic-pivot / ma-integration",
+        "event_type": "leadership-change / declared-transformation / founder-transition / post-failure-rebuild / restructuring-layoffs / strategic-pivot / ma-integration / ipo-prep",
         "basis": "source + date for THIS event",
         "creates_high_agency_opening": "yes / no / unclear"
       }}

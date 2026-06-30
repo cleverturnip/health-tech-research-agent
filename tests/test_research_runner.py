@@ -413,15 +413,18 @@ def test_prompt_has_reset_evidence_block():
 
 def test_prompt_reset_vs_pivot_framing():
     prompt = rr.build_fit_brief_prompt("C", "F", "T")
-    # the forward-mandate vs defensive-reaction poles, both concrete
-    assert "FORWARD-LOOKING MANDATE" in prompt
+    # the build-mandate vs defensive-reaction poles (v1.15 wording)
+    assert "needs a senior operator to BUILD" in prompt
     assert "DEFENSIVE reaction" in prompt
-    # restructuring-layoffs is not pre-judged — the opening question decides (now per-event)
+    # restructuring-layoffs is not pre-judged — the opening question decides (per-event)
     assert "do NOT prejudge it; the opening question for THIS event decides" in prompt
-    # the strategic-pivot strengthening: a "transformation" framing can't upgrade a pivot
-    assert 'strategic-pivot EVEN IF the company frames it as a "transformation"' in prompt
-    assert '"Changed what we sell" = strategic-pivot' in prompt
-    assert '"rebuilding how we operate" = declared-transformation' in prompt
+    # the strategic-pivot strengthening (v1.15): "transformation"/"evolution"/"pivotal" can't upgrade a pivot
+    assert 'strategic-pivot EVEN IF framed as a "transformation," "evolution," or "pivotal" moment' in prompt
+    assert '"Changed/added what we sell or how we price/sell it" = strategic-pivot' in prompt
+    assert '"rebuilding how we operate internally" = declared-transformation' in prompt
+    # v1.15/v1.16 additions: ipo-prep type + the structural-role exec-add rule
+    assert "ipo-prep — IPO preparation" in prompt
+    assert "EXEC ADD — read the opening by STRUCTURAL ROLE" in prompt
 
 
 def test_prompt_reset_multi_event_per_event_framing():
@@ -429,8 +432,7 @@ def test_prompt_reset_multi_event_per_event_framing():
     prompt = rr.build_fit_brief_prompt("C", "F", "T")
     assert "List EACH distinct event as its own object in reset_events" in prompt
     assert "answer the opening question PER EVENT" in prompt
-    assert "Do NOT let one event's nature determine another's" in prompt
-    assert "a loud pivot must NOT hide a restructuring that IS an opening" in prompt
+    assert "do NOT let one event's nature determine another's" in prompt
     assert "return an empty list" in prompt
 
 
@@ -1050,13 +1052,18 @@ def test_batch_paying_recovery_union_persisted_and_feeds_synthesis(tmp_path):
     assert "Paying-customer count:" in fit_inputs
 
 
-def test_fit_brief_reset_nudge_points_at_org_events_and_does_not_rejudge():
-    """Reset nudge: synthesis is pointed at the org-events section and emits the canonical
-    reset_events, carrying through the search's reads WITHOUT re-judging the opening."""
+def test_fit_brief_reset_emitter_classifies_by_substance():
+    """Reset emitter (v1.15): the synthesis is the SINGLE emitter — it CLASSIFIES BY SUBSTANCE from the
+    org-events facts (re-classifying press framing), NOT a transcribe-the-search's-label step. The old
+    'carry through / do not re-derive' instruction is what let sword's 'evolution' and oura's S-1 fire,
+    so it is intentionally REVERSED here."""
     prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
-    assert "Recent org / leadership events" in prompt
-    assert "carry each event's event_type and opening read through" in prompt
-    assert "do NOT re-derive or override the opening here" in prompt
+    assert "Recent org / leadership events" in prompt           # still points at the org-events findings
+    assert "CLASSIFY BY SUBSTANCE, NOT PRESS FRAMING" in prompt
+    assert "re-classifying how the source framed it" in prompt
+    # the old transcribe / don't-re-derive instruction is GONE (the substance-classify shift)
+    assert "do NOT re-derive or override the opening here" not in prompt
+    assert "carry each event's event_type and opening read through" not in prompt
 
 
 def test_fit_brief_commercial_nudge_points_at_provenance_and_trend():
