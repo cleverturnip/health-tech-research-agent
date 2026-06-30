@@ -1,7 +1,12 @@
-# Phase-2 Scoring Spike — Pass-1 Notes (regressions, staged wording, known issues, hardening)
+# Phase-2 Scoring Spike — Notes (regressions, staged wording, known issues, hardening)
+
+> **STATUS: PASS-2 COMPLETE (2026-06-29) — the spike has served its purpose.** Framework pressure-tested,
+> dials calibrated, thresholds set (SOT §B7 v1.11). Final tiered deliverable: `SPIKE_FINAL_RANKING.md`.
+> **Next phase = Phase-3 hardening** (build the scorer as committed package code per R1 + §9 below). The
+> spike is NOT the system.
 
 Non-normative durability record for the disposable Phase-2 scoring spike (gated-then-ranked, clean-room from
-SOT §B3–B7). Pairs with `SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (normative; v1.6). The spike is THROWAWAY —
+SOT §B3–B7). Pairs with `SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (normative; **v1.11**). The spike is THROWAWAY —
 Phase-3 hardening builds the committed scoring system separately. Captured here so nothing critical lives
 only in chat.
 
@@ -149,3 +154,24 @@ as a Series A extension — a reading error on correctly-captured data).
   **designated-series signal explicit** (capture the round's series designation, not just "a later priced
   round exists"). Until then, stage corrections are applied as a spike STAGE_OVERRIDE (Katelynd-approved),
   the disposable analogue of the §B2 human-locked floor.
+
+## 9. PASS-2 COMPLETE → Phase-3 hardening carry-forward (the spike loop is closed)
+Pass-2 is done: the framework is pressure-tested, dials calibrated, thresholds set (SOT §B7 v1.11), and the
+final tiered deliverable is committed (`SPIKE_FINAL_RANKING.md` — P0=4 / P1=6 / P2=6 / P3=38 = 54). **The
+spike has served its purpose and is now retired.** Phase-3 = build the scorer as committed package code,
+clean-room from the SOT but **logic-faithful to the spike** (R1). The hardened scorer MUST carry, intact:
+- **PATH gates** (Test A B2B-floor; Test B aliveness) + the **§B2 human-locked B2B floor (v1.4)** + 3 overrides.
+- **AGENCY gate** (maturity buckets; reset **v1.5** substance/confidence rules) + the **§B4 stage rule v1.10**
+  (most-recent CLOSED *designated* series; same-series rounds + extensions do not advance).
+- **bg_fit gradient (§B5 v1.7)** — the locked prompt; emits `background_fit` + `data_feedback_loop`.
+- **PMF (§B6 v1.8):** Scale A + Scale B + geometric round-half-up interp; zero-baseline + derived scoring;
+  the **§B6.1 fence**; cap@7 for genuine absence; **NO acceleration** (parked).
+- **STRAIN + FLOOR + THRESHOLDS (§B7 v1.11):** floor-rule-gates-first; P0 ≥18 / P1 15-17 / P2 13-14 / P3 <13;
+  locked dials (40/60, strain +2, no-quantified-rate=5, no small-base dampener).
+- **The 3 human/exception layers** (Rule 6): Function P1-override; Angle/Oula P3-by-floor (intended);
+  counsel/diana evidence-thin.
+- **Known extractor regressions to fix** (R2): pomelo / outcomes4me fence-leaks, season under-extract, the
+  designated-series signal for stage. Build a robust/LLM growth + stage extractor.
+**Then RE-VALIDATE the thresholds against the hardened scorer** — they were calibrated on the spike
+distribution; if the hardened extraction/gates drift, the thresholds are invalid until re-fit. The spike is
+NOT the system.
