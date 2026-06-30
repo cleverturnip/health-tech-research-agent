@@ -1176,3 +1176,201 @@ def strain_score(a2_score, operating_characteristics) -> tuple[int, str, str]:
     if (a2 is not None and a2 >= STRAIN_A2_MODERATE) or speed:
         return 1, "MODERATE", (f"a2={int(a2)}" if a2 is not None else "speed-of-scale")
     return 0, "WEAK", "default-low"
+
+
+# ---------------------------------------------------------------------------
+# FINAL ASSEMBLY (§B7) — Commit 7. Deterministic priority assignment.
+#
+# Built clean from SOT §B7 (v1.20), logic-faithful to the spike `run()` assembly: FINAL = background_fit +
+# pmf + strain; the FLOOR RULE (background_fit > 4 AND pmf > 4) gates FIRST — a floor-FAIL is P3 regardless
+# of FINAL (the deliberate EPISODIC-vs-HABITUAL split). Thresholds (LOCKED, calibrated 2026-06-29 vs the
+# v1.10 spike distribution) — P0 >=18 / P1 15-17 / P2 13-14 / P3 <13 — apply ONLY to floor-PASS companies.
+#
+# Three layers, each company handled by EXACTLY ONE (SOT §B7 PRECEDENCE):
+#   (override)  a documented review-time human override (Rule 6) is TERMINAL on the FINAL priority — it wins
+#               over a floor (Function Health: P3 by rule / floor-FAIL, human-lifted to P1). The pure model
+#               call (`model_priority`) is preserved SEPARATELY (CLAUDE.md: never collapse them); an
+#               overridden company is NOT scored for stability / NOT flagged.
+#   (floor)     a gate-floored (PATH / AGENCY) OR floor-rule-FAIL company -> P3, with a review-grade
+#               `floor_reason` (v1.15). Angle/Oula land here (floor-FAIL bg_fit=4 -> "P3-by-floor").
+#   (stability) a floor-PASS, non-overridden company -> the §B7 v1.20 N=5 RUN-TO-RUN STABILITY detector:
+#               score it 5x (only the LLM-variable inputs re-run); STABLE (same tier all 5) -> that tier,
+#               no flag; UNSTABLE (tier differs on ANY run) -> HIGHEST tier observed + `tier_variance`. The
+#               5x SAMPLING is the Commit-8 R1 run; THIS layer is the pure resolver (`tier_stability`).
+# ---------------------------------------------------------------------------
+
+# §B7 thresholds (LOCKED — calibrated 2026-06-29 vs the v1.10 spike distribution).
+TIER_P0_MIN = 18
+TIER_P1_MIN = 15
+TIER_P2_MIN = 13
+PRIORITY_TIERS = ("P0", "P1", "P2", "P3")
+_TIER_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}   # lower index = HIGHER tier
+
+# Review-time human PRIORITY overrides (§B7 / Rule 6) — TERMINAL on the final priority, authoritative over
+# the floor. Function Health: P3 by rule (floor-FAIL, bg_fit=4 from a 2x/yr lab cadence) -> human-lifted to
+# P1 (the revenue+complexity unicorn exception established when §B5 locked). The ONLY entry: Angle/Oula are
+# "P3-by-floor" (the floor itself produces their P3 — no override needed, so they are NOT in this map).
+DOCUMENTED_PRIORITY_OVERRIDES = {"function health": "P1"}
+
+# §B6.1 v1.18 — the CANONICAL growth-extractor evidence fields. A Run-1 assembly bug fed the raw
+# `commercial_scale_finding` instead and flipped `pomelo` to a wrong 'absent'; the growth extractor must be
+# wired off these three fields (growth_signal + revenue_or_arr + growth_finding).
+CANONICAL_GROWTH_EVIDENCE_FIELDS = ("growth_signal", "revenue_or_arr", "growth_finding")
+
+
+def threshold_tier(final_score) -> str:
+    """Map a FINAL score to its §B7 model tier (LOCKED): P0 >=18 / P1 15-17 / P2 13-14 / P3 <13. This is
+    the per-run model tier only; the FLOOR RULE + overrides + stability are applied by `assemble_priority`
+    (a floor-FAIL is P3 regardless of this value). A non-numeric / None FINAL -> P3 (never a silent pass)."""
+    score = final_score if isinstance(final_score, (int, float)) and not isinstance(final_score, bool) else None
+    if score is None:
+        return "P3"
+    if score >= TIER_P0_MIN:
+        return "P0"
+    if score >= TIER_P1_MIN:
+        return "P1"
+    if score >= TIER_P2_MIN:
+        return "P2"
+    return "P3"
+
+
+def floor_rule_pass(background_fit, pmf) -> bool:
+    """§B7 FLOOR RULE: floor-PASS == (background_fit > 4 AND pmf > 4). Either half absent / None -> FAIL
+    (never a silent pass). A floor-FAIL is P3 regardless of FINAL (the deliberate EPISODIC-vs-HABITUAL
+    split — Angle/Oula sit at FINAL=14 like the six P2 companies but floor-FAIL to P3)."""
+    bf = _score_or_none(background_fit)
+    pm = _score_or_none(pmf)
+    return bf is not None and pm is not None and bf > 4 and pm > 4
+
+
+def _norm_tier(value) -> str:
+    """Normalize a tier label to one of P0/P1/P2/P3, or '' if unrecognized."""
+    tier = _safe_text(value).upper()
+    return tier if tier in _TIER_RANK else ""
+
+
+def tier_stability(run_tiers) -> tuple[str, bool]:
+    """§B7 v1.20 RUN-TO-RUN STABILITY detector. Given the per-run model tiers for a floor-PASS,
+    non-overridden company (N=5 for R1), return ``(resolved_tier, tier_variance)``:
+
+      STABLE   — same tier on ALL runs   -> (that tier, False)        # no flag
+      UNSTABLE — tier differs on ANY run -> (HIGHEST tier seen, True) # err UP, high-recall (§A7)
+
+    Fires on INSTABILITY (a tier that MOVES across runs), NOT on proximity to a boundary — the v1.17
+    proximity rule collapsed P2 (see SOT §B7 AUDIT TRAIL). The 5x sampling itself is the Commit-8 R1 run;
+    this is the pure resolver, unit-tested on seeded tier-vectors. An unrecognized tier label is an input
+    error (raises) — a malformed run tier must never silently read as 'stable'."""
+    tiers = [_norm_tier(x) for x in (run_tiers or [])]
+    if not tiers or any(t == "" for t in tiers):
+        raise ValueError(f"tier_stability requires non-empty, valid P0-P3 run tiers: {run_tiers!r}")
+    if len(set(tiers)) == 1:
+        return tiers[0], False
+    highest = min(set(tiers), key=lambda t: _TIER_RANK[t])
+    return highest, True
+
+
+def canonical_growth_evidence(row) -> str:
+    """Assemble the §B6.1 v1.18 CANONICAL growth-extractor evidence — growth_signal + revenue_or_arr +
+    growth_finding — joined for the extractor. NOT the raw `commercial_scale_finding` (the Run-1 wiring bug
+    that flipped pomelo to a wrong 'absent'). Empty fields are dropped; all-empty -> ''."""
+    parts = [_row_get(row, field) for field in CANONICAL_GROWTH_EVIDENCE_FIELDS]
+    return " | ".join(p for p in parts if p)
+
+
+def build_floor_reason(company, *, business_model, path_passed, path_reason,
+                       agency_passed, agency_reason, floor_ok,
+                       background_fit, pmf, reset_detail="") -> str:
+    """Build the review-grade `floor_reason` (§B7 v1.15) for a floored company — detailed enough to judge
+    whether the floor was RIGHT (for human OVERTURN at Gate 2), not merely that it fired. Returns '' for a
+    fully-passing company (gates pass AND floor-rule passes). Source precedence mirrors the gate order
+    (PATH before AGENCY before the floor rule — a PATH-floored company never reaches AGENCY):
+
+      PATH Test A (B2B floor): human-locked-list membership vs a classifier who_uses=professional read.
+      PATH Test B:            engine-not-alive (what was looked for — to catch a Rule-8 evidence-gap floor).
+      AGENCY fail:            stage + reset events + why-none-fired (to catch a reset MISS).
+      floor-rule fail:        which gradient(s) failed >4 (the EPISODIC-vs-HABITUAL split)."""
+    bm = _safe_text(business_model).upper()
+    if not path_passed:
+        if bm == "B2B":
+            if _norm_company(company) in LOCKED_B2B_FLOOR:
+                return "PATH Test A: B2B floor — human-locked floor list"
+            return f"PATH Test A: B2B floor — classifier read who_uses=professional ({path_reason})"
+        return f"PATH Test B: engine-not-alive — {path_reason}"
+    if not agency_passed:
+        detail = reset_detail or "reset events [none]; none fired"
+        return f"AGENCY-fail — {agency_reason}; {detail}"
+    if not floor_ok:
+        bf = _score_or_none(background_fit)
+        pm = _score_or_none(pmf)
+        bf_s = "absent" if bf is None else str(int(bf))
+        pm_s = "absent" if pm is None else str(int(pm))
+        return f"floor-rule — bg_fit={bf_s} / pmf={pm_s} (need BOTH >4)"
+    return ""
+
+
+def assemble_priority(company, *, business_model, path_passed, path_reason,
+                      agency_passed, agency_reason, background_fit, pmf, strain,
+                      run_tiers=None, reset_detail="") -> dict:
+    """§B7 FINAL ASSEMBLY (Commit 7). Wire the gate results + the three score components into a priority
+    record, via the strict floor -> override -> stability precedence (each company handled by EXACTLY ONE
+    layer). Inputs are the already-computed upstream results (this is the LAST layer). Returns a dict:
+
+      final_score     — background_fit + pmf + strain
+      floor_ok        — §B7 floor-rule pass (bg_fit > 4 AND pmf > 4)
+      gate_floored    — PATH or AGENCY floored
+      model_tier      — the single-run threshold tier (audit)
+      model_priority  — the PURE §B call (gates -> floor -> stability), NO human override (write-once, Rule 8)
+      human_override  — the documented Rule-6 override (None / 'P1'), kept SEPARATE (never collapsed)
+      final_priority  — human_override if present else model_priority (DERIVED)
+      tier_variance   — the v1.20 stability flag (only ever True for a floor-PASS, non-overridden straddler)
+      floor_reason    — review-grade reason (v1.15) when model_priority is P3-by-floor, else ''
+      layer           — which layer OWNS the final priority: 'override' / 'floor' / 'stability'
+    """
+    bf = _score_or_none(background_fit)
+    pm = _score_or_none(pmf)
+    st = _score_or_none(strain) or 0
+    final_score = (bf or 0) + (pm or 0) + st
+
+    gate_floored = not (path_passed and agency_passed)
+    floor_ok = floor_rule_pass(background_fit, pmf)
+    floored = gate_floored or not floor_ok
+    model_tier = threshold_tier(final_score)
+    override = DOCUMENTED_PRIORITY_OVERRIDES.get(_norm_company(company)) or None
+
+    # model_priority — the PURE §B call (gates -> floor -> stability), independent of the human override.
+    if floored:
+        model_priority, tier_variance = "P3", False
+        floor_reason = build_floor_reason(
+            company, business_model=business_model, path_passed=path_passed, path_reason=path_reason,
+            agency_passed=agency_passed, agency_reason=agency_reason, floor_ok=floor_ok,
+            background_fit=background_fit, pmf=pmf, reset_detail=reset_detail)
+    elif override is not None:
+        # floor-PASS but human-overridden: NOT scored for stability (exactly-one-layer); model call is the
+        # single-run tier, no flag.
+        model_priority, tier_variance, floor_reason = model_tier, False, ""
+    else:
+        # floor-PASS, non-overridden -> stability layer. With run_tiers (Commit-8 R1) run the N=5 detector;
+        # single-run (deterministic gate-pass) -> the model tier stands, no flag.
+        floor_reason = ""
+        if run_tiers:
+            model_priority, tier_variance = tier_stability(run_tiers)
+        else:
+            model_priority, tier_variance = model_tier, False
+
+    human_override = override
+    final_priority = override if override is not None else model_priority
+    layer = "override" if override is not None else ("floor" if floored else "stability")
+
+    return {
+        "company": company,
+        "final_score": final_score,
+        "floor_ok": floor_ok,
+        "gate_floored": gate_floored,
+        "model_tier": model_tier,
+        "model_priority": model_priority,
+        "human_override": human_override,
+        "final_priority": final_priority,
+        "tier_variance": tier_variance,
+        "floor_reason": floor_reason,
+        "layer": layer,
+    }
