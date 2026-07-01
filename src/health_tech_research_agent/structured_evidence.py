@@ -1435,9 +1435,12 @@ def score_company(row, *, background_fit=None) -> dict:
     growth, _gnote = score_growth(growth_read, stage)
     pmf, _capped = pmf_score(arr_level, growth)
 
-    # §B7 strain — deterministic (a2 + speed-of-scale text).
+    # §B7 strain — deterministic (a2 + speed-of-scale text). The text source is the raw
+    # `operating_characteristics_finding` finding (the spike's `strain` read this exact column); a bare
+    # `operating_characteristics` does not exist in the research output, so reading it silently zeroed the
+    # speed-of-scale signal (faithful-fix, restores the spike source — no scoring-rule change).
     strain, _sttag, _stwhy = strain_score(
-        _row_get(row, "capability_a2_score"), _row_get(row, "operating_characteristics"))
+        _row_get(row, "capability_a2_score"), _row_get(row, "operating_characteristics_finding"))
 
     # §B5 background_fit — the ONE LLM-variable input (re-run per R1 pass).
     bf = _bg_score_or_none(background_fit if background_fit is not None else _row_get(row, "background_fit"))
@@ -1522,3 +1525,93 @@ def revalidate_r1(per_run_rosters, *, target=R1_TARGET) -> dict:
         "discrepancies": discrepancies,
         "inconsistent_companies": sorted(inconsistent),
     }
+
+
+# ---------------------------------------------------------------------------
+# CHECKPOINT ADAPTER (§B) — Commit 8. Bridge the RAW research checkpoint to the score_company contract.
+#
+# The `_FINAL` regen checkpoint is the RESEARCH output: 11 columns = the six findings + growth_finding /
+# paying_finding / org_events_finding + `fit_brief_json` + company. The §B scoring functions read FLATTENED
+# top-level columns (revenue_or_arr, growth_signal, funding_stage, capability_a2_score, ...) that live
+# INSIDE `fit_brief_json`, NOT top-level — so a raw row CANNOT be scored directly. `flatten_checkpoint_row`
+# unpacks fit_brief_json via the committed flatten_* functions (the verified bridge), and the three
+# LLM-variable reads (the §B2 classifier, the §B6 growth extractor, the §B5 background_fit) are run live and
+# merged by `score_checkpoint_row`. The evidence assemblies the live reads consume are TESTED package
+# functions here (NOT cell-side — the growth Run-1 'absent' bug came from a cell-side evidence mis-wire).
+# ---------------------------------------------------------------------------
+
+# The literal evidence assemblies the signed validation cells fed (cell 178 bg_fit / cell 180 classifier):
+# the same three raw findings, "\n\n"-joined, non-empty only, capped at 9000 chars.
+_BG_FIT_EVIDENCE_FIELDS = ("operating_characteristics_finding", "commercial_scale_finding", "outcomes_finding")
+_CLASSIFIER_EVIDENCE_FIELDS = ("commercial_scale_finding", "payer_institutional_finding", "operating_characteristics_finding")
+_EVIDENCE_CHAR_CAP = 9000
+
+
+def _join_evidence(row, fields) -> str:
+    return "\n\n".join(t for t in (_row_get(row, f) for f in fields) if t.strip())[:_EVIDENCE_CHAR_CAP]
+
+
+def background_fit_evidence(row) -> str:
+    """The §B5 bg_fit evidence blob — the LITERAL assembly the signed Commit-4 validation (notebook cell
+    178) fed: operating_characteristics_finding + commercial_scale_finding + outcomes_finding, "\\n\\n"-
+    joined (non-empty only), capped at 9000 chars. Tested here so the R1 cell cannot re-introduce a wrong
+    assembly (the class of error behind the growth Run-1 'absent' bug)."""
+    return _join_evidence(row, _BG_FIT_EVIDENCE_FIELDS)
+
+
+def classifier_evidence(row) -> str:
+    """The §B2 classifier evidence blob — the LITERAL assembly the signed Commit-1 live-54 validation
+    (notebook cell 180) fed: commercial_scale_finding + payer_institutional_finding +
+    operating_characteristics_finding, "\\n\\n"-joined (non-empty only), capped at 9000 chars."""
+    return _join_evidence(row, _CLASSIFIER_EVIDENCE_FIELDS)
+
+
+def _parse_fit_brief(row) -> dict:
+    """Parse the row's `fit_brief_json` column to a dict (tolerant of a live dict / blank / malformed)."""
+    raw = row.get("fit_brief_json") if hasattr(row, "get") else None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def flatten_checkpoint_row(row) -> dict:
+    """Unpack a RAW checkpoint row into the flattened columns `score_company` reads. Carries the raw row
+    (the six findings stay top-level — bg_fit/classifier evidence + strain text read them) and overlays the
+    fit_brief_json fields via the committed flatten_* bridge: slice-2 (commercial + maturity + derived
+    funding_stage), reset, capability. Does NOT add the three LIVE reads (who_uses/who_pays, growth read,
+    background_fit) — `score_checkpoint_row` merges those.
+
+    The checkpoint's `commercial_evidence` carries the OLD `user_scale_signal` key (pre-v1.3 rename); it is
+    mapped to `sponsored_user_scale` so the §B3 user-scale fallback is not silently dead."""
+    flat = dict(row)
+    parsed = _parse_fit_brief(row)
+    flat.update(flatten_slice2_fields(parsed))
+    flat.update(flatten_reset_fields(parsed))
+    flat.update(flatten_capability_fields(parsed))
+    commercial = parsed.get("commercial_evidence") if isinstance(parsed, dict) else None
+    commercial = commercial if isinstance(commercial, dict) else {}
+    if not _safe_text(flat.get("sponsored_user_scale")):
+        flat["sponsored_user_scale"] = _safe_text(commercial.get("user_scale_signal", ""))
+    return flat
+
+
+def score_checkpoint_row(row, *, classifier_read, growth_read=None, background_fit=None) -> dict:
+    """Score ONE raw checkpoint row end-to-end. `classifier_read` is the live §B2 LLM read
+    (`{"who_uses", "who_pays", "who_uses_confidence"}`); `growth_read` is the live §B6 extractor's flattened
+    columns (`flatten_growth_read(...)`, or None -> genuine-absent); `background_fit` is the live §B5 read.
+    Flattens via `flatten_checkpoint_row`, merges the three live reads, and delegates to `score_company`.
+    Pure given its inputs — the LLM I/O lives in the (thin) R1 cell, so this stays unit-testable."""
+    flat = flatten_checkpoint_row(row)
+    if classifier_read:
+        for key in ("who_uses", "who_pays", "who_uses_confidence"):
+            if key in classifier_read:
+                flat[key] = classifier_read[key]
+    if growth_read:
+        flat.update(growth_read)
+    return score_company(flat, background_fit=background_fit)
