@@ -27,6 +27,7 @@ separately-reviewable change — not part of this faithful extraction.)
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,8 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+from . import structured_evidence as se
 
 try:  # openai is an optional extra (see pyproject); keep the package importable offline.
     from openai import APIError, RateLimitError
@@ -1947,3 +1950,119 @@ def run_research_batch(
             continue
 
     return result
+
+
+# =============================================================================
+# R1 RE-VALIDATION ORCHESTRATION (§B7 v1.20 N=5 stability) — Commit 8.
+#
+# The live driver behind the R1 re-validation: reproduce the spike tiering by NAMED company
+# (structured_evidence.R1_TARGET) by scoring each floor-eligible company N=5 times. Only the LLM-variable
+# reads re-run per pass (§B5 background_fit for every floor-eligible company; §B6 growth for the R2 cases);
+# the §B2 classifier + the base §B6 growth are read ONCE (deterministic-by-construction relative to the
+# stability detector). All scoring/flattening/resolution is committed, tested structured_evidence code;
+# this layer only does the LLM I/O loop + the verified parsing (byte-faithful to the signed cells 177/178/
+# 180). The 5x sampling is what makes season's tier MOVE and the six FINAL-14 STAY — the real-data proof.
+# =============================================================================
+
+# The R2 "buried-growth" cases whose §B6 read is LLM-variable enough to re-run every pass (v1.18 / §B6.1).
+R1_R2_CASES = frozenset({"pomelo care", "outcomes4me", "season health"})
+
+
+def _extract_json(text) -> dict:
+    """Parse the first {...} object out of a raw model response (the signed cells' `out[find:{rfind}+1]`
+    slice). Returns {} on absence / malformed — never a guessed value."""
+    text = str(text or "")
+    i, j = text.find("{"), text.rfind("}")
+    if i < 0 or j <= i:
+        return {}
+    try:
+        parsed = json.loads(text[i:j + 1])
+    except (ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _r1_classifier_read(row, *, client, model):
+    """Live §B2 read -> {who_uses, who_pays, who_uses_confidence} (flat JSON, per signed cell 180)."""
+    d = _extract_json(run_company_business_model(
+        row["company"], se.classifier_evidence(row), client=client, model=model))
+    return {"who_uses": d.get("who_uses", ""), "who_pays": d.get("who_pays", ""),
+            "who_uses_confidence": d.get("who_uses_confidence", "")}
+
+
+def _r1_growth_read(row, *, client, model):
+    """Live §B6 read -> flattened growth columns. Evidence = canonical_growth_evidence off the FLATTENED
+    row (growth_signal + revenue_or_arr + growth_finding, §B6.1 v1.18); the flat read is wrapped under
+    `growth_read` for flatten_growth_read (the extractor emits the read at top level, per signed cell 177)."""
+    flat = se.flatten_checkpoint_row(row)
+    d = _extract_json(run_company_growth(
+        row["company"], se.canonical_growth_evidence(flat), client=client, model=model))
+    return se.flatten_growth_read({"growth_read": d})
+
+
+def _r1_background_fit_read(row, *, client, model):
+    """Live §B5 read -> background_fit int (flat JSON key, per signed cell 178). Evidence is the tested
+    background_fit_evidence blob (operating_characteristics_finding + commercial_scale_finding +
+    outcomes_finding)."""
+    d = _extract_json(run_company_background_fit(
+        row["company"], se.background_fit_evidence(row), client=client, model=model))
+    return d.get("background_fit")
+
+
+def _r1_floor_eligible(row, classifier_read) -> bool:
+    """A company is scored for stability (bg_fit + growth re-run) ONLY if it passes PATH + AGENCY and is a
+    consumer (background_fit applies). A floored company is P3 every run — no LLM spend on it."""
+    flat = se.flatten_checkpoint_row(row)
+    business_model, _ = se.business_model_for(
+        row.get("company"), classifier_read["who_uses"], classifier_read["who_pays"],
+        classifier_read["who_uses_confidence"])
+    path_passed, _ = se.path_gate(business_model, flat)
+    key = se._norm_company(row.get("company"))
+    stage = se._norm_stage(flat.get("funding_stage"))
+    if key in se.DOCUMENTED_STAGE_OVERRIDES:
+        stage = se.DOCUMENTED_STAGE_OVERRIDES[key]
+    agency_passed, _, _ = se.agency_gate(stage, se.derive_reset_signal(row), ipo_status=flat.get("ipo_status"))
+    return path_passed and agency_passed and se.background_fit_applies(classifier_read["who_uses"])
+
+
+def run_r1(df, *, client, n=5, r2_cases=R1_R2_CASES, model=DEFAULT_MODEL, progress=None):
+    """Run the §B7 v1.20 N=5 R1 re-validation over a raw research checkpoint DataFrame. Returns the
+    `structured_evidence.revalidate_r1` report (per-company 5-run vectors, resolved tally vs R1_TARGET, the
+    tier_variance set, drift). Reads the §B2 classifier + base §B6 growth ONCE per company; re-runs §B5
+    background_fit (every floor-eligible company) + §B6 growth (R2 cases) on each of the N passes. Floored
+    companies get None reads -> P3 every run (no LLM spend). ``progress`` (e.g. ``print``) reports per-pass.
+    """
+    r2 = {se._norm_company(c) for c in r2_cases}
+    rows = [dict(r) for _, r in df.iterrows()]
+
+    # --- base reads (once): classifier for all; floor-eligibility; base growth for eligible ---
+    classifier, eligible, base_growth = {}, {}, {}
+    for row in rows:
+        co = se._norm_company(row.get("company"))
+        cls = _r1_classifier_read(row, client=client, model=model)
+        classifier[co] = cls
+        elig = _r1_floor_eligible(row, cls)
+        eligible[co] = elig
+        if elig:
+            base_growth[co] = _r1_growth_read(row, client=client, model=model)
+    if progress:
+        progress(f"R1 base reads complete: {sum(eligible.values())} floor-eligible / {len(rows)} companies")
+
+    # --- N passes: bg_fit (eligible) + R2 growth re-run each pass ---
+    rosters = []
+    for i in range(n):
+        roster = []
+        for row in rows:
+            co = se._norm_company(row.get("company"))
+            background_fit, growth_read = None, base_growth.get(co)
+            if eligible[co]:
+                background_fit = _r1_background_fit_read(row, client=client, model=model)
+                if co in r2:
+                    growth_read = _r1_growth_read(row, client=client, model=model)
+            roster.append(se.score_checkpoint_row(
+                row, classifier_read=classifier[co], growth_read=growth_read, background_fit=background_fit))
+        rosters.append(roster)
+        if progress:
+            progress(f"R1 run {i + 1}/{n} complete")
+
+    return se.revalidate_r1(rosters)
