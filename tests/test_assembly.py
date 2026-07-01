@@ -50,27 +50,28 @@ def test_floor_rule_strict_gt4_both(bg, pmf, ok):
 
 
 # ---------------------------------------------------------------------------
-# tier_stability — the v1.20 N=5 RUN-TO-RUN detector (seeded vectors)
+# tier_review — the v1.22 PROXIMITY flag (single stable score within ±1 of a boundary)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("run_tiers, resolved, variance", [
-    (["P2", "P2", "P2", "P2", "P2"], "P2", False),   # STABLE -> that tier, no flag
-    (["P1", "P1", "P1", "P1", "P1"], "P1", False),
-    (["P2", "P2", "P1", "P2", "P2"], "P1", True),    # one cross UP -> highest + flag
-    (["P2", "P1", "P2", "P1", "P2"], "P1", True),    # season-like: tier MOVES -> P1 flagged
-    (["P3", "P2", "P2", "P2", "P2"], "P2", True),    # one cross down-tier present -> highest = P2 + flag
-    (["P1", "P0", "P1", "P1", "P1"], "P0", True),    # highest observed wins
+@pytest.mark.parametrize("final, flagged", [
+    (18, True),    # P0 edge (18-1=17 -> P1)
+    (17, True),    # P1 edge up (17+1=18 -> P0)
+    (16, False),   # P1 interior (15,17 both P1)
+    (15, True),    # P1 edge down (15-1=14 -> P2)
+    (14, True),    # P2 edge up (14+1=15 -> P1)
+    (13, True),    # P2 edge down (13-1=12 -> P3)
+    (12, True),    # near the 13 line (12+1=13 -> P2)
+    (11, False),   # P3 interior
+    (20, False),   # P0 interior
 ])
-def test_tier_stability_seeded_vectors(run_tiers, resolved, variance):
-    assert se.tier_stability(run_tiers) == (resolved, variance)
+def test_tier_review_proximity(final, flagged):
+    assert se.tier_review(final) is flagged
 
 
-def test_tier_stability_rejects_empty_and_malformed():
-    # a malformed run tier must NEVER silently read as 'stable'
-    with pytest.raises(ValueError):
-        se.tier_stability([])
-    with pytest.raises(ValueError):
-        se.tier_stability(["P2", "P9", "P2"])
+def test_tier_review_non_numeric_is_false():
+    # a floored / absent score is not proximity-flagged (its review path is floor_reason)
+    assert se.tier_review(None) is False
+    assert se.tier_review(True) is False
 
 
 # ---------------------------------------------------------------------------
@@ -156,37 +157,36 @@ def _passing(**kw):
     return base
 
 
-def test_assemble_floor_pass_single_run_uses_model_tier():
-    # bg 7 + pmf 7 + strain 1 = 15 -> P1; floor-PASS; no override; no run_tiers -> model tier stands.
+def test_assemble_floor_pass_uses_threshold_tier():
+    # bg 7 + pmf 7 + strain 1 = 15 -> P1; floor-PASS; no override -> threshold tier stands. FINAL=15 is on
+    # the P1/P2 boundary -> tier_review flagged.
     out = se.assemble_priority("acme", **_passing())
     assert out["final_score"] == 15
     assert out["floor_ok"] is True
-    assert out["layer"] == "stability"
-    assert (out["model_priority"], out["final_priority"], out["tier_variance"]) == ("P1", "P1", False)
+    assert out["layer"] == "threshold"
+    assert (out["model_priority"], out["final_priority"], out["tier_review"]) == ("P1", "P1", True)
 
 
-def test_assemble_floor_pass_with_run_tiers_runs_stability():
-    # season-like floor-PASS straddler: tiers MOVE across runs -> highest + flag.
-    out = se.assemble_priority("season", run_tiers=["P2", "P1", "P2", "P2", "P1"], **_passing())
-    assert out["layer"] == "stability"
-    assert out["model_priority"] == "P1"
-    assert out["tier_variance"] is True
+def test_assemble_floor_pass_interior_score_not_flagged():
+    # a floor-PASS company with FINAL well inside a tier band -> NOT proximity-flagged.
+    out = se.assemble_priority("acme", **_passing(background_fit=9, pmf=9, strain=2))  # 20 -> P0 interior
+    assert out["model_priority"] == "P0"
+    assert out["tier_review"] is False
 
 
-def test_assemble_floor_pass_stable_run_tiers_no_flag():
-    # the FINAL-14 case: stable at P2 across all 5 runs -> P2, no flag.
-    out = se.assemble_priority("foodsmart", run_tiers=["P2"] * 5,
-                               **_passing(background_fit=7, pmf=6, strain=1))  # 14 -> P2
+def test_assemble_floor_pass_boundary_score_is_flagged():
+    # FINAL=14 (P2, one off the 15 line) -> tier_review flagged, tier stands P2 (NOT bumped).
+    out = se.assemble_priority("foodsmart", **_passing(background_fit=7, pmf=6, strain=1))  # 14 -> P2
     assert out["model_priority"] == "P2"
-    assert out["tier_variance"] is False
+    assert out["tier_review"] is True
 
 
 def test_assemble_floor_rule_fail_is_p3_with_reason():
-    # gates pass but bg_fit=4 -> floor-FAIL -> P3 (Angle/Oula "P3-by-floor").
+    # gates pass but bg_fit=4 -> floor-FAIL -> P3 (Angle/Oula "P3-by-floor"). Floored -> not proximity-flagged.
     out = se.assemble_priority("angle", **_passing(background_fit=4, pmf=7, strain=1))
     assert out["layer"] == "floor"
     assert out["model_priority"] == "P3" and out["final_priority"] == "P3"
-    assert out["tier_variance"] is False
+    assert out["tier_review"] is False
     assert out["floor_reason"].startswith("floor-rule")
 
 
@@ -206,18 +206,18 @@ def test_assemble_human_override_is_terminal_and_separate():
     assert out["model_priority"] == "P3"          # the pure §B call is preserved (never collapsed)
     assert out["human_override"] == "P1"
     assert out["final_priority"] == "P1"          # override wins (Rule 6)
-    assert out["tier_variance"] is False          # overridden -> NOT scored for stability / NOT flagged
+    assert out["tier_review"] is False            # overridden -> NOT proximity-flagged
 
 
-def test_assemble_override_skips_stability_even_when_floor_pass():
-    # a (hypothetical) floor-PASS company that is ALSO in the override map: stability is NOT run on it,
-    # the override is terminal, no tier_variance flag.
+def test_assemble_override_is_terminal_not_proximity_flagged():
+    # a (hypothetical) floor-PASS company that is ALSO in the override map: override is terminal, no
+    # tier_review flag even if its FINAL sits on a boundary.
     se.DOCUMENTED_PRIORITY_OVERRIDES["edge co"] = "P0"
     try:
-        out = se.assemble_priority("edge co", run_tiers=["P2", "P1", "P2", "P1", "P2"], **_passing())
+        out = se.assemble_priority("edge co", **_passing())  # FINAL 15 (boundary) but overridden
         assert out["layer"] == "override"
         assert out["final_priority"] == "P0"
-        assert out["tier_variance"] is False
+        assert out["tier_review"] is False
     finally:
         del se.DOCUMENTED_PRIORITY_OVERRIDES["edge co"]
 
@@ -229,4 +229,4 @@ def test_assemble_exactly_one_layer():
         se.assemble_priority("angle", **_passing(background_fit=4))["layer"],
         se.assemble_priority("function health", **_passing(background_fit=4, pmf=4))["layer"],
     }
-    assert layers == {"stability", "floor", "override"}
+    assert layers == {"threshold", "floor", "override"}

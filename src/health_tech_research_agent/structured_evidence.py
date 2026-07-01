@@ -1207,13 +1207,13 @@ def strain_score(a2_score, operating_characteristics) -> tuple[int, str, str]:
 #   (override)  a documented review-time human override (Rule 6) is TERMINAL on the FINAL priority — it wins
 #               over a floor (Function Health: P3 by rule / floor-FAIL, human-lifted to P1). The pure model
 #               call (`model_priority`) is preserved SEPARATELY (CLAUDE.md: never collapse them); an
-#               overridden company is NOT scored for stability / NOT flagged.
+#               overridden company is NOT proximity-flagged.
 #   (floor)     a gate-floored (PATH / AGENCY) OR floor-rule-FAIL company -> P3, with a review-grade
 #               `floor_reason` (v1.15). Angle/Oula land here (floor-FAIL bg_fit=4 -> "P3-by-floor").
-#   (stability) a floor-PASS, non-overridden company -> the §B7 v1.20 N=5 RUN-TO-RUN STABILITY detector:
-#               score it 5x (only the LLM-variable inputs re-run); STABLE (same tier all 5) -> that tier,
-#               no flag; UNSTABLE (tier differs on ANY run) -> HIGHEST tier observed + `tier_variance`. The
-#               5x SAMPLING is the Commit-8 R1 run; THIS layer is the pure resolver (`tier_stability`).
+#   (threshold) a floor-PASS, non-overridden company -> the single-run threshold tier (v1.22 — the N=5
+#               stability detector is RETIRED; scoring is reproducible-by-caching). A `tier_review` proximity
+#               flag surfaces it for Gate-2 when its FINAL is within ±1 of a boundary (a REVIEW flag, NOT an
+#               auto-bump).
 # ---------------------------------------------------------------------------
 
 # §B7 thresholds (LOCKED — calibrated 2026-06-29 vs the v1.10 spike distribution).
@@ -1221,7 +1221,6 @@ TIER_P0_MIN = 18
 TIER_P1_MIN = 15
 TIER_P2_MIN = 13
 PRIORITY_TIERS = ("P0", "P1", "P2", "P3")
-_TIER_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}   # lower index = HIGHER tier
 
 # Review-time human PRIORITY overrides (§B7 / Rule 6) — TERMINAL on the final priority, authoritative over
 # the floor. Function Health: P3 by rule (floor-FAIL, bg_fit=4 from a 2x/yr lab cadence) -> human-lifted to
@@ -1260,30 +1259,18 @@ def floor_rule_pass(background_fit, pmf) -> bool:
     return bf is not None and pm is not None and bf > 4 and pm > 4
 
 
-def _norm_tier(value) -> str:
-    """Normalize a tier label to one of P0/P1/P2/P3, or '' if unrecognized."""
-    tier = _safe_text(value).upper()
-    return tier if tier in _TIER_RANK else ""
-
-
-def tier_stability(run_tiers) -> tuple[str, bool]:
-    """§B7 v1.20 RUN-TO-RUN STABILITY detector. Given the per-run model tiers for a floor-PASS,
-    non-overridden company (N=5 for R1), return ``(resolved_tier, tier_variance)``:
-
-      STABLE   — same tier on ALL runs   -> (that tier, False)        # no flag
-      UNSTABLE — tier differs on ANY run -> (HIGHEST tier seen, True) # err UP, high-recall (§A7)
-
-    Fires on INSTABILITY (a tier that MOVES across runs), NOT on proximity to a boundary — the v1.17
-    proximity rule collapsed P2 (see SOT §B7 AUDIT TRAIL). The 5x sampling itself is the Commit-8 R1 run;
-    this is the pure resolver, unit-tested on seeded tier-vectors. An unrecognized tier label is an input
-    error (raises) — a malformed run tier must never silently read as 'stable'."""
-    tiers = [_norm_tier(x) for x in (run_tiers or [])]
-    if not tiers or any(t == "" for t in tiers):
-        raise ValueError(f"tier_stability requires non-empty, valid P0-P3 run tiers: {run_tiers!r}")
-    if len(set(tiers)) == 1:
-        return tiers[0], False
-    highest = min(set(tiers), key=lambda t: _TIER_RANK[t])
-    return highest, True
+def tier_review(final_score) -> bool:
+    """§B7 v1.22 PROXIMITY REVIEW flag (SUPERSEDES the retired v1.20/v1.21 N=5 tier_stability). True when a
+    floor-PASS FINAL sits WITHIN 1 of a tier boundary — i.e. moving it by ±1 would change the tier:
+    ``threshold_tier(FINAL-1) != threshold_tier(FINAL)`` OR ``threshold_tier(FINAL+1) != threshold_tier(FINAL)``.
+    Concretely FINAL ∈ {12, 13, 14, 15, 17, 18}. This is a REVIEW flag — surface the company for Gate-2 — NOT
+    an auto-bump: the tier stands at the threshold's call. A non-numeric FINAL -> False (a floored / absent
+    score is not proximity-flagged; its review path is `floor_reason`)."""
+    score = final_score if isinstance(final_score, (int, float)) and not isinstance(final_score, bool) else None
+    if score is None:
+        return False
+    here = threshold_tier(score)
+    return threshold_tier(score - 1) != here or threshold_tier(score + 1) != here
 
 
 def canonical_growth_evidence(row) -> str:
@@ -1327,21 +1314,23 @@ def build_floor_reason(company, *, business_model, path_passed, path_reason,
 
 def assemble_priority(company, *, business_model, path_passed, path_reason,
                       agency_passed, agency_reason, background_fit, pmf, strain,
-                      run_tiers=None, reset_detail="") -> dict:
-    """§B7 FINAL ASSEMBLY (Commit 7). Wire the gate results + the three score components into a priority
-    record, via the strict floor -> override -> stability precedence (each company handled by EXACTLY ONE
-    layer). Inputs are the already-computed upstream results (this is the LAST layer). Returns a dict:
+                      reset_detail="") -> dict:
+    """§B7 FINAL ASSEMBLY (v1.22 — SINGLE-RUN, reproducible-by-caching). Wire the gate results + the three
+    score components into a priority record, via the strict floor -> override -> threshold precedence (each
+    company handled by EXACTLY ONE layer). Inputs are the already-computed upstream results (this is the LAST
+    layer; the reads that produced them are taken ONCE + persisted, so re-scoring is identical). Returns:
 
       final_score     — background_fit + pmf + strain
       floor_ok        — §B7 floor-rule pass (bg_fit > 4 AND pmf > 4)
       gate_floored    — PATH or AGENCY floored
-      model_tier      — the single-run threshold tier (audit)
-      model_priority  — the PURE §B call (gates -> floor -> stability), NO human override (write-once, Rule 8)
+      model_tier      — the threshold tier (audit)
+      model_priority  — the PURE §B call (gates -> floor -> threshold), NO human override (write-once, Rule 8)
       human_override  — the documented Rule-6 override (None / 'P1'), kept SEPARATE (never collapsed)
       final_priority  — human_override if present else model_priority (DERIVED)
-      tier_variance   — the v1.20 stability flag (only ever True for a floor-PASS, non-overridden straddler)
+      tier_review     — the v1.22 PROXIMITY review flag (True for a floor-PASS, non-overridden company whose
+                        FINAL is within ±1 of a boundary — a REVIEW flag, NOT an auto-bump)
       floor_reason    — review-grade reason (v1.15) when model_priority is P3-by-floor, else ''
-      layer           — which layer OWNS the final priority: 'override' / 'floor' / 'stability'
+      layer           — which layer OWNS the final priority: 'override' / 'floor' / 'threshold'
     """
     bf = _score_or_none(background_fit)
     pm = _score_or_none(pmf)
@@ -1354,29 +1343,24 @@ def assemble_priority(company, *, business_model, path_passed, path_reason,
     model_tier = threshold_tier(final_score)
     override = DOCUMENTED_PRIORITY_OVERRIDES.get(_norm_company(company)) or None
 
-    # model_priority — the PURE §B call (gates -> floor -> stability), independent of the human override.
+    # model_priority — the PURE §B call (gates -> floor -> threshold), independent of the human override.
     if floored:
-        model_priority, tier_variance = "P3", False
+        model_priority, tier_review_flag = "P3", False
         floor_reason = build_floor_reason(
             company, business_model=business_model, path_passed=path_passed, path_reason=path_reason,
             agency_passed=agency_passed, agency_reason=agency_reason, floor_ok=floor_ok,
             background_fit=background_fit, pmf=pmf, reset_detail=reset_detail)
     elif override is not None:
-        # floor-PASS but human-overridden: NOT scored for stability (exactly-one-layer); model call is the
-        # single-run tier, no flag.
-        model_priority, tier_variance, floor_reason = model_tier, False, ""
+        # floor-PASS but human-overridden: the override is terminal, not proximity-flagged (exactly-one-layer).
+        model_priority, tier_review_flag, floor_reason = model_tier, False, ""
     else:
-        # floor-PASS, non-overridden -> stability layer. With run_tiers (Commit-8 R1) run the N=5 detector;
-        # single-run (deterministic gate-pass) -> the model tier stands, no flag.
-        floor_reason = ""
-        if run_tiers:
-            model_priority, tier_variance = tier_stability(run_tiers)
-        else:
-            model_priority, tier_variance = model_tier, False
+        # floor-PASS, non-overridden -> the threshold tier + the v1.22 proximity review flag.
+        model_priority, floor_reason = model_tier, ""
+        tier_review_flag = tier_review(final_score)
 
     human_override = override
     final_priority = override if override is not None else model_priority
-    layer = "override" if override is not None else ("floor" if floored else "stability")
+    layer = "override" if override is not None else ("floor" if floored else "threshold")
 
     return {
         "company": company,
@@ -1387,7 +1371,7 @@ def assemble_priority(company, *, business_model, path_passed, path_reason,
         "model_priority": model_priority,
         "human_override": human_override,
         "final_priority": final_priority,
-        "tier_variance": tier_variance,
+        "tier_review": tier_review_flag,
         "floor_reason": floor_reason,
         "layer": layer,
     }
@@ -1399,17 +1383,14 @@ def assemble_priority(company, *, business_model, path_passed, path_reason,
 #
 # `score_company` runs ONE company-run end-to-end DETERMINISTICALLY off the persisted/emitted columns —
 # classifier (§B2 floor/override/mapper) -> PATH (§B3) -> AGENCY (§B4, persisted stage + human override +
-# deterministic reset) -> PMF (§B6) + strain (§B7) -> assemble_priority (§B7). The ONE LLM-variable input,
-# background_fit, is passed in (or read from the row) so the R1 harness can re-run it N times. Growth is the
-# Commit-5b structured read off the persisted columns (R2 cases already resolved at extraction).
+# deterministic reset) -> PMF (§B6) + strain (§B7) -> assemble_priority (§B7). background_fit is the §B5 read;
+# under v1.22 it (and the other three reads) is taken ONCE + persisted, so scoring is reproducible-by-caching.
 #
-# `revalidate_r1` is the §B7 v1.20 STABILITY MACHINERY at roster scale: given N independent run-rosters, it
-# resolves each company's FINAL priority — an overridden company keeps its terminal override; every other
-# company is resolved by `tier_stability` over its N per-run model_priority values (post-floor: a floor-FAIL
-# run reads P3, so a company wobbling at the floor is correctly flagged, not silently dropped). It tallies
-# the resolved finals, compares to the R1 target, and returns a structured report (per-company vectors, the
-# tally, pass/fail, the tier_variance set, drift discrepancies). It does NOT force the target — a tally that
-# only hits 4/6/6/38 by a quiet threshold nudge is a FAILED R1; the honest report surfaces the drift.
+# `tally_r1` (§B7 v1.22 — SUPERSEDES the retired N=5 `revalidate_r1`) tallies ONE already-scored roster into
+# the R1 report: each company is resolved by `assemble_priority` (floor -> override -> threshold + the
+# `tier_review` proximity flag); `tally_r1` counts the finals, compares to the R1 estimate (an OUTPUT check,
+# never forced), and surfaces the BOUNDED-REVIEW set (proximity / override / floor_reason — every non-clean
+# tier carries a why, so no company is wrong-AND-silent) with its size (the autonomy metric).
 # ---------------------------------------------------------------------------
 
 # The R1 named-company target — reproduce the spike tiering (the live-54: firefly + videahealth deferred).
@@ -1474,53 +1455,53 @@ def score_company(row, *, background_fit=None) -> dict:
     return rec
 
 
-def revalidate_r1(per_run_rosters, *, target=R1_TARGET) -> dict:
-    """Resolve the N-run §B7 v1.20 R1 re-validation. ``per_run_rosters`` is a list of N rosters; each roster
-    is the list of `score_company` records for that run (same company set each run). Returns a report:
+def tally_r1(roster, *, target=R1_TARGET) -> dict:
+    """Tally ONE roster of `score_company` / `score_checkpoint_row` records into the R1 report (§B7 v1.22 —
+    SINGLE-RUN, reproducible-by-caching; SUPERSEDES the N=5 `revalidate_r1`). Each company is already
+    resolved by `assemble_priority` (floor -> override -> threshold + the `tier_review` proximity flag); this
+    just counts + surfaces the review set. Returns:
 
-      passed                — the resolved tally EXACTLY matches ``target`` (counts AND total)
-      tally / target        — resolved-final counts vs the R1 target
-      vectors               — company -> its N per-run model_priority values (the movement, visible)
-      resolved              — company -> {final_priority, tier_variance}
-      tier_variance         — the flagged straddlers (sorted)
-      discrepancies         — per-tier (target vs actual) where they differ — the drift, surfaced
-      inconsistent_companies— companies that did not appear in all N runs (a run/data fault, not a tier)
+      passed                — the tally EXACTLY matches ``target`` (counts AND total) — an OUTPUT check, NOT
+                              forced (a tally that only hits it via a nudge is a FAILED R1)
+      tally / target        — final-priority counts vs the R1 estimate
+      resolved              — company -> {final_priority, tier_review, layer, floor_reason}
+      review_set            — every company needing a human look, with WHY (tier_review proximity /
+                              floor_reason / human_override) — the BOUNDED-REVIEW set
+      review_set_size       — |review_set| (the autonomy metric — how many companies Katelynd looks at)
+      tier_review           — the proximity-flagged companies (sorted)
+      discrepancies         — per-tier (target vs actual) where they differ — surfaced, not forced
+      detail                — per-company components (final / bg_fit / pmf / strain / stage) for diagnosis
+    """
+    order = [_norm_company(rec.get("company")) for rec in roster]
+    resolved, review_set, tier_review_flagged, detail = {}, {}, [], {}
 
-    Resolution per company: an overridden company keeps its terminal override (deterministic); every other
-    company is resolved by `tier_stability` over its N per-run model_priority values."""
-    runs = list(per_run_rosters or [])
-    if not runs:
-        raise ValueError("revalidate_r1 requires at least one run roster")
-    n = len(runs)
-
-    vectors, overrides = {}, {}
-    order = []
-    for run in runs:
-        for rec in run:
-            co = _norm_company(rec.get("company"))
-            if co not in vectors:
-                vectors[co] = []
-                order.append(co)
-            vectors[co].append(rec.get("model_priority"))
-            if rec.get("human_override"):
-                overrides[co] = rec["human_override"]
-
-    resolved, flagged, inconsistent = {}, [], []
-    for co in order:
-        tiers = vectors[co]
-        if len(tiers) != n:
-            inconsistent.append(co)
-        if co in overrides:
-            resolved[co] = (overrides[co], False)
-            continue
-        final, variance = tier_stability(tiers)
-        resolved[co] = (final, variance)
-        if variance:
-            flagged.append(co)
+    for rec in roster:
+        co = _norm_company(rec.get("company"))
+        fp = rec.get("final_priority")
+        flagged = bool(rec.get("tier_review"))
+        resolved[co] = {"final_priority": fp, "tier_review": flagged,
+                        "layer": rec.get("layer"), "floor_reason": rec.get("floor_reason", "")}
+        detail[co] = {
+            "final": rec.get("final_score"), "bg_fit": rec.get("background_fit"),
+            "pmf": rec.get("pmf"), "strain": rec.get("strain"), "stage": rec.get("funding_stage"),
+            "arr_level": rec.get("arr_level"), "layer": rec.get("layer"),
+        }
+        # the BOUNDED-REVIEW set: a company needs a human look if it is proximity-flagged, human-overridden,
+        # or floored-with-a-reason (never wrong-AND-silent — every non-clean tier carries a why).
+        reasons = []
+        if flagged:
+            tier_review_flagged.append(co)
+            reasons.append("tier_review(proximity)")
+        if rec.get("human_override"):
+            reasons.append(f"override({rec['human_override']})")
+        if rec.get("floor_reason"):
+            reasons.append("floor_reason")
+        if reasons:
+            review_set[co] = reasons
 
     tally = {}
-    for final, _ in resolved.values():
-        tally[final] = tally.get(final, 0) + 1
+    for r in resolved.values():
+        tally[r["final_priority"]] = tally.get(r["final_priority"], 0) + 1
 
     target = dict(target)
     discrepancies = {
@@ -1528,37 +1509,17 @@ def revalidate_r1(per_run_rosters, *, target=R1_TARGET) -> dict:
         for tier in sorted(set(target) | set(tally))
         if target.get(tier, 0) != tally.get(tier, 0)
     }
-    passed = (not discrepancies and not inconsistent
-              and sum(tally.values()) == sum(target.values()))
-
-    # Per-company component detail (for diagnosis — bug vs drift vs data-change, never nudge). Tolerant of
-    # roster records that lack the score fields (e.g. synthetic tier-only rosters -> None).
-    detail = {co: [] for co in order}
-    for run in runs:
-        for rec in run:
-            co = _norm_company(rec.get("company"))
-            detail.setdefault(co, []).append({
-                "tier": rec.get("model_priority"),
-                "final": rec.get("final_score"),
-                "bg_fit": rec.get("background_fit"),
-                "pmf": rec.get("pmf"),
-                "strain": rec.get("strain"),
-                "stage": rec.get("funding_stage"),
-                "arr_level": rec.get("arr_level"),
-                "layer": rec.get("layer"),
-                "floor_reason": rec.get("floor_reason"),
-            })
+    passed = not discrepancies and sum(tally.values()) == sum(target.values())
 
     return {
         "passed": passed,
-        "n_runs": n,
         "tally": tally,
         "target": target,
-        "vectors": {co: list(vectors[co]) for co in order},
-        "resolved": {co: {"final_priority": fp, "tier_variance": var} for co, (fp, var) in resolved.items()},
-        "tier_variance": sorted(flagged),
+        "resolved": {co: resolved[co] for co in order},
+        "review_set": review_set,
+        "review_set_size": len(review_set),
+        "tier_review": sorted(tier_review_flagged),
         "discrepancies": discrepancies,
-        "inconsistent_companies": sorted(inconsistent),
         "detail": detail,
     }
 

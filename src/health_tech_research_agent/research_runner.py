@@ -2019,19 +2019,15 @@ def run_company_reset(company_name, events, *, client, model: str = DEFAULT_MODE
 
 
 # =============================================================================
-# R1 RE-VALIDATION ORCHESTRATION (§B7 v1.20 N=5 stability) — Commit 8.
+# R1 RE-VALIDATION ORCHESTRATION (§B7 v1.22 — CACHING / persisted reads) — Commit 8.
 #
-# The live driver behind the R1 re-validation: reproduce the spike tiering by NAMED company
-# (structured_evidence.R1_TARGET) by scoring each floor-eligible company N=5 times. Only the LLM-variable
-# reads re-run per pass (§B5 background_fit for every floor-eligible company; §B6 growth for the R2 cases);
-# the §B2 classifier + the base §B6 growth are read ONCE (deterministic-by-construction relative to the
-# stability detector). All scoring/flattening/resolution is committed, tested structured_evidence code;
-# this layer only does the LLM I/O loop + the verified parsing (byte-faithful to the signed cells 177/178/
-# 180). The 5x sampling is what makes season's tier MOVE and the six FINAL-14 STAY — the real-data proof.
+# The live driver behind the R1 re-validation. v1.22: take each company's four §B scoring reads (§B2
+# classifier, §B4 hardened reset, §B6 growth, §B5 bg_fit) ONCE, PERSIST them in a cache, and score OFF the
+# cache — reproducible BY CONSTRUCTION (a re-score reads the same frozen values → identical tiers; the N=5
+# stability machinery is RETIRED, and temp-0/seed model determinism is not available on gpt-5.4-mini). All
+# scoring/flattening/tally logic is committed, tested structured_evidence code; this layer does the ONE-TIME
+# LLM reads + the verified parsing (byte-faithful to the signed cells 177/178/180) and the caching.
 # =============================================================================
-
-# The R2 "buried-growth" cases whose §B6 read is LLM-variable enough to re-run every pass (v1.18 / §B6.1).
-R1_R2_CASES = frozenset({"pomelo care", "outcomes4me", "season health"})
 
 
 def _extract_json(text) -> dict:
@@ -2075,17 +2071,21 @@ def _r1_background_fit_read(row, *, client, model):
     return d.get("background_fit")
 
 
-def _r1_apply_hardened_reset(row, *, client, model):
-    """Re-emit the §B4 v1.16 hardened reset over the row's org_events_finding and PATCH the row's
-    fit_brief_json.reset_evidence with it, so every downstream read (flatten -> eligibility -> scoring) uses
-    the hardened classification (Option B — fix the DATA, not the deterministic engine). Returns the
-    re-emitted reset_events. Runs ONCE per company (reset is not part of the bg_fit / growth N-pass
-    variance)."""
+def _r1_reset_read(row, *, client, model):
+    """Live §B4 v1.16 hardened reset re-emit over the row's org_events_finding -> the reset_events list
+    (substance-classified). Returns the events ONLY (no row mutation); the events are applied deterministically
+    at score time via `_r1_apply_reset`."""
     raw = run_company_reset(row["company"], str(row.get("org_events_finding") or ""), client=client, model=model)
     events = _extract_json(raw).get("reset_events", [])
-    if not isinstance(events, list):
-        events = []
-    fbj = row.get("fit_brief_json")
+    return events if isinstance(events, list) else []
+
+
+def _r1_apply_reset(row, reset_events):
+    """Return a COPY of ``row`` whose fit_brief_json.reset_evidence carries ``reset_events`` — so flatten ->
+    eligibility -> scoring all read the hardened reset. Pure (does not mutate the input row), so scoring off
+    a cache is reproducible."""
+    r = dict(row)
+    fbj = r.get("fit_brief_json")
     parsed = {}
     if isinstance(fbj, dict):
         parsed = dict(fbj)
@@ -2094,17 +2094,16 @@ def _r1_apply_hardened_reset(row, *, client, model):
             parsed = json.loads(fbj)
         except (ValueError, TypeError):
             parsed = {}
-    parsed["reset_evidence"] = {"reset_events": events}
-    row["fit_brief_json"] = json.dumps(parsed)
-    return events
+    parsed["reset_evidence"] = {"reset_events": reset_events if isinstance(reset_events, list) else []}
+    r["fit_brief_json"] = json.dumps(parsed)
+    return r
 
 
-def _r1_floor_eligible(row, classifier_read) -> bool:
-    """A company is scored for stability (bg_fit + growth re-run) ONLY if it passes PATH + AGENCY and is a
-    consumer (background_fit applies). A floored company is P3 every run — no LLM spend on it. Reset is read
-    off the FLATTENED row via the strict reader (consistent with score_company — the raw-vs-flat
-    inconsistency is the bug that floored grow invisibly)."""
-    flat = se.flatten_checkpoint_row(row)
+def _r1_floor_eligible(row, classifier_read, reset_events) -> bool:
+    """A company gets bg_fit + growth reads ONLY if it passes PATH + AGENCY and is a consumer (background_fit
+    applies) — a floored company is P3 with no LLM spend. Reset (for AGENCY) is read off the FLATTENED row
+    with the hardened reset applied, via the strict reader (consistent with score_company)."""
+    flat = se.flatten_checkpoint_row(_r1_apply_reset(row, reset_events))
     business_model, _ = se.business_model_for(
         row.get("company"), classifier_read["who_uses"], classifier_read["who_pays"],
         classifier_read["who_uses_confidence"])
@@ -2117,52 +2116,67 @@ def _r1_floor_eligible(row, classifier_read) -> bool:
     return path_passed and agency_passed and se.background_fit_applies(classifier_read["who_uses"])
 
 
-def run_r1(df, *, client, n=5, r2_cases=R1_R2_CASES, model=DEFAULT_MODEL, progress=None):
-    """Run the §B7 v1.20 N=5 R1 re-validation over a raw research checkpoint DataFrame. Returns the
-    `structured_evidence.revalidate_r1` report (per-company 5-run vectors, resolved tally vs R1_TARGET, the
-    tier_variance set, drift). Reads the §B2 classifier + base §B6 growth ONCE per company; re-runs §B5
-    background_fit (every floor-eligible company) + §B6 growth (R2 cases) on each of the N passes. Floored
-    companies get None reads -> P3 every run (no LLM spend). ``progress`` (e.g. ``print``) reports per-pass.
-    """
-    r2 = {se._norm_company(c) for c in r2_cases}
-    rows = [dict(r) for _, r in df.iterrows()]
-
-    # --- base reads (once): HARDENED reset re-emission (Option B) -> classifier -> eligibility -> base growth ---
-    classifier, eligible, base_growth, reset_reads = {}, {}, {}, {}
-    for row in rows:
+def take_r1_reads(df, *, client, model=DEFAULT_MODEL, cache=None, refresh=None, progress=None):
+    """Take each company's four §B scoring reads ONCE (§B2 classifier, §B4 hardened reset, §B6 growth, §B5
+    bg_fit) and PERSIST them in ``cache`` (a dict keyed by company). A company already in ``cache`` is
+    REUSED (its frozen reads — no LLM re-call), UNLESS it is named in ``refresh`` (a deliberate re-take,
+    logged). Floored companies get None growth/bg_fit (no spend). Returns the populated cache (v1.22 —
+    caching IS the reproducibility mechanism; temp-0 is not available on this model)."""
+    cache = cache if cache is not None else {}
+    refresh = {se._norm_company(c) for c in (refresh or [])}
+    took = 0
+    for _, srow in df.iterrows():
+        row = dict(srow)
         co = se._norm_company(row.get("company"))
-        reset_reads[co] = _r1_apply_hardened_reset(row, client=client, model=model)   # patch in place + record
-        cls = _r1_classifier_read(row, client=client, model=model)
-        classifier[co] = cls
-        elig = _r1_floor_eligible(row, cls)
-        eligible[co] = elig
-        if elig:
-            base_growth[co] = _r1_growth_read(row, client=client, model=model)
+        if co in cache and co not in refresh:
+            continue  # reuse the frozen reads — reproducible, no re-call
+        if co in cache and co in refresh and progress:
+            progress(f"R1 --refresh: re-taking reads for {co}")
+        reset_events = _r1_reset_read(row, client=client, model=model)
+        classifier = _r1_classifier_read(row, client=client, model=model)
+        eligible = _r1_floor_eligible(row, classifier, reset_events)
+        cache[co] = {
+            "reset_events": reset_events,
+            "classifier": classifier,
+            "eligible": eligible,
+            "growth_read": _r1_growth_read(row, client=client, model=model) if eligible else None,
+            "background_fit": _r1_background_fit_read(row, client=client, model=model) if eligible else None,
+        }
+        took += 1
     if progress:
-        progress(f"R1 base reads complete: {sum(eligible.values())} floor-eligible / {len(rows)} companies")
+        n_elig = sum(1 for c in cache.values() if c["eligible"])
+        progress(f"R1 reads: took {took} (reused {len(cache) - took}); {n_elig} floor-eligible / {len(cache)}")
+    return cache
 
-    # --- N passes: bg_fit (eligible) + R2 growth re-run each pass ---
-    rosters = []
-    for i in range(n):
-        roster = []
-        for row in rows:
-            co = se._norm_company(row.get("company"))
-            background_fit, growth_read = None, base_growth.get(co)
-            if eligible[co]:
-                background_fit = _r1_background_fit_read(row, client=client, model=model)
-                if co in r2:
-                    growth_read = _r1_growth_read(row, client=client, model=model)
-            roster.append(se.score_checkpoint_row(
-                row, classifier_read=classifier[co], growth_read=growth_read, background_fit=background_fit))
-        rosters.append(roster)
-        if progress:
-            progress(f"R1 run {i + 1}/{n} complete")
 
-    report = se.revalidate_r1(rosters)
-    # the hardened re-emitted reset per company (for by-name adjudication: which events fire vs the naive
-    # over-fire, and why — pivot / ipo-prep / growth-support correctly rejected).
+def score_r1_from_cache(df, cache):
+    """Score the roster PURELY off the persisted read-cache (NO LLM). Deterministic function of the cache →
+    calling it twice yields an identical roster (the reproducibility proof). Applies each company's cached
+    hardened reset, then scores via `score_checkpoint_row`."""
+    roster = []
+    for _, srow in df.iterrows():
+        row = dict(srow)
+        c = cache[se._norm_company(row.get("company"))]
+        roster.append(se.score_checkpoint_row(
+            _r1_apply_reset(row, c["reset_events"]),
+            classifier_read=c["classifier"], growth_read=c["growth_read"], background_fit=c["background_fit"]))
+    return roster
+
+
+def run_r1(df, *, client, model=DEFAULT_MODEL, cache=None, refresh=None, progress=None):
+    """§B7 v1.22 CACHING R1 re-validation over a raw checkpoint DataFrame. Takes each company's four scoring
+    reads ONCE (or reuses ``cache``), persists them, and scores OFF the cache — reproducible BY CONSTRUCTION
+    (a re-score reads the same frozen values → identical tiers; no model-level determinism needed). Returns
+    the `structured_evidence.tally_r1` report + ``reset_reads`` (hardened emit per company) + ``cache`` (pass
+    it back to re-score without re-calling; ``refresh=[company]`` re-takes named companies' reads)."""
+    cache = take_r1_reads(df, client=client, model=model, cache=cache, refresh=refresh, progress=progress)
+    roster = score_r1_from_cache(df, cache)
+    report = se.tally_r1(roster)
     report["reset_reads"] = {
-        co: {"events": evs, "fires": se.derive_reset_signal({"reset_events": evs})}
-        for co, evs in reset_reads.items()
+        co: {"events": c["reset_events"], "fires": se.derive_reset_signal({"reset_events": c["reset_events"]})}
+        for co, c in cache.items()
     }
+    report["cache"] = cache
+    if progress:
+        progress(f"R1 scored off cache: tally={report['tally']} | review_set={report['review_set_size']}")
     return report

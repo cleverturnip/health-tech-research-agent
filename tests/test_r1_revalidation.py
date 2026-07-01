@@ -1,10 +1,9 @@
-"""Commit 8 — deterministic tests for the end-to-end orchestrator (`score_company`) + the R1 re-validation
-harness (`revalidate_r1`), the §B7 v1.20 STABILITY MACHINERY at roster scale.
+"""Commit 8 (v1.22) — deterministic tests for the end-to-end orchestrator (`score_company`) + the R1 tally
+(`tally_r1`, single-roster, reproducible-by-caching; the retired N=5 `revalidate_r1` is gone).
 
-`score_company` is exercised on synthetic rows (gates -> scores -> assemble). `revalidate_r1` is exercised
-on SEEDED N-run rosters that encode the DOCUMENTED behaviors (a tier-mover, a human override, stable
-companies, floored companies) — proving the harness logic GIVEN inputs. The real-data named distribution
-(4/6/6/38 with season the mover, the six FINAL-14 stable) is the LIVE Colab 5x run, NOT proven here.
+`score_company` is exercised on synthetic rows (gates -> scores -> assemble). `tally_r1` is exercised on a
+SEEDED single roster (already-scored records) — it counts the finals, checks the tally vs a target (an
+OUTPUT check, never forced), and surfaces the BOUNDED-REVIEW set (tier_review / override / floor_reason).
 Fully deterministic — no LLM.
 """
 
@@ -27,7 +26,7 @@ def _row(**kw):
         "growth_signal": "growing", "payer_institutional_finding": "", "business_model_type": "",
         "growth_kind": "rate", "growth_rate_pct": "100", "growth_magnitude_usd_m": "",
         "growth_qualitative": "", "growth_source": "company",
-        "capability_a2_score": "60", "operating_characteristics": "",
+        "capability_a2_score": "60", "operating_characteristics_finding": "",
         "background_fit": "7",
     }
     base.update(kw)
@@ -39,12 +38,12 @@ def test_score_company_b2c_floor_pass_runs_to_a_tier():
     assert out["business_model"] == "B2C"
     assert out["funding_stage"] == "series-b"
     assert out["floor_ok"] is True
-    assert out["layer"] == "stability"
+    assert out["layer"] == "threshold"
     assert out["model_priority"] in se.PRIORITY_TIERS
 
 
 def test_score_company_background_fit_argument_overrides_row():
-    # the R1 harness passes a fresh bg_fit each run; the argument wins over the row column
+    # the reads are injected; the argument wins over the row column
     low = se.score_company(_row(background_fit="7"), background_fit=4)
     assert low["background_fit"] == 4
     assert low["floor_ok"] is False          # bg_fit=4 -> floor-FAIL
@@ -53,7 +52,6 @@ def test_score_company_background_fit_argument_overrides_row():
 
 
 def test_score_company_b2b_floor_is_gate_floored():
-    # a human-locked B2B floor company -> PATH Test A floor -> P3
     locked = next(iter(se.LOCKED_B2B_FLOOR))
     out = se.score_company(_row(company=locked, who_uses="professional"))
     assert out["business_model"] == "B2B"
@@ -63,13 +61,11 @@ def test_score_company_b2b_floor_is_gate_floored():
 
 
 def test_score_company_applies_human_locked_stage_override():
-    # signos: persisted funding_stage may read series-c; the v1.14 override forces series-b
     out = se.score_company(_row(company="signos", funding_stage="series-c"))
     assert out["funding_stage"] == "series-b"
 
 
 def test_score_company_function_override_is_terminal():
-    # Function Health: floor-FAIL by rule (bg_fit=4) -> model P3, human override -> final P1
     out = se.score_company(_row(company="function health", background_fit="4"))
     assert out["model_priority"] == "P3"
     assert out["human_override"] == "P1"
@@ -78,79 +74,55 @@ def test_score_company_function_override_is_terminal():
 
 
 # ---------------------------------------------------------------------------
-# revalidate_r1 — seeded N-run rosters
+# tally_r1 — single roster of already-scored records
 # ---------------------------------------------------------------------------
 
-def _rosters_from_vectors(vectors, overrides, n):
-    """Build N run-rosters from {company: [tier per run]} + {company: override}."""
-    return [
-        [{"company": co, "model_priority": tiers[i], "human_override": overrides.get(co)}
-         for co, tiers in vectors.items()]
-        for i in range(n)
-    ]
+def _rec(company, final_priority, *, tier_review=False, human_override=None, floor_reason="",
+         layer="threshold", final_score=15):
+    return {"company": company, "final_priority": final_priority, "tier_review": tier_review,
+            "human_override": human_override, "floor_reason": floor_reason, "layer": layer,
+            "final_score": final_score, "background_fit": 7, "pmf": 7, "strain": 1,
+            "funding_stage": "series-b", "arr_level": 5}
 
 
-def _synthetic_r1(n=5):
-    """A synthetic 54-company R1 that hits 4/6/6/38: 4 stable P0; 4 stable P1; `season` the one mover
-    (P2<->P1) -> P1 flagged; `function` override -> P1 (model vector P3); 6 stable P2 (the FINAL-14 stand-
-    ins); 38 floored P3. NOT the real names/distribution — the harness logic, on documented behaviors."""
-    vectors, overrides = {}, {}
-    for i in range(4):
-        vectors[f"p0_{i}"] = ["P0"] * n
-    for i in range(4):
-        vectors[f"p1_{i}"] = ["P1"] * n
-    vectors["season"] = ["P2", "P1", "P2", "P2", "P1"][:n]          # the mover -> P1 flagged
-    vectors["function"] = ["P3"] * n                                 # floor-FAIL model call...
-    overrides["function"] = "P1"                                     # ...lifted by the override
-    for i in range(6):
-        vectors[f"p2_{i}"] = ["P2"] * n                              # the six FINAL-14 stand-ins (stable)
-    for i in range(38):
-        vectors[f"floored_{i}"] = ["P3"] * n
-    return vectors, overrides
-
-
-def test_revalidate_r1_clean_run_hits_target():
-    vectors, overrides = _synthetic_r1()
-    rep = se.revalidate_r1(_rosters_from_vectors(vectors, overrides, 5))
+def test_tally_r1_counts_and_hits_target():
+    roster = [_rec("a", "P0"), _rec("b", "P1"), _rec("c", "P2"), _rec("d", "P3", layer="floor",
+                                                                        floor_reason="floor-rule ...")]
+    rep = se.tally_r1(roster, target={"P0": 1, "P1": 1, "P2": 1, "P3": 1})
     assert rep["passed"] is True
-    assert rep["tally"] == {"P0": 4, "P1": 6, "P2": 6, "P3": 38}
-    assert rep["target"] == se.R1_TARGET
-    # season is the one flagged straddler; the six P2 stand-ins are NOT flagged
-    assert rep["tier_variance"] == ["season"]
-    assert rep["resolved"]["season"] == {"final_priority": "P1", "tier_variance": True}
-    assert rep["resolved"]["function"] == {"final_priority": "P1", "tier_variance": False}
-    assert rep["resolved"]["p2_0"]["tier_variance"] is False
+    assert rep["tally"] == {"P0": 1, "P1": 1, "P2": 1, "P3": 1}
+    assert rep["discrepancies"] == {}
 
 
-def test_revalidate_r1_surfaces_drift_does_not_force_target():
-    # perturb one stable P2 into a mover -> it bumps to P1 -> tally P1=7 / P2=5: a FAILED R1, surfaced.
-    vectors, overrides = _synthetic_r1()
-    vectors["p2_0"] = ["P2", "P1", "P2", "P2", "P2"]    # now a mover
-    rep = se.revalidate_r1(_rosters_from_vectors(vectors, overrides, 5))
+def test_tally_r1_surfaces_drift_not_forced():
+    # two P1, zero P2 vs a target of one each -> surfaced, passed False (never forced to the target)
+    roster = [_rec("a", "P0"), _rec("b", "P1"), _rec("c", "P1"), _rec("d", "P3", layer="floor")]
+    rep = se.tally_r1(roster, target={"P0": 1, "P1": 1, "P2": 1, "P3": 1})
     assert rep["passed"] is False
-    assert rep["tally"]["P1"] == 7 and rep["tally"]["P2"] == 5
-    assert rep["discrepancies"]["P1"] == {"target": 6, "actual": 7}
-    assert rep["discrepancies"]["P2"] == {"target": 6, "actual": 5}
-    assert "p2_0" in rep["tier_variance"]               # the drifting company is named, not hidden
+    assert rep["discrepancies"]["P1"] == {"target": 1, "actual": 2}
+    assert rep["discrepancies"]["P2"] == {"target": 1, "actual": 0}
 
 
-def test_revalidate_r1_floor_wobbler_is_flagged_not_dropped():
-    # a company floor-PASS in some runs, floor-FAIL (P3) in others -> unstable -> highest + flag
-    vectors = {"wobbler": ["P2", "P3", "P2", "P2", "P3"]}
-    rep = se.revalidate_r1(_rosters_from_vectors(vectors, {}, 5))
-    assert rep["resolved"]["wobbler"] == {"final_priority": "P2", "tier_variance": True}
-    assert rep["tier_variance"] == ["wobbler"]
+def test_tally_r1_review_set_is_correct_or_flagged_never_silent():
+    roster = [
+        _rec("clean", "P0", final_score=20),                                  # interior, no flag
+        _rec("borderline", "P1", tier_review=True, final_score=15),           # proximity-flagged
+        _rec("override", "P1", human_override="P1", layer="override"),        # human override
+        _rec("floored", "P3", layer="floor", floor_reason="floor-rule ..."),  # floor reason
+    ]
+    rep = se.tally_r1(roster, target={"P0": 1, "P1": 2, "P3": 1})
+    # every non-clean tier is in the review_set WITH a reason (never wrong-and-silent); 'clean' is not
+    assert set(rep["review_set"]) == {"borderline", "override", "floored"}
+    assert rep["review_set_size"] == 3
+    assert rep["tier_review"] == ["borderline"]
+    assert "tier_review(proximity)" in rep["review_set"]["borderline"]
+    assert "override(P1)" in rep["review_set"]["override"]
+    assert "floor_reason" in rep["review_set"]["floored"]
+    assert "clean" not in rep["review_set"]
 
 
-def test_revalidate_r1_flags_company_missing_from_a_run():
-    # 'ghost' appears in only 4 of 5 runs -> inconsistent (a run/data fault, not silently tallied clean)
-    runs = _rosters_from_vectors({"a": ["P1"] * 5, "ghost": ["P1"] * 5}, {}, 5)
-    runs[2] = [rec for rec in runs[2] if rec["company"] != "ghost"]
-    rep = se.revalidate_r1(runs)
-    assert rep["inconsistent_companies"] == ["ghost"]
-    assert rep["passed"] is False
-
-
-def test_revalidate_r1_requires_at_least_one_run():
-    with pytest.raises(ValueError):
-        se.revalidate_r1([])
+def test_tally_r1_detail_and_resolved_present():
+    rep = se.tally_r1([_rec("a", "P1", tier_review=True)], target={"P1": 1})
+    assert rep["resolved"]["a"] == {"final_priority": "P1", "tier_review": True,
+                                    "layer": "threshold", "floor_reason": ""}
+    assert rep["detail"]["a"]["final"] == 15 and rep["detail"]["a"]["bg_fit"] == 7
