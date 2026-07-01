@@ -124,6 +124,21 @@ def test_tally_r1_review_set_bounded_and_floor_audit_split():
     assert rep["read_failures"] == ["readfail"]
 
 
+def test_tally_r1_floored_bg_near_threshold_in_bounded_review_set():
+    # a grow-like floored-but-close company is a MUST-look (possible frozen-low), so it joins review_set
+    # even though it's P3 — this is the piece that keeps a real prospect from hiding in the P3 pile.
+    roster = [
+        _rec("clean", "P0", final_score=20),
+        {"company": "growco", "final_priority": "P3", "tier_review": False, "human_override": None,
+         "floor_reason": "floor-rule bg_fit=4 / pmf=8", "floored_bg_near_threshold": True, "layer": "floor",
+         "final_score": 14, "background_fit": 4, "pmf": 8, "strain": 2},
+    ]
+    rep = se.tally_r1(roster, target={"P0": 1, "P3": 1})
+    assert "growco" in rep["review_set"]
+    assert any("floored-bg-near-threshold" in r for r in rep["review_set"]["growco"])
+    assert "growco" in rep["floor_audit"]   # also in the floor audit
+
+
 def test_tally_r1_detail_and_resolved_present():
     rep = se.tally_r1([_rec("a", "P1", tier_review=True)], target={"P1": 1})
     assert rep["resolved"]["a"] == {"final_priority": "P1", "tier_review": True,

@@ -1152,12 +1152,89 @@ def _float_or_none(value):
         return None
 
 
+# §B6.1 v1.22 — the DETERMINISTIC same-source gate: the growth extractor REPORTS figures, the code DERIVES.
+# Source aliases so "CB Insights financials" == "CB Insights" but != "Latka". CONSERVATIVE: an UNKNOWN source
+# keeps its own slug (treated as DISTINCT); when unsure -> DIFFERENT (refuse the cross-source derive), because
+# a wrongly-derived rate inflates into P0/P1 (equip's 7.8x was Latka + CB-Insights — two publishers).
+GROWTH_SOURCE_ALIASES = {
+    "cb-insights": ("cb insights", "cbinsights", "cb-insights", "cbi "),
+    "latka": ("latka", "getlatka"),
+    "growjo": ("growjo",),
+    "sacra": ("sacra",),
+    "pitchbook": ("pitchbook",),
+    "crunchbase": ("crunchbase", "cb-rank"),
+    "tracxn": ("tracxn",),
+    "company": ("company-reported", "company report", "self-reported", "press release", "the company",
+                "reported by the company", "company blog", "sec filing", "s-1", "10-k"),
+}
+
+
+def _norm_growth_source(value) -> str:
+    """Canonicalize a figure's source (conservative same-source). Known publisher -> its canonical name;
+    UNKNOWN -> its own slug (treated as DISTINCT). Empty -> '' (cannot anchor a same-source derive)."""
+    t = _norm(value)
+    if not t:
+        return ""
+    for canon, aliases in GROWTH_SOURCE_ALIASES.items():
+        if any(a in t for a in aliases):
+            return canon
+    return re.sub(r"[^a-z0-9]+", "-", t).strip("-")
+
+
+def _year_or_none(value):
+    """Parse a 4-digit year (20xx / 19xx) from a value, else None."""
+    m = re.search(r"\b(19|20)\d{2}\b", _norm(value))
+    return int(m.group(0)) if m else None
+
+
+def derive_growth_from_figures(figures, *, qualitative="", zero_baseline_usd_m=None) -> dict:
+    """DETERMINISTIC same-source derive (§B6.1, ENFORCED in code — the extractor REPORTS figures, it does NOT
+    derive). Given the reported figures (each {value_usd_m, year, source, measure}), compute a YoY rate ONLY
+    from two figures that are SAME-MEASURE + SAME-SOURCE + CORRECT-TIME-ORDER (earlier=baseline). Precedence:
+    same-source rate -> zero-baseline ($0 launch) -> qualitative -> absent. Returns a normalized growth read."""
+    groups = {}
+    for f in (figures or []):
+        if not isinstance(f, dict):
+            continue
+        v = _float_or_none(f.get("value_usd_m"))
+        y = _year_or_none(f.get("year"))
+        src = _norm_growth_source(f.get("source"))
+        if v is None or y is None or v <= 0 or not src:
+            continue
+        measure = _norm_enum(f.get("measure")) or "revenue"
+        groups.setdefault((measure, src), []).append((y, v))
+    for (measure, src), series in groups.items():
+        series = sorted(set(series))
+        if len(series) >= 2 and series[-1][0] > series[0][0]:   # same measure+source, distinct years
+            (y0, v0), (y1, v1) = series[0], series[-1]
+            rate = (v1 / v0 - 1.0) * 100.0
+            return {"kind": "rate", "rate_pct": rate, "magnitude_usd_m": None, "qualitative": "",
+                    "source": src, "basis": f"same-source derive: {src} ${v0:g}M({y0})->${v1:g}M({y1}) = {rate:.1f}%"}
+    zb = _float_or_none(zero_baseline_usd_m)
+    if zb is not None and zb > 0:
+        return {"kind": "zero-baseline", "rate_pct": None, "magnitude_usd_m": zb, "qualitative": "",
+                "source": "", "basis": f"zero-baseline: ${zb:g}M reached from $0"}
+    q = _norm_enum(qualitative)
+    if q in ("declining", "flat", "growing"):
+        return {"kind": "qualitative", "rate_pct": None, "magnitude_usd_m": None, "qualitative": q,
+                "source": "", "basis": "no same-source series -> qualitative"}
+    return {"kind": "absent", "rate_pct": None, "magnitude_usd_m": None, "qualitative": "",
+            "source": "", "basis": "no same-source revenue series"}
+
+
 def normalize_growth_read(block) -> dict:
-    """Normalize the Commit-5b extractor JSON into the structured read ``score_growth`` consumes:
-    ``kind`` (rate / zero-baseline / qualitative / absent; '_' folded to '-'), ``rate_pct``,
-    ``magnitude_usd_m``, ``qualitative``, ``source``, ``basis``. An unrecognized kind -> 'absent'
-    (Rule 8: a malformed read is genuine-absence, never a guessed rate)."""
+    """Normalize the growth-extractor JSON into the structured read ``score_growth`` consumes: ``kind`` /
+    ``rate_pct`` / ``magnitude_usd_m`` / ``qualitative`` / ``source`` / ``basis``.
+
+    v1.22 (report-figures): if the block carries ``figures`` (the extractor reported them and did NOT derive),
+    the rate is DERIVED deterministically under the same-source gate (`derive_growth_from_figures`). Otherwise
+    the LEGACY schema (kind/rate_pct emitted directly) is normalized as before — kept for the checkpoint's
+    stored reads + backward compat. An unrecognized kind -> 'absent' (Rule 8)."""
     block = block if isinstance(block, dict) else {}
+    if "figures" in block:
+        return derive_growth_from_figures(
+            block.get("figures"), qualitative=block.get("qualitative"),
+            zero_baseline_usd_m=block.get("zero_baseline_usd_m"))
     kind = _norm_enum(block.get("kind"))
     if kind not in _GROWTH_KINDS:
         kind = "absent"
@@ -1248,6 +1325,29 @@ TIER_P0_MIN = 18
 TIER_P1_MIN = 15
 TIER_P2_MIN = 13
 PRIORITY_TIERS = ("P0", "P1", "P2", "P3")
+
+# §B7 v1.22 'floored-but-close' band. The bg floor gate is bg > 4 (passing = 5). BG_FLOOR_WOBBLE is the
+# observed bg run-to-run wobble, ANCHORED to the pre-caching N=5 vectors (typical ±1; season ±2; grow ±3 —
+# its 4->8 swing, the exact frozen-low case). A frozen floored bg within this of the passing line could
+# plausibly have rolled to passing, so it is flagged for a possible --refresh (not auto-un-floored).
+BG_FLOOR_WOBBLE = 2
+BG_PASS_MIN = 5
+
+
+def floored_bg_near_threshold(*, gate_floored, background_fit, pmf) -> bool:
+    """§B7 v1.22 'floored-but-close': a company floored ONLY by a low bg whose FROZEN bg is within the observed
+    wobble of the passing line — a possible real prospect frozen-low (the grow case: bg froze at 4). ALL must
+    hold: floored on BG (NOT gate-floored maturity/B2B — those are deterministic, bg wouldn't change them);
+    would PASS if bg cleared (pmf > 4); and bg is a real low read in {BG_PASS_MIN - BG_FLOOR_WOBBLE .. 4}
+    (NOT None — an absent bg is a READ FAILURE, a different flag; NOT a bg far below the line). A REVIEW flag
+    -> consider a deliberate `--refresh`, NEVER an auto-un-floor."""
+    if gate_floored:
+        return False
+    bf = _score_or_none(background_fit)
+    pm = _score_or_none(pmf)
+    if bf is None or pm is None:
+        return False
+    return pm > 4 and (BG_PASS_MIN - BG_FLOOR_WOBBLE) <= bf <= 4
 
 # Review-time human PRIORITY overrides (§B7 / Rule 6) — TERMINAL on the final priority, authoritative over
 # the floor. Function Health: P3 by rule (floor-FAIL, bg_fit=4 from a 2x/yr lab cadence) -> human-lifted to
@@ -1374,12 +1474,15 @@ def assemble_priority(company, *, business_model, path_passed, path_reason,
     override = DOCUMENTED_PRIORITY_OVERRIDES.get(_norm_company(company)) or None
 
     # model_priority — the PURE §B call (gates -> floor -> threshold), independent of the human override.
+    floored_bg_near = False
     if floored:
         model_priority, tier_review_flag = "P3", False
         floor_reason = build_floor_reason(
             company, business_model=business_model, path_passed=path_passed, path_reason=path_reason,
             agency_passed=agency_passed, agency_reason=agency_reason, floor_ok=floor_ok,
             background_fit=background_fit, pmf=pmf, reset_detail=reset_detail)
+        floored_bg_near = floored_bg_near_threshold(
+            gate_floored=gate_floored, background_fit=background_fit, pmf=pmf)
     elif override is not None:
         # floor-PASS but human-overridden: the override is terminal, not proximity-flagged (exactly-one-layer).
         model_priority, tier_review_flag, floor_reason = model_tier, False, ""
@@ -1402,6 +1505,7 @@ def assemble_priority(company, *, business_model, path_passed, path_reason,
         "human_override": human_override,
         "final_priority": final_priority,
         "tier_review": tier_review_flag,
+        "floored_bg_near_threshold": floored_bg_near,
         "floor_reason": floor_reason,
         "layer": layer,
     }
@@ -1521,13 +1625,16 @@ def tally_r1(roster, *, target=R1_TARGET) -> dict:
             "pmf": rec.get("pmf"), "strain": rec.get("strain"), "stage": rec.get("funding_stage"),
             "arr_level": rec.get("arr_level"), "layer": rec.get("layer"),
         }
-        # BOUNDED must-look (the autonomy metric): proximity-flagged + human-overridden only.
+        # BOUNDED must-look (the autonomy metric): proximity-flagged + human-overridden + floored-but-close
+        # (a possible real prospect frozen-low on bg — the expensive error is one hidden in the P3 pile).
         reasons = []
         if flagged:
             tier_review_flagged.append(co)
             reasons.append("tier_review(proximity)")
         if rec.get("human_override"):
             reasons.append(f"override({rec['human_override']})")
+        if rec.get("floored_bg_near_threshold"):
+            reasons.append("floored-bg-near-threshold (possible frozen-low — consider --refresh)")
         if reasons:
             review_set[co] = reasons
         # floor-audit (on-demand) + read-failure surfacing (a floored bg/pmf READ-FAILED is a bug, not a floor).

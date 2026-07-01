@@ -25,32 +25,23 @@ def _prompt():
 def test_prompt_builds_and_substitutes():
     p = _prompt()
     assert "Company: ACME Health" in p and "EVIDENCE" in p
-    assert '{"kind"' in p
+    assert '{"figures"' in p                       # v1.22 report-figures schema
     assert "{{" not in p and "}}" not in p
 
 
-def test_prompt_has_the_b6_1_fence():
+def test_prompt_reports_figures_does_not_derive():
+    # v1.22 (SIGNED): the extractor REPORTS figures with per-figure source; the code derives.
     p = _prompt()
-    assert "NEVER emit a count's growth as rate_pct" in p
-    assert "A fenced count is not a fallback for a missing revenue rate" in p
+    assert "REPORT the dated revenue figures you find -- NOT to compute a growth rate" in p
+    assert "DO NOT derive, combine, or reconcile figures" in p
+    assert '"source": "<the NAMED publisher' in p   # per-figure source (what the backstop needs)
+    assert '"measure": "revenue" | "arr"' in p
 
 
-def test_prompt_has_the_hard_3_condition_derive_gate():
-    # v1.18: the same-source guard is a HARD all-three-or-no-derive gate (not a soft caveat).
+def test_prompt_keeps_the_b6_1_fence():
     p = _prompt()
-    assert "A DERIVE IS VALID ONLY IF ALL THREE HOLD" in p
-    assert "(1) SAME MEASURE" in p
-    assert "(2) SAME SOURCE" in p
-    assert "(3) CORRECT TIME ORDER" in p
-    assert "TWO DIFFERENT estimators" in p                          # the load-bearing same-source line
-    assert "$8.0M revenue in 2022 -> $12.3M in 2023" in p            # season good-derive (one estimator's series)
-    assert "does NOT block a derive that meets (1)-(3)" in p          # hedge doesn't block a passing derive
-
-
-def test_prompt_has_the_determinate_qualitative_vs_absent_rule():
-    p = _prompt()
-    assert "DETERMINATE, decided by ONE test" in p
-    assert "affirmative statement about REVENUE direction" in p
+    assert "NEVER put a count in figures" in p
+    assert "Do NOT manufacture revenue" in p
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +102,52 @@ def test_a_fenced_count_read_as_absent_does_not_score_a_rate():
     read = se.normalize_growth_read({"kind": "absent", "basis": "only covered-lives growth (fenced)"})
     score, _ = se.score_growth(read, "series-c")
     assert score is None
+
+
+# ---------------------------------------------------------------------------
+# 4. Fix 2 (v1.22) — the DETERMINISTIC same-source derive backstop (extractor reports; code derives).
+# ---------------------------------------------------------------------------
+
+def test_equip_cross_source_figures_refuse_derive_qualitative():
+    # equip: Latka 2021 + CB Insights 2023 = TWO publishers -> code REFUSES the cross-source derive -> the
+    # 7.8x can no longer be manufactured. (The exact frozen-wrong read that put equip at P1.)
+    read = se.normalize_growth_read({"figures": [
+        {"value_usd_m": 4.5, "year": 2021, "source": "Latka", "measure": "revenue"},
+        {"value_usd_m": 35, "year": 2023, "source": "CB Insights financials", "measure": "revenue"}]})
+    assert read["kind"] == "absent"          # no same-source series, no qualitative -> absent (not a rate)
+    assert read["rate_pct"] is None
+
+
+def test_same_source_series_derives_the_rate():
+    # one estimator's OWN dated series -> a valid derive (season-style $8M->$12.3M)
+    read = se.normalize_growth_read({"figures": [
+        {"value_usd_m": 8.0, "year": 2022, "source": "Latka", "measure": "revenue"},
+        {"value_usd_m": 12.3, "year": 2023, "source": "Latka", "measure": "revenue"}]})
+    assert read["kind"] == "rate"
+    assert round(read["rate_pct"], 1) == 53.8   # (12.3/8 - 1)*100
+
+
+def test_source_aliases_treated_same_publisher_variants_differ():
+    # "CB Insights" == "CB Insights financials" (same publisher, derive) ...
+    same = se.normalize_growth_read({"figures": [
+        {"value_usd_m": 10, "year": 2022, "source": "CB Insights", "measure": "revenue"},
+        {"value_usd_m": 20, "year": 2023, "source": "CB Insights financials page", "measure": "revenue"}]})
+    assert same["kind"] == "rate"
+    # ... but two DIFFERENT publishers do NOT derive
+    diff = se.normalize_growth_read({"figures": [
+        {"value_usd_m": 10, "year": 2022, "source": "Growjo", "measure": "revenue"},
+        {"value_usd_m": 20, "year": 2023, "source": "Sacra", "measure": "revenue"}], "qualitative": "growing"})
+    assert diff["kind"] == "qualitative"
+
+
+def test_figures_qualitative_and_zero_baseline_fallbacks():
+    assert se.normalize_growth_read({"figures": [], "qualitative": "growing"})["kind"] == "qualitative"
+    assert se.normalize_growth_read({"figures": []})["kind"] == "absent"
+    zb = se.normalize_growth_read({"figures": [], "zero_baseline_usd_m": 40})
+    assert zb["kind"] == "zero-baseline" and zb["magnitude_usd_m"] == 40.0
+
+
+def test_legacy_schema_still_normalizes():
+    # the checkpoint's stored reads (no 'figures') still parse via the legacy path
+    read = se.normalize_growth_read({"kind": "rate", "rate_pct": 53.7, "source": "derived"})
+    assert read["kind"] == "rate" and read["rate_pct"] == 53.7

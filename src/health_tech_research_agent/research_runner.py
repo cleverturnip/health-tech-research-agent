@@ -1584,30 +1584,22 @@ def run_company_background_fit(
 
 GROWTH_EXTRACTOR_PROMPT_TEMPLATE = """You extract the REVENUE-GROWTH signal for a health company, for a downstream stage-relative growth score. Read the evidence and emit ONE structured growth read. The deterministic scorer maps it -- you do NOT score.
 
-Output ONE JSON object and nothing else:
-{{"kind": "rate" | "zero_baseline" | "qualitative" | "absent",
-  "rate_pct": <number: YoY % revenue growth> or null,
-  "magnitude_usd_m": <number: $M revenue reached from a $0 launch> or null,
+Your job is to REPORT the dated revenue figures you find -- NOT to compute a growth rate. The deterministic scorer applies the same-source gate and derives the rate; deriving is not your job. Output ONE JSON object and nothing else:
+{{"figures": [{{"value_usd_m": <number: revenue/ARR in $M>, "year": <YYYY>, "source": "<the NAMED publisher: Latka | CB Insights | Growjo | Sacra | PitchBook | Crunchbase | Tracxn | company-reported | ...>", "measure": "revenue" | "arr"}}],
+  "zero_baseline_usd_m": <number: $M revenue reached from a $0 launch> or null,
   "qualitative": "declining" | "flat" | "growing" or null,
-  "source": "company-reported" | "derived",
-  "basis": "<one line: the exact figures you used>"}}
+  "basis": "<one line: what you found>"}}
 
-REVENUE / $ GROWTH ONLY -- the FENCE (the most important rule):
-- Score ONLY revenue / ARR / $ growth. NON-revenue COUNTS -- covered lives, patients, members, users, downloads, MAU, headcount, partners -- are SCALE, NOT growth. NEVER emit a count's growth as rate_pct. ("Covered lives rose 50%" or "patients grew 485%" is NOT revenue growth -- do NOT set rate_pct from it.)
-- Do NOT manufacture a rate from a count to avoid "absent"/"qualitative". A fenced count is not a fallback for a missing revenue rate.
+HOW TO FILL IT:
+- figures -- EVERY dated revenue/ARR $ figure in the evidence, EACH tagged with its NAMED source (the exact publisher: "Latka", "CB Insights", "Growjo", "company-reported", etc.) and its measure (revenue vs arr). Report them ALL -- do NOT pick, combine, or compute across them. If a figure has no clear year or no clear source, still report it with year/source null (the scorer will discard it). Empty list if no $ revenue figure exists.
+- zero_baseline_usd_m -- ONLY for a launch-from-$0 revenue trajectory ($0 -> $N): the $M reached. Else null.
+- qualitative -- if the evidence AFFIRMATIVELY describes REVENUE direction (growing / flat / declining) but gives no usable figures, set it. Else null.
 
-How to read each kind:
-- "rate" -- a revenue/$ YoY growth %: either a company-reported "X% YoY" (source="company-reported"), OR one YOU DERIVE from two dated revenue figures (source="derived").
-  A DERIVE IS VALID ONLY IF ALL THREE HOLD. If ANY fails, the figures give NO usable rate -- do NOT derive (go to qualitative/absent):
-    (1) SAME MEASURE -- both annual revenue, or both ARR (NOT funding-amount vs revenue; NOT run-rate vs trailing/annual).
-    (2) SAME SOURCE -- both from the SAME company report or the SAME single estimator's dated series. Figures from TWO DIFFERENT estimators (e.g. one Latka figure + one Growjo figure) are independent guesses that often conflict and can even point opposite directions -- they do NOT form a series; NEVER compute a rate between them.
-    (3) CORRECT TIME ORDER -- baseline = the earlier-dated figure, endpoint = the later-dated figure.
-  When all three hold, COMPUTE the YoY % -- and a hedge in the text ("a rate could not be computed") does NOT block a derive that meets (1)-(3): a real same-source series like "$8.0M revenue in 2022 -> $12.3M in 2023 (one estimator's dated series)" IS usable.
-  Third-party estimates (Sacra / Latka / Growjo / CB Insights) ARE real revenue evidence -- but a derive needs ONE estimator's OWN dated series (two dated points from the SAME estimator); two different estimators' single figures are NOT a series.
-- "zero_baseline" -- a launch-from-$0 revenue trajectory ($0 -> $N ARR) has an undefined %; set magnitude_usd_m to the $M reached.
-- "qualitative" vs "absent" -- DETERMINATE, decided by ONE test: is there an affirmative statement about REVENUE direction, SEPARATE from any count?
-  - "qualitative" -- the evidence AFFIRMATIVELY describes REVENUE as growing / flat / declining (a statement about REVENUE itself, not a count) but gives no usable rate, two-point series, or zero-baseline. Set qualitative to that direction.
-  - "absent" -- NO revenue-growth signal at all: the only growth in the evidence is a FENCED count (covered-lives / patients / members / users), with no affirmative statement about REVENUE direction.
+REVENUE / $ ONLY -- the FENCE (still the most important rule):
+- Report ONLY revenue / ARR / $ figures. NON-revenue COUNTS -- covered lives, patients, members, users, downloads, MAU, headcount, partners -- are SCALE, NOT revenue. NEVER put a count in figures, and NEVER set qualitative from a count. ("Covered lives rose 50%" / "patients grew 485%" is NOT revenue -- ignore it here.)
+- Do NOT manufacture revenue to avoid an empty list. No revenue $ figures and no affirmative revenue-direction statement -> figures: [], qualitative: null (the scorer reads that as absent).
+
+DO NOT derive, combine, or reconcile figures -- report each as found with its own source. (Two figures from DIFFERENT publishers are independent guesses, not a series -- but that is the SCORER's call, not yours: your job is only to tag each figure's source honestly so the scorer can apply the gate.)
 
 Company: {company}
 Evidence:
