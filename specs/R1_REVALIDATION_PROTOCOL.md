@@ -28,20 +28,21 @@ growth extractor, the §B5 background_fit. Their evidence assemblies are TESTED 
 (`classifier_evidence`, `canonical_growth_evidence`, `background_fit_evidence`) — the literal blobs the
 signed cells 180/177/178 fed.
 
-## What re-runs (v1.20 + Option-B reset re-emission)
+## What runs (v1.22 — CACHING, single read per company)
 
-- **Once per company:** the **§B4 v1.16 HARDENED RESET re-emission** (Option B — see below); §B2 classifier;
-  base §B6 growth (floor-eligible only).
-- **Every pass (LLM-variable):** §B5 background_fit (every floor-eligible company); §B6 growth (R2 cases —
-  `pomelo care`, `outcomes4me`, `season health`).
-- **Floored companies:** None bg/growth reads → P3 every run (they still get the once reset re-emit + classifier).
+- **Once per company (cached, never re-rolled):** the four §B scoring reads — §B4 v1.16 hardened reset
+  re-emit, §B2 classifier, §B6 growth, §B5 background_fit. Floored companies skip bg/growth (no spend).
+- **Scoring reads OFF the cache** — no N passes, no temp-0 (rejected on `gpt-5.4-mini`). A re-score reads the
+  same frozen values → identical tiers **by construction**. `run_r1(..., cache=rep["cache"])` re-scores
+  without re-calling; `refresh=["equip health"]` re-takes only that company's reads (logged).
+- **Cost: ~145 model calls, ONE time** (≈54 reset + 54 classifier + ~37 growth + ~37 bg). Re-scores are free.
 
-**Option-B reset re-emission (built into `run_r1`).** The checkpoint's `reset_evidence` was researched with
-the OLD liberal emitter (18 events fire naively). `run_r1` re-runs the **committed hardened v1.16 emitter**
-(validated 5/5 in Commit 3a) over each company's `org_events_finding` and patches `fit_brief_json.reset_evidence`
-in place, so `derive_reset_signal` reads clean type+opening (NO shim). This un-floors `grow` (first-CFO →
-P0) and rejects the liberal over-fires (`sword`/`oura`/`noom` → pivot/ipo-prep/growth-support). **Cost: ~350
-model calls** (≈54 reset + 54 classifier + ~37 base growth + 5×(~37 bg + 3 R2 growth)).
+**Option-B hardened reset (built into the reads).** The checkpoint's `reset_evidence` came from the OLD
+liberal emitter (18 fire naively). The cached reset read re-runs the **committed hardened v1.16 emitter** over
+`org_events_finding` and patches `fit_brief_json.reset_evidence`, so `derive_reset_signal` reads clean
+type+opening (NO shim). This un-floors `grow` (first-CFO) and rejects the over-fires — the §B4
+`DOCUMENTED_RESET_OVERRIDES` (hinge/noom) stay as belt-and-suspenders. **The frozen read must be CORRECT
+(caching freezes it):** the run confirms `noom`/`hinge`/`equip`/`season` read correctly (or flagged).
 
 ## Documented exceptions the run must reproduce (each lands as recorded, NOT forced)
 
@@ -76,39 +77,45 @@ from openai import OpenAI
 client = OpenAI(api_key=...)   # your key
 ```
 
-**Cell 3 — run R1 (one call; ~5–20 min, ~350 model calls incl. the reset re-emission):**
+**Cell 3 — run R1 (takes the reads ONCE + scores off them; ~145 calls, ~5–15 min):**
 ```python
 from health_tech_research_agent import research_runner as rr
-rep = rr.run_r1(df, client=client, n=5, progress=print)
+rep = rr.run_r1(df, client=client, model=MODEL, progress=print)
 ```
 
-**Cell 4 — the report to paste back (tally + proof companies + component detail + RESET reads):**
+**Cell 3b — reproducibility proof (re-score off the cache; ZERO new calls, must be identical):**
+```python
+rep2 = rr.run_r1(df, client=client, model=MODEL, cache=rep["cache"])
+print("REPRODUCIBLE (identical off cache):", rep["resolved"] == rep2["resolved"])
+```
+
+**Cell 4 — the report to paste back (tally + review set + reset reads + components):**
 ```python
 print("R1 PASSED:", rep["passed"], "| tally:", rep["tally"], "| target:", rep["target"])
-print("tier_variance (flagged):", rep["tier_variance"], "| drift:", rep.get("discrepancies"))
+print("drift:", rep.get("discrepancies"))
+print("REVIEW SET SIZE (bounded-review metric):", rep["review_set_size"], "/ 54")
 
-print("\n-- proof + exceptions (5-run vectors -> resolved) --")
+print("\n-- proof + exceptions (resolved tier + why-flagged) --")
 for co in ["season health", "affect therapeutics", "equip health", "familywell health", "fay",
            "foodsmart", "jasper health", "grow therapy", "function health", "angle health", "oula",
-           "signos", "bicycle health", "pomelo care", "outcomes4me"]:
+           "signos", "bicycle health", "pomelo care", "outcomes4me", "hinge health", "noom med"]:
     if co in rep["resolved"]:
-        print(f"  {co:22} runs={rep['vectors'].get(co)} -> {rep['resolved'][co]}")
+        r = rep["resolved"][co]
+        print(f"  {co:22} {r['final_priority']} ({r['layer']}) "
+              f"{'FLAG:' + ','.join(rep['review_set'][co]) if co in rep['review_set'] else ''}")
 
-print("\n-- RESET reads (hardened re-emit: who fires, and why the naive over-fires are rejected) --")
+print("\n-- RESET reads (hardened re-emit: who fires; the over-fires must be rejected by substance) --")
 for co in sorted(rep["reset_reads"]):
     rr_ = rep["reset_reads"][co]
-    if rr_["events"]:   # only companies with reset events
+    if rr_["events"]:
         ev = "; ".join(f"{e.get('event_type')}/{e.get('creates_high_agency_opening')}" for e in rr_["events"])
         print(f"  {co:22} fires={str(rr_['fires']):5} [{ev}]")
 
-print("\n-- component detail (bg/pmf/strain/stage/final, first run) --")
+print("\n-- component detail (bg/pmf/strain/stage/final) --")
 for co in sorted(rep["detail"]):
-    d = rep["detail"][co][0]
+    d = rep["detail"][co]
     print(f"  {co:22}{str(d['stage']):13} bg={str(d['bg_fit']):4} pmf={str(d['pmf']):4} "
-          f"str={str(d['strain']):3} final={str(d['final']):6} {d['tier']} ({d['layer']})")
-
-if rep["inconsistent_companies"]:
-    print("INCONSISTENT:", rep["inconsistent_companies"])
+          f"str={str(d['strain']):3} final={str(d['final']):6} ({d['layer']})")
 ```
 
 ## Paste back for adjudication
