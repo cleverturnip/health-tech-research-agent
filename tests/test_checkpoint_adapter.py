@@ -151,6 +151,16 @@ def test_score_checkpoint_row_end_to_end():
     assert out["final_priority"] in se.PRIORITY_TIERS
 
 
+def test_documented_reset_override_forces_no_fire():
+    # hinge/noom: the emitter mis-fires (public-layoff / growth-support exec-add); the human override forces
+    # no-fire regardless of the emitted events, authoritative over the emitter.
+    firing = '[{"event_type": "restructuring-layoffs", "creates_high_agency_opening": "yes"}]'
+    assert se.reset_signal_for_row({"company": "hinge health", "reset_events_json": firing}) is False
+    assert se.reset_signal_for_row({"company": "noom med", "reset_events_json": firing}) is False
+    # a non-overridden company with the SAME firing event still fires
+    assert se.reset_signal_for_row({"company": "other co", "reset_events_json": firing}) is True
+
+
 def test_reset_signal_for_row_raises_on_unflattened_row():
     # the raw checkpoint row has no reset_events_json -> reading reset on it is a WIRING BUG -> raise LOUD
     # (this is the class of bug that floored grow invisibly)

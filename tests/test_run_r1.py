@@ -81,10 +81,11 @@ def test_run_r1_end_to_end_report_shape_and_floor():
     rep = rr.run_r1(_df(), client=client)
     assert set(rep["resolved"]) == {"acme", "season health", "medforce"}
     assert sum(rep["tally"].values()) == 3
-    # the professional company floors -> P3, and carries a floor_reason (never wrong-and-silent)
+    # the professional company floors -> P3, carries a floor_reason, and lands in floor_audit (not the
+    # bounded review_set — a floored reject is on-demand audit, not a must-review borderline)
     assert rep["resolved"]["medforce"]["final_priority"] == "P3"
     assert rep["resolved"]["medforce"]["floor_reason"]
-    assert "medforce" in rep["review_set"]
+    assert "medforce" in rep["floor_audit"] and "medforce" not in rep["review_set"]
 
 
 def test_run_r1_reads_taken_once_each_no_n_passes():

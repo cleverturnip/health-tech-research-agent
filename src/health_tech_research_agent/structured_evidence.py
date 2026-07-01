@@ -99,6 +99,14 @@ RESET_FIREABLE_TYPES = frozenset(RESET_EVENT_TYPES - RESET_NEVER_FIRE)
 # Columns produced by flatten_reset_fields (the derived signal/basis are persisted separately).
 RESET_PERSIST_FIELDS = ["reset_events_json", "reset_event_types"]
 
+# HUMAN-LOCKED RESET OVERRIDES (SOT §B4 v1.21) — AUTHORITATIVE over the emitter's read. The v1.16 substance
+# emitter is an LLM and mis-fires its own textbook cases; a human locks the few it can't reliably hold:
+#   hinge health — public-company 10% layoff (defensive contraction) mis-read `restructuring-layoffs/yes`.
+#   noom med     — CMO added to support GLP-1 / health-plan expansion (growth-support exec-add) mis-read `yes`.
+# "no-fire" forces the reset NOT to fire regardless of the emitted events -> the company floors on its true
+# maturity. MAINTENANCE: doc-first edit to SOT §B4, then this list (NOT a basis-regex shim in the engine).
+DOCUMENTED_RESET_OVERRIDES = {"hinge health": "no-fire", "noom med": "no-fire"}
+
 # Sentinels that mean "no real evidence here" when a fact field is technically non-empty.
 _ABSENT_SENTINELS = frozenset(
     {"", "none", "n/a", "na", "unknown", "no evidence", "not found", "not disclosed",
@@ -545,7 +553,15 @@ def reset_signal_for_row(row) -> bool:
     eligibility path read reset off the RAW row (no column -> False) while ``score_company`` read it off the
     flattened row (column present -> the real answer). Use this everywhere reset gates a decision so the two
     paths cannot disagree and the bug class stays LOUD. (``derive_reset_signal`` keeps its flexible
-    dict/json/list input for the emitter path.)"""
+    dict/json/list input for the emitter path.)
+
+    A ``DOCUMENTED_RESET_OVERRIDES`` company (SOT §B4 v1.21) is FORCED to its documented verdict, authoritative
+    over the emitter — the reset analogue of the §B2 floor / §B4 stage override: the LLM emitter is itself
+    noisy and mis-fires its own textbook cases (hinge: public-layoff read `yes`; noom: growth-support exec-add
+    read `yes`), so the human locks the few it can't reliably hold."""
+    override = DOCUMENTED_RESET_OVERRIDES.get(_norm_company(row.get("company")))
+    if override == "no-fire":
+        return False
     if "reset_events_json" not in row:
         raise KeyError(
             "reset_events_json absent — the row was not flattened before reset gating "
@@ -1317,8 +1333,11 @@ def build_floor_reason(company, *, business_model, path_passed, path_reason,
     if not floor_ok:
         bf = _score_or_none(background_fit)
         pm = _score_or_none(pmf)
-        bf_s = "absent" if bf is None else str(int(bf))
-        pm_s = "absent" if pm is None else str(int(pm))
+        # A gate-PASSED consumer that reaches the floor-rule with bg_fit ABSENT is a bg READ FAILURE (the read
+        # returned None), NOT a legitimate low-bg floor — label it LOUD so it can never hide as a clean floor
+        # (the wrong-and-silent guard at the floor level). A real low score reads bg_fit=<n>.
+        bf_s = "READ-FAILED (None — re-take)" if bf is None else str(int(bf))
+        pm_s = "READ-FAILED (None)" if pm is None else str(int(pm))
         return f"floor-rule — bg_fit={bf_s} / pmf={pm_s} (need BOTH >4)"
     return ""
 
@@ -1476,39 +1495,46 @@ def tally_r1(roster, *, target=R1_TARGET) -> dict:
                               forced (a tally that only hits it via a nudge is a FAILED R1)
       tally / target        — final-priority counts vs the R1 estimate
       resolved              — company -> {final_priority, tier_review, layer, floor_reason}
-      review_set            — every company needing a human look, with WHY (tier_review proximity /
-                              floor_reason / human_override) — the BOUNDED-REVIEW set
-      review_set_size       — |review_set| (the autonomy metric — how many companies Katelynd looks at)
+      review_set            — the BOUNDED must-look set: proximity-flagged (tier_review) + human overrides,
+                              with WHY. THIS is the autonomy metric (spot-check these, trust the rest).
+      review_set_size       — |review_set| (the honest bounded-review number)
+      floor_audit           — the floored-with-reason companies (P3 rejects) + their floor_reason —
+                              on-demand review (overturn if you want), NOT re-reviewed every run
+      read_failures         — floored companies whose floor_reason shows a bg/pmf READ FAILURE (None) —
+                              a real bug to re-take, NOT a legitimate floor (surfaced, never silent)
       tier_review           — the proximity-flagged companies (sorted)
       discrepancies         — per-tier (target vs actual) where they differ — surfaced, not forced
       detail                — per-company components (final / bg_fit / pmf / strain / stage) for diagnosis
     """
     order = [_norm_company(rec.get("company")) for rec in roster]
-    resolved, review_set, tier_review_flagged, detail = {}, {}, [], {}
+    resolved, review_set, floor_audit, read_failures, tier_review_flagged, detail = {}, {}, {}, [], [], {}
 
     for rec in roster:
         co = _norm_company(rec.get("company"))
         fp = rec.get("final_priority")
         flagged = bool(rec.get("tier_review"))
+        floor_reason = rec.get("floor_reason", "")
         resolved[co] = {"final_priority": fp, "tier_review": flagged,
-                        "layer": rec.get("layer"), "floor_reason": rec.get("floor_reason", "")}
+                        "layer": rec.get("layer"), "floor_reason": floor_reason}
         detail[co] = {
             "final": rec.get("final_score"), "bg_fit": rec.get("background_fit"),
             "pmf": rec.get("pmf"), "strain": rec.get("strain"), "stage": rec.get("funding_stage"),
             "arr_level": rec.get("arr_level"), "layer": rec.get("layer"),
         }
-        # the BOUNDED-REVIEW set: a company needs a human look if it is proximity-flagged, human-overridden,
-        # or floored-with-a-reason (never wrong-AND-silent — every non-clean tier carries a why).
+        # BOUNDED must-look (the autonomy metric): proximity-flagged + human-overridden only.
         reasons = []
         if flagged:
             tier_review_flagged.append(co)
             reasons.append("tier_review(proximity)")
         if rec.get("human_override"):
             reasons.append(f"override({rec['human_override']})")
-        if rec.get("floor_reason"):
-            reasons.append("floor_reason")
         if reasons:
             review_set[co] = reasons
+        # floor-audit (on-demand) + read-failure surfacing (a floored bg/pmf READ-FAILED is a bug, not a floor).
+        if floor_reason:
+            floor_audit[co] = floor_reason
+            if "READ-FAILED" in floor_reason:
+                read_failures.append(co)
 
     tally = {}
     for r in resolved.values():
@@ -1528,7 +1554,10 @@ def tally_r1(roster, *, target=R1_TARGET) -> dict:
         "target": target,
         "resolved": {co: resolved[co] for co in order},
         "review_set": review_set,
-        "review_set_size": len(review_set),
+        "review_set_size": len(review_set),          # the BOUNDED autonomy metric (proximity + override)
+        "floor_audit": floor_audit,
+        "floor_audit_size": len(floor_audit),        # the P3 rejects (on-demand, not must-review)
+        "read_failures": sorted(read_failures),      # floored on a bg/pmf READ FAILURE -> re-take (a bug)
         "tier_review": sorted(tier_review_flagged),
         "discrepancies": discrepancies,
         "detail": detail,

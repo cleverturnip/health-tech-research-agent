@@ -103,22 +103,25 @@ def test_tally_r1_surfaces_drift_not_forced():
     assert rep["discrepancies"]["P2"] == {"target": 1, "actual": 0}
 
 
-def test_tally_r1_review_set_is_correct_or_flagged_never_silent():
+def test_tally_r1_review_set_bounded_and_floor_audit_split():
     roster = [
         _rec("clean", "P0", final_score=20),                                  # interior, no flag
         _rec("borderline", "P1", tier_review=True, final_score=15),           # proximity-flagged
         _rec("override", "P1", human_override="P1", layer="override"),        # human override
-        _rec("floored", "P3", layer="floor", floor_reason="floor-rule ..."),  # floor reason
+        _rec("floored", "P3", layer="floor", floor_reason="floor-rule bg_fit=4 / pmf=3"),
+        _rec("readfail", "P3", layer="floor", floor_reason="floor-rule bg_fit=READ-FAILED (None — re-take)"),
     ]
-    rep = se.tally_r1(roster, target={"P0": 1, "P1": 2, "P3": 1})
-    # every non-clean tier is in the review_set WITH a reason (never wrong-and-silent); 'clean' is not
-    assert set(rep["review_set"]) == {"borderline", "override", "floored"}
-    assert rep["review_set_size"] == 3
-    assert rep["tier_review"] == ["borderline"]
+    rep = se.tally_r1(roster, target={"P0": 1, "P1": 2, "P3": 2})
+    # BOUNDED review_set = proximity + override ONLY (the autonomy metric); floored -> floor_audit
+    assert set(rep["review_set"]) == {"borderline", "override"}
+    assert rep["review_set_size"] == 2
     assert "tier_review(proximity)" in rep["review_set"]["borderline"]
     assert "override(P1)" in rep["review_set"]["override"]
-    assert "floor_reason" in rep["review_set"]["floored"]
-    assert "clean" not in rep["review_set"]
+    # floored rejects are on-demand audit, NOT in the must-look set
+    assert set(rep["floor_audit"]) == {"floored", "readfail"}
+    assert "floored" not in rep["review_set"] and "clean" not in rep["review_set"]
+    # a bg READ FAILURE is surfaced as a bug (never a silent legit floor)
+    assert rep["read_failures"] == ["readfail"]
 
 
 def test_tally_r1_detail_and_resolved_present():

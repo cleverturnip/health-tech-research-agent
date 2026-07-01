@@ -139,6 +139,20 @@ def test_floor_reason_floor_rule_names_the_failing_gradient():
     assert "bg_fit=4" in r and "pmf=7" in r
 
 
+def test_floor_reason_absent_bg_is_labeled_read_failed_not_a_silent_floor():
+    # a gate-passed consumer reaching floor-rule with bg_fit=None is a READ FAILURE, not a legit low floor —
+    # labeled LOUD so it can never hide as a clean floor (Fix 4 / wrong-and-silent guard at the floor level).
+    r = se.build_floor_reason("co", business_model="B2C", path_passed=True, path_reason="ok",
+                              agency_passed=True, agency_reason="ok", floor_ok=False,
+                              background_fit=None, pmf=7)
+    assert "READ-FAILED" in r
+    # a real low score is NOT labeled a read failure
+    r2 = se.build_floor_reason("co", business_model="B2C", path_passed=True, path_reason="ok",
+                               agency_passed=True, agency_reason="ok", floor_ok=False,
+                               background_fit=3, pmf=7)
+    assert "READ-FAILED" not in r2 and "bg_fit=3" in r2
+
+
 def test_floor_reason_empty_for_passing_company():
     assert se.build_floor_reason("co", business_model="B2C", path_passed=True, path_reason="ok",
                                  agency_passed=True, agency_reason="ok", floor_ok=True,
