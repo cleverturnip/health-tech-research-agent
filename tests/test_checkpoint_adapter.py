@@ -104,6 +104,19 @@ def test_flatten_tolerates_blank_or_malformed_fit_brief():
         assert flat["funding_stage"] in ("unknown", "")   # no crash; no silent bogus stage
 
 
+def test_funding_patch_rederives_equip_to_series_c():
+    # the DOCUMENTED_FUNDING_PATCHES data refresh appends equip's real Series C (2024) + undesignated $54M
+    # (2025) -> stage re-derives series-c (the $54M does NOT advance to series-d). A DATA refresh, re-derived.
+    fb = _fit_brief()
+    fb["maturity_evidence"] = {
+        "funding_rounds": [{"series_designation": "series-a", "date": "2021-02", "is_priced_equity": True},
+                           {"series_designation": "series-b", "date": "2021-05", "is_priced_equity": True}],
+        "ipo_event": {}, "ipo_status": "private"}
+    flat = se.flatten_checkpoint_row(_row(company="equip health", fit_brief_json=json.dumps(fb)))
+    assert flat["funding_stage"] == "series-c"
+    assert se.flatten_checkpoint_row(_row(company="acme"))["funding_stage"] == "series-b"  # non-patched unaffected
+
+
 # ---------------------------------------------------------------------------
 # strain faithful-fix — score_company reads operating_characteristics_finding (was a dead column)
 # ---------------------------------------------------------------------------

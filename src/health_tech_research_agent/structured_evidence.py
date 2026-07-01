@@ -197,6 +197,17 @@ def _parse_date(value) -> tuple[int, int]:
 # NO entry (the discriminator gets series-b right). MAINTENANCE: doc-first edit to SOT §B4, not here.
 DOCUMENTED_STAGE_OVERRIDES = {"signos": "series-b", "bicycle health": "series-b"}
 
+# DATA refresh for companies whose research MISSED real rounds (append -> re-derive the stage; NOT a hand-set
+# stage/tier). equip health: the checkpoint stopped at series-b (2021); adding the real Series C (2024) + the
+# UNDESIGNATED $54M (2025) re-derives to series-c (the $54M does NOT advance to series-d — v1.10 discriminator;
+# confidence low). MAINTENANCE: a human-maintained data patch; a company scored on stale funding data.
+DOCUMENTED_FUNDING_PATCHES = {
+    "equip health": [
+        {"series_designation": "series-c", "type": "series-c", "date": "2024-04", "is_priced_equity": True},
+        {"type": "venture", "date": "2025-07", "is_priced_equity": True},   # $54M, UNDESIGNATED
+    ],
+}
+
 
 def _round_series(r) -> str:
     """The round's DESIGNATED canonical series: an explicit ``series_designation`` when the synthesis
@@ -1585,9 +1596,17 @@ def flatten_checkpoint_row(row) -> dict:
     background_fit) — `score_checkpoint_row` merges those.
 
     The checkpoint's `commercial_evidence` carries the OLD `user_scale_signal` key (pre-v1.3 rename); it is
-    mapped to `sponsored_user_scale` so the §B3 user-scale fallback is not silently dead."""
+    mapped to `sponsored_user_scale` so the §B3 user-scale fallback is not silently dead.
+
+    A `DOCUMENTED_FUNDING_PATCHES` company (research missed real rounds) has those rounds APPENDED to its
+    maturity evidence BEFORE stage derivation — a DATA refresh so the stage re-derives (NOT a hand-set tier)."""
     flat = dict(row)
     parsed = _parse_fit_brief(row)
+    patch = DOCUMENTED_FUNDING_PATCHES.get(_norm_company(row.get("company")))
+    if patch:
+        mat = parsed.setdefault("maturity_evidence", {}) if isinstance(parsed, dict) else {}
+        existing = mat.get("funding_rounds")
+        mat["funding_rounds"] = (existing if isinstance(existing, list) else []) + list(patch)
     flat.update(flatten_slice2_fields(parsed))
     flat.update(flatten_reset_fields(parsed))
     flat.update(flatten_capability_fields(parsed))
