@@ -2128,10 +2128,10 @@ def run_r1(df, *, client, n=5, r2_cases=R1_R2_CASES, model=DEFAULT_MODEL, progre
     rows = [dict(r) for _, r in df.iterrows()]
 
     # --- base reads (once): HARDENED reset re-emission (Option B) -> classifier -> eligibility -> base growth ---
-    classifier, eligible, base_growth = {}, {}, {}
+    classifier, eligible, base_growth, reset_reads = {}, {}, {}, {}
     for row in rows:
         co = se._norm_company(row.get("company"))
-        _r1_apply_hardened_reset(row, client=client, model=model)   # patch fit_brief_json.reset_evidence in place
+        reset_reads[co] = _r1_apply_hardened_reset(row, client=client, model=model)   # patch in place + record
         cls = _r1_classifier_read(row, client=client, model=model)
         classifier[co] = cls
         elig = _r1_floor_eligible(row, cls)
@@ -2158,4 +2158,11 @@ def run_r1(df, *, client, n=5, r2_cases=R1_R2_CASES, model=DEFAULT_MODEL, progre
         if progress:
             progress(f"R1 run {i + 1}/{n} complete")
 
-    return se.revalidate_r1(rosters)
+    report = se.revalidate_r1(rosters)
+    # the hardened re-emitted reset per company (for by-name adjudication: which events fire vs the naive
+    # over-fire, and why — pivot / ipo-prep / growth-support correctly rejected).
+    report["reset_reads"] = {
+        co: {"events": evs, "fires": se.derive_reset_signal({"reset_events": evs})}
+        for co, evs in reset_reads.items()
+    }
+    return report

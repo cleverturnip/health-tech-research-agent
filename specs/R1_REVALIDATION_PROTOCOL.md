@@ -28,12 +28,20 @@ growth extractor, the §B5 background_fit. Their evidence assemblies are TESTED 
 (`classifier_evidence`, `canonical_growth_evidence`, `background_fit_evidence`) — the literal blobs the
 signed cells 180/177/178 fed.
 
-## What re-runs (v1.20)
+## What re-runs (v1.20 + Option-B reset re-emission)
 
-- **Once per company:** §B2 classifier; base §B6 growth (floor-eligible only).
+- **Once per company:** the **§B4 v1.16 HARDENED RESET re-emission** (Option B — see below); §B2 classifier;
+  base §B6 growth (floor-eligible only).
 - **Every pass (LLM-variable):** §B5 background_fit (every floor-eligible company); §B6 growth (R2 cases —
   `pomelo care`, `outcomes4me`, `season health`).
-- **Floored companies:** None reads → P3 every run, **zero LLM spend**.
+- **Floored companies:** None bg/growth reads → P3 every run (they still get the once reset re-emit + classifier).
+
+**Option-B reset re-emission (built into `run_r1`).** The checkpoint's `reset_evidence` was researched with
+the OLD liberal emitter (18 events fire naively). `run_r1` re-runs the **committed hardened v1.16 emitter**
+(validated 5/5 in Commit 3a) over each company's `org_events_finding` and patches `fit_brief_json.reset_evidence`
+in place, so `derive_reset_signal` reads clean type+opening (NO shim). This un-floors `grow` (first-CFO →
+P0) and rejects the liberal over-fires (`sword`/`oura`/`noom` → pivot/ipo-prep/growth-support). **Cost: ~350
+model calls** (≈54 reset + 54 classifier + ~37 base growth + 5×(~37 bg + 3 R2 growth)).
 
 ## Documented exceptions the run must reproduce (each lands as recorded, NOT forced)
 
@@ -68,34 +76,46 @@ from openai import OpenAI
 client = OpenAI(api_key=...)   # your key
 ```
 
-**Cell 3 — run R1 (one call; ~5–20 min, ~200–300 model calls):**
+**Cell 3 — run R1 (one call; ~5–20 min, ~350 model calls incl. the reset re-emission):**
 ```python
 from health_tech_research_agent import research_runner as rr
 rep = rr.run_r1(df, client=client, n=5, progress=print)
 ```
 
-**Cell 4 — the report to paste back:**
+**Cell 4 — the report to paste back (tally + proof companies + component detail + RESET reads):**
 ```python
 print("R1 PASSED:", rep["passed"], "| tally:", rep["tally"], "| target:", rep["target"])
-print("tier_variance (flagged):", rep["tier_variance"])
-for co in ["season health", "affect therapeutics", "equip health", "familywell health",
-           "fay", "foodsmart", "jasper health"]:
-    if co in rep["vectors"]:
-        print(f"  {co:22} runs={rep['vectors'][co]} -> {rep['resolved'][co]}")
-for co in ["function health", "angle health", "oula", "signos", "bicycle health",
-           "pomelo care", "outcomes4me"]:
+print("tier_variance (flagged):", rep["tier_variance"], "| drift:", rep.get("discrepancies"))
+
+print("\n-- proof + exceptions (5-run vectors -> resolved) --")
+for co in ["season health", "affect therapeutics", "equip health", "familywell health", "fay",
+           "foodsmart", "jasper health", "grow therapy", "function health", "angle health", "oula",
+           "signos", "bicycle health", "pomelo care", "outcomes4me"]:
     if co in rep["resolved"]:
-        print(f"  {co:22} -> {rep['resolved'][co]}")
-if rep["discrepancies"]:
-    print("DRIFT (target vs actual):", rep["discrepancies"])
+        print(f"  {co:22} runs={rep['vectors'].get(co)} -> {rep['resolved'][co]}")
+
+print("\n-- RESET reads (hardened re-emit: who fires, and why the naive over-fires are rejected) --")
+for co in sorted(rep["reset_reads"]):
+    rr_ = rep["reset_reads"][co]
+    if rr_["events"]:   # only companies with reset events
+        ev = "; ".join(f"{e.get('event_type')}/{e.get('creates_high_agency_opening')}" for e in rr_["events"])
+        print(f"  {co:22} fires={str(rr_['fires']):5} [{ev}]")
+
+print("\n-- component detail (bg/pmf/strain/stage/final, first run) --")
+for co in sorted(rep["detail"]):
+    d = rep["detail"][co][0]
+    print(f"  {co:22}{str(d['stage']):13} bg={str(d['bg_fit']):4} pmf={str(d['pmf']):4} "
+          f"str={str(d['strain']):3} final={str(d['final']):6} {d['tier']} ({d['layer']})")
+
 if rep["inconsistent_companies"]:
     print("INCONSISTENT:", rep["inconsistent_companies"])
 ```
 
 ## Paste back for adjudication
 
-The Cell-4 output: the per-company 5-run vectors for `season` + the six FINAL-14, the resolved tally, the
-`tier_variance` set, the documented-exception lines, and any DRIFT / INCONSISTENT.
+The Cell-4 output in full: the resolved tally, the proof + exception lines, the **RESET reads** (so we can
+confirm `grow` fires and `sword`/`oura`/`noom` are correctly rejected by substance), the component detail,
+and any DRIFT / INCONSISTENT. We adjudicate **by name**.
 
 ## The adjudication rule (agreed before the run)
 
