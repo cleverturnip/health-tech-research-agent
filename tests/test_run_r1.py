@@ -108,6 +108,17 @@ def test_run_r1_spends_no_llm_on_floored_company():
     assert sum(1 for (k, co) in client.calls if k == "bg" and co == "season health") == 5
 
 
+def test_run_r1_detail_exposes_components_per_run():
+    client = _FakeClient()
+    rep = rr.run_r1(_df(), client=client, n=5)
+    # detail carries the per-run component scores for diagnosis (bug vs drift vs data-change)
+    season = rep["detail"]["season health"]
+    assert len(season) == 5
+    assert season[0]["bg_fit"] == 8 and season[1]["bg_fit"] == 3   # the wobble is visible
+    for run in season:
+        assert set(run) >= {"tier", "final", "bg_fit", "pmf", "strain", "stage"}
+
+
 def test_run_r1_reads_classifier_and_base_growth_once():
     client = _FakeClient()
     rr.run_r1(_df(), client=client, n=5)

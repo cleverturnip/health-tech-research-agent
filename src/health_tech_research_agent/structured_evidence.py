@@ -1514,6 +1514,24 @@ def revalidate_r1(per_run_rosters, *, target=R1_TARGET) -> dict:
     passed = (not discrepancies and not inconsistent
               and sum(tally.values()) == sum(target.values()))
 
+    # Per-company component detail (for diagnosis — bug vs drift vs data-change, never nudge). Tolerant of
+    # roster records that lack the score fields (e.g. synthetic tier-only rosters -> None).
+    detail = {co: [] for co in order}
+    for run in runs:
+        for rec in run:
+            co = _norm_company(rec.get("company"))
+            detail.setdefault(co, []).append({
+                "tier": rec.get("model_priority"),
+                "final": rec.get("final_score"),
+                "bg_fit": rec.get("background_fit"),
+                "pmf": rec.get("pmf"),
+                "strain": rec.get("strain"),
+                "stage": rec.get("funding_stage"),
+                "arr_level": rec.get("arr_level"),
+                "layer": rec.get("layer"),
+                "floor_reason": rec.get("floor_reason"),
+            })
+
     return {
         "passed": passed,
         "n_runs": n,
@@ -1524,6 +1542,7 @@ def revalidate_r1(per_run_rosters, *, target=R1_TARGET) -> dict:
         "tier_variance": sorted(flagged),
         "discrepancies": discrepancies,
         "inconsistent_companies": sorted(inconsistent),
+        "detail": detail,
     }
 
 
