@@ -1953,6 +1953,72 @@ def run_research_batch(
 
 
 # =============================================================================
+# HARDENED RESET RE-EMITTER (§B4 v1.16) — Commit 8 (Option B).
+#
+# The R1 checkpoint's reset_evidence was researched with the OLD pre-v1.5 emitter (liberal opening=yes on
+# many leadership-change events), so a naive type+opening read over-fires. Option B fixes the DATA, not the
+# deterministic engine: re-run the COMMITTED hardened v1.16 substance-classifier (the one validated 5/5 in
+# Commit 3a — grow/foodsmart FIRE; sword/oura/noom EXCLUDE by substance) over each company's org_events, so
+# the checkpoint carries correct classifications and `derive_reset_signal` stays clean (type + opening only,
+# NO basis-regex shim). The substance wording below is the SAME block embedded in build_fit_brief_prompt (a
+# sync test asserts byte-identity) — this is a standalone re-run of committed wording, not a fresh draft.
+# =============================================================================
+
+_RESET_SUBSTANCE_BLOCK = """Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
+A company may be doing SEVERAL of these at once. List EACH distinct event as its own object in reset_events, answer the opening question PER EVENT on its own terms, and do NOT let one event's nature determine another's. If you find no reset/restructure events, return an empty list [].
+
+CLASSIFY BY SUBSTANCE, NOT PRESS FRAMING. Judge each event on what ACTUALLY changed, never on the company's label for it. "Transformation," "evolution," "pivotal," "next chapter" are marketing words — they do not decide event_type. You are the single emitter: classify event_type and read the opening from the underlying facts, even when that means re-classifying how the source framed it. (The per-event reads in the "Recent org / leadership events" findings are inputs to weigh, not labels to transcribe.)
+
+For each event:
+- event_type — choose by SUBSTANCE:
+  - leadership-change — a new CEO / senior exec brought in to BUILD or TURN AROUND the company (a reopened operating window). NOT a routine functional hire to staff ongoing growth (see the opening rule).
+  - founder-transition — founder stepping back / bringing in professional leadership to scale.
+  - post-failure-rebuild — rebuilding after a stumble, with a forward mandate.
+  - restructuring-layoffs — restructuring / layoffs. EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question for THIS event decides.
+  - declared-transformation — an OPERATING-MODEL rebuild: rebuilding HOW the company runs INTERNALLY (its operating systems, org, processes). Reserve STRICTLY for an internal operating rebuild. A change to WHAT the company sells, its product line, its pricing, or its go-to-market is NOT this.
+  - strategic-pivot — a change to the BUSINESS MODEL, PRODUCT STRATEGY, PRICING, or GO-TO-MARKET: e.g. D2C -> payer / B2B; a new product category or an "evolution" into a different kind of product; a pricing-model change (engagement-based -> outcome-based); expansion into a new clinical / product area. This is strategic-pivot EVEN IF framed as a "transformation," "evolution," or "pivotal" moment. ("Changed/added what we sell or how we price/sell it" = strategic-pivot; "rebuilding how we operate internally" = declared-transformation.)
+  - ma-integration — merger / acquisition integration work.
+  - ipo-prep — IPO preparation: an S-1 / draft (incl. confidential) registration statement, public-market-readiness, or "going public" activity. A MATURE-TRAJECTORY event, the OPPOSITE of a reopened build-window. Classify ALL IPO / S-1 / public-market-readiness events here, even when framed as a "transformation" or "next chapter."
+- basis — cite the source + date for THIS event.
+- creates_high_agency_opening — for THIS event, by HONEST confidence:
+  - "yes" ONLY when THIS event CLEARLY reopens a high-agency window (the company is actively rebuilding / turning around and needs a senior operator to BUILD). Do NOT round up to "yes" when uncertain.
+  - "no" when THIS event is a DEFENSIVE reaction (a pivot under pressure, a contraction toward survival/decline, routine integration) or a MATURE-trajectory event (ipo-prep).
+  - "unclear" when the evidence doesn't let you tell.
+  - EXEC ADD — read the opening by STRUCTURAL ROLE, not the company's growth framing: a senior exec ADDED to SUPPORT / DRIVE / SCALE an existing growth / expansion / partnerships / commercial motion (a CMO, CRO, or similar growth / commercial hire — "expanding the executive team" to fuel growth) -> "unclear". This is the common scaling-company case and is NOT a reopened build-window, EVEN when the title is senior. Emit "yes" for an exec add ONLY for a CLEAR structural reset — a NEW CEO replacing the prior CEO, a founder stepping back for professional leadership, OR a FIRST-EVER / NEWLY-CREATED C-suite seat that stands up a function the company did NOT previously have (e.g. its FIRST CFO building finance / operating discipline). The test: does this BUILD a missing operating function (-> "yes") or STAFF an existing growth thrust (-> "unclear")?
+  - Example: a company that (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
+(The deterministic rule downstream fires ONLY when event_type is a firing type AND creates_high_agency_opening == "yes". strategic-pivot, ma-integration, and ipo-prep NEVER fire; "unclear" / "no" never fire; multiple "unclear" events do NOT sum to a fire. Your job is an honest per-event SUBSTANCE classification + an honest opening read — the deterministic code decides what fires.)"""
+
+
+RESET_EMITTER_PROMPT_TEMPLATE = (
+    "You classify a health company's recent org / leadership events into canonical reset_events.\n"
+    + _RESET_SUBSTANCE_BLOCK
+    + "\n\nOutput ONE JSON object and nothing else:\n"
+    + '{{"reset_events": [{{"event_type": "...", "basis": "...", "creates_high_agency_opening": "yes / no / unclear"}}]}}\n'
+    + "\nCompany: {company}\nRecent org / leadership events:\n{events}"
+)
+
+
+def build_reset_emitter_prompt(company_name, events) -> str:
+    """Build the standalone §B4 v1.16 hardened reset-emitter prompt (the committed substance block, run on
+    its own over org_events evidence). Pure function: no LLM call. The LLM emits reset_events; the
+    deterministic ``structured_evidence.derive_reset_signal`` decides what fires."""
+    return RESET_EMITTER_PROMPT_TEMPLATE.format(company=company_name, events=events)
+
+
+def run_company_reset(company_name, events, *, client, model: str = DEFAULT_MODEL, max_output_tokens: int = 400):
+    """Run the §B4 v1.16 hardened reset re-emission for one company: build the prompt, call the model with
+    web search OFF, return the raw model text (one JSON object with a reset_events list). Reads STORED
+    org_events evidence (Rule 7) — no web search."""
+    return call_openai(
+        build_reset_emitter_prompt(company_name, events),
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+# =============================================================================
 # R1 RE-VALIDATION ORCHESTRATION (§B7 v1.20 N=5 stability) — Commit 8.
 #
 # The live driver behind the R1 re-validation: reproduce the spike tiering by NAMED company
@@ -2009,9 +2075,35 @@ def _r1_background_fit_read(row, *, client, model):
     return d.get("background_fit")
 
 
+def _r1_apply_hardened_reset(row, *, client, model):
+    """Re-emit the §B4 v1.16 hardened reset over the row's org_events_finding and PATCH the row's
+    fit_brief_json.reset_evidence with it, so every downstream read (flatten -> eligibility -> scoring) uses
+    the hardened classification (Option B — fix the DATA, not the deterministic engine). Returns the
+    re-emitted reset_events. Runs ONCE per company (reset is not part of the bg_fit / growth N-pass
+    variance)."""
+    raw = run_company_reset(row["company"], str(row.get("org_events_finding") or ""), client=client, model=model)
+    events = _extract_json(raw).get("reset_events", [])
+    if not isinstance(events, list):
+        events = []
+    fbj = row.get("fit_brief_json")
+    parsed = {}
+    if isinstance(fbj, dict):
+        parsed = dict(fbj)
+    elif isinstance(fbj, str) and fbj.strip():
+        try:
+            parsed = json.loads(fbj)
+        except (ValueError, TypeError):
+            parsed = {}
+    parsed["reset_evidence"] = {"reset_events": events}
+    row["fit_brief_json"] = json.dumps(parsed)
+    return events
+
+
 def _r1_floor_eligible(row, classifier_read) -> bool:
     """A company is scored for stability (bg_fit + growth re-run) ONLY if it passes PATH + AGENCY and is a
-    consumer (background_fit applies). A floored company is P3 every run — no LLM spend on it."""
+    consumer (background_fit applies). A floored company is P3 every run — no LLM spend on it. Reset is read
+    off the FLATTENED row via the strict reader (consistent with score_company — the raw-vs-flat
+    inconsistency is the bug that floored grow invisibly)."""
     flat = se.flatten_checkpoint_row(row)
     business_model, _ = se.business_model_for(
         row.get("company"), classifier_read["who_uses"], classifier_read["who_pays"],
@@ -2021,7 +2113,7 @@ def _r1_floor_eligible(row, classifier_read) -> bool:
     stage = se._norm_stage(flat.get("funding_stage"))
     if key in se.DOCUMENTED_STAGE_OVERRIDES:
         stage = se.DOCUMENTED_STAGE_OVERRIDES[key]
-    agency_passed, _, _ = se.agency_gate(stage, se.derive_reset_signal(row), ipo_status=flat.get("ipo_status"))
+    agency_passed, _, _ = se.agency_gate(stage, se.reset_signal_for_row(flat), ipo_status=flat.get("ipo_status"))
     return path_passed and agency_passed and se.background_fit_applies(classifier_read["who_uses"])
 
 
@@ -2035,10 +2127,11 @@ def run_r1(df, *, client, n=5, r2_cases=R1_R2_CASES, model=DEFAULT_MODEL, progre
     r2 = {se._norm_company(c) for c in r2_cases}
     rows = [dict(r) for _, r in df.iterrows()]
 
-    # --- base reads (once): classifier for all; floor-eligibility; base growth for eligible ---
+    # --- base reads (once): HARDENED reset re-emission (Option B) -> classifier -> eligibility -> base growth ---
     classifier, eligible, base_growth = {}, {}, {}
     for row in rows:
         co = se._norm_company(row.get("company"))
+        _r1_apply_hardened_reset(row, client=client, model=model)   # patch fit_brief_json.reset_evidence in place
         cls = _r1_classifier_read(row, client=client, model=model)
         classifier[co] = cls
         elig = _r1_floor_eligible(row, cls)

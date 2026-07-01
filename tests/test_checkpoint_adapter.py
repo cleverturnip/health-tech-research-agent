@@ -138,6 +138,17 @@ def test_score_checkpoint_row_end_to_end():
     assert out["final_priority"] in se.PRIORITY_TIERS
 
 
+def test_reset_signal_for_row_raises_on_unflattened_row():
+    # the raw checkpoint row has no reset_events_json -> reading reset on it is a WIRING BUG -> raise LOUD
+    # (this is the class of bug that floored grow invisibly)
+    import pytest
+    with pytest.raises(KeyError):
+        se.reset_signal_for_row({"company": "x"})   # no reset_events_json
+    # a flattened row is fine
+    flat = se.flatten_checkpoint_row(_row())
+    assert se.reset_signal_for_row(flat) in (True, False)
+
+
 def test_score_checkpoint_row_absent_growth_is_not_a_crash():
     # no growth_read -> genuine-absent (pmf cap), never a guessed rate
     out = se.score_checkpoint_row(_row(), classifier_read={"who_uses": "consumer", "who_pays": "consumer"},

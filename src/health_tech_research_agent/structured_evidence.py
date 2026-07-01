@@ -526,6 +526,23 @@ def derive_reset_signal(obj) -> bool:
     return False
 
 
+def reset_signal_for_row(row) -> bool:
+    """The STRICT reset reader for the SCORING / gate path: the row MUST carry a materialized
+    ``reset_events_json`` column (i.e. it was flattened via ``flatten_*``). A missing column is a WIRING
+    BUG — an un-flattened row reached the gate — and RAISES, rather than silently reading False. That
+    silent-False on absent data is exactly how a reset-dependent company (grow) floored invisibly: the
+    eligibility path read reset off the RAW row (no column -> False) while ``score_company`` read it off the
+    flattened row (column present -> the real answer). Use this everywhere reset gates a decision so the two
+    paths cannot disagree and the bug class stays LOUD. (``derive_reset_signal`` keeps its flexible
+    dict/json/list input for the emitter path.)"""
+    if "reset_events_json" not in row:
+        raise KeyError(
+            "reset_events_json absent — the row was not flattened before reset gating "
+            "(use structured_evidence.flatten_checkpoint_row). Refusing to read reset as a silent False."
+        )
+    return derive_reset_signal(row)
+
+
 def reset_needs_review(obj) -> bool:
     """True if any event carries a non-empty event_type that is NOT one of the seven recognized
     types (after normalization). Such events do not fire and are surfaced for human review
@@ -1420,7 +1437,7 @@ def score_company(row, *, background_fit=None) -> dict:
     stage = _norm_stage(_row_get(row, "funding_stage"))
     if key in DOCUMENTED_STAGE_OVERRIDES:
         stage = DOCUMENTED_STAGE_OVERRIDES[key]
-    reset_fired = derive_reset_signal(row)
+    reset_fired = reset_signal_for_row(row)
     agency_passed, agency_reason, _late_c = agency_gate(stage, reset_fired, ipo_status=_row_get(row, "ipo_status"))
 
     # §B6 PMF — deterministic ARR-level (Scale A) + the Commit-5b structured growth read (Scale B / qual).

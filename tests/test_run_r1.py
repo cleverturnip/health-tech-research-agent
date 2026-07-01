@@ -52,7 +52,10 @@ class _FakeResponses:
             if line.strip().lower().startswith("company:"):
                 company = line.split(":", 1)[1].strip().lower()
                 break
-        if "who_uses" in prompt:                       # §B2 classifier
+        if "reset_events" in prompt:                   # §B4 hardened reset re-emitter
+            kind = "reset"
+            text = json.dumps({"reset_events": []})    # series-b companies: reset irrelevant to gating
+        elif "who_uses" in prompt:                     # §B2 classifier
             kind, who = "classifier", ("professional", "institution") if company == "medforce" else (
                 "consumer", "mixed" if company == "season health" else "consumer")
             text = json.dumps({"who_uses": who[0], "who_pays": who[1], "who_uses_confidence": "high"})
@@ -100,9 +103,9 @@ def test_run_r1_end_to_end_flags_wobble_and_floors_professional():
 def test_run_r1_spends_no_llm_on_floored_company():
     client = _FakeClient()
     rr.run_r1(_df(), client=client, n=5)
-    # medforce (professional) is classified once, then NEVER bg/growth-scored
+    # medforce (professional) gets the once-per-company reset re-emit + classifier, then NEVER bg/growth-scored
     med_calls = [k for (k, co) in client.calls if co == "medforce"]
-    assert med_calls == ["classifier"]
+    assert med_calls == ["reset", "classifier"]
     # the two eligible companies get bg_fit on each of the 5 passes
     assert sum(1 for (k, co) in client.calls if k == "bg" and co == "acme") == 5
     assert sum(1 for (k, co) in client.calls if k == "bg" and co == "season health") == 5
@@ -122,7 +125,8 @@ def test_run_r1_detail_exposes_components_per_run():
 def test_run_r1_reads_classifier_and_base_growth_once():
     client = _FakeClient()
     rr.run_r1(_df(), client=client, n=5)
-    # classifier: exactly once per company (3); base growth once for each eligible (acme, season)
+    # reset re-emit + classifier: exactly once per company (3 each); base growth once for each eligible
+    assert sum(1 for (k, _) in client.calls if k == "reset") == 3
     assert sum(1 for (k, _) in client.calls if k == "classifier") == 3
     # growth: 2 base + 5 R2 re-runs for season (acme is not an R2 case) = 7
     assert sum(1 for (k, _) in client.calls if k == "growth") == 7
