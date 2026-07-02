@@ -64,8 +64,9 @@ class _FakeResponses:
         elif "BACKGROUND FIT" in prompt:               # §B5 bg_fit — a STABLE read per company (temp-0-free)
             kind, val = "bg", (6 if company == "season health" else 8)
             text = json.dumps({"background_fit": val, "data_feedback_loop": "no", "basis": "x"})
-        else:                                          # §B6 v1.24 growth BAND classification
-            kind, text = "growth", json.dumps({"growth_band": "high", "evidence": "60% YoY (company)"})
+        else:                                          # §B6 v1.25 growth BAND classification
+            kind, text = "growth", json.dumps({"growth_band": "high", "growth_basis": "revenue-trajectory",
+                                               "source_mode": "complementary-multi", "evidence": "60% YoY (company)"})
         self.outer.calls.append((kind, company))
         return type("R", (), {"output_text": text})()
 

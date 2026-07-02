@@ -1,10 +1,11 @@
-"""§B6 v1.24 — deterministic tests for the BAND-CLASSIFICATION growth extractor (signed-off wording).
+"""§B6 v1.24/v1.25 — deterministic tests for the BAND-CLASSIFICATION growth extractor (signed-off wording).
 
 The extractor is LLM-facing; its LIVE validation is the Colab R1 run. Offline here:
-  1. PROMPT FIDELITY — the band schema, the STAGE-AWARE Scale-B cutpoints, and the §B6.1 fence are
-     byte-faithful in the production prompt.
-  2. PARSE — normalize_growth_read / flatten_growth_read (band normalization; malformed -> unknown).
-  3. SCORE INTEGRATION — score_growth maps band -> score (HIGH=9 / SOLID=6 / SLOW=3 / UNKNOWN=4).
+  1. PROMPT FIDELITY — the band + basis + source-mode schema, the STAGE-AWARE Scale-B cutpoints, the v1.25
+     trajectory-magnitude rule (complementary-multi allowed) and the HARD fence are byte-faithful.
+  2. PARSE — normalize_growth_read / flatten_growth_read (band/basis/source_mode; malformed -> unknown).
+  3. SCORE INTEGRATION — score_growth maps band -> score (HIGH=9 / SOLID=6 / SLOW=3 / UNKNOWN=4), and the
+     v1.25 FENCE BACKSTOP forces UNKNOWN when the basis is counts-scale / none (pomelo).
   4. BAND-vs-SCALE-B ±2 VALIDATION — band_for_rate agrees with the retired Scale-B interpolation within ±2
      on the named clean-rate anchors (the bands preserve the phase-relative intent).
 """
@@ -40,16 +41,28 @@ def test_prompt_injects_stage_scale_b_cutpoints():
     assert "(public)" in pub and "62%" in pub and "35%" in pub
 
 
-def test_prompt_classifies_never_derives():
+def test_prompt_bands_on_trajectory_magnitude_complementary_multi_allowed():
+    # v1.25: the WRONG "never combine two sources" rule is GONE; complementary-multi is allowed, only a
+    # genuine same-period CONFLICT is refused.
     p = _prompt()
-    assert "You CLASSIFY into a band; you do NOT compute or combine numbers" in p
-    assert "NEVER combine two DIFFERENT sources into a rate" in p
+    assert "You CLASSIFY into a band; you do NOT compute a precise rate" in p
+    assert "NEVER combine two DIFFERENT sources into a rate" not in p     # the wrong rule is removed
+    assert "COMPLEMENTARY revenue points from DIFFERENT sources/years" in p
+    assert "REFUSE only a genuine CONFLICT" in p
+    assert "TRAJECTORY MAGNITUDE" in p
+
+
+def test_prompt_emits_basis_and_source_mode_schema():
+    p = _prompt()
     assert '"growth_band": "high" | "solid" | "slow" | "unknown"' in p
+    assert '"growth_basis": "revenue-rate" | "revenue-trajectory" | "counts-scale" | "none"' in p
+    assert '"source_mode": "single-source" | "complementary-multi" | "conflict" | "none"' in p
 
 
-def test_prompt_keeps_the_b6_1_fence():
+def test_prompt_hard_fence_counts_to_unknown():
     p = _prompt()
-    assert "NEVER band on a count" in p
+    assert "NEVER band HIGH/SOLID on counts" in p
+    assert 'the band is "unknown" and "growth_basis" is "counts-scale"' in p
     assert "do NOT manufacture growth" in p
 
 
@@ -69,13 +82,26 @@ def test_unrecognized_or_missing_band_falls_to_unknown():
     assert se.normalize_growth_read(None)["growth_band"] == "unknown"
 
 
+def test_normalize_carries_basis_and_source_mode():
+    read = se.normalize_growth_read({"growth_band": "high", "growth_basis": "revenue-trajectory",
+                                     "source_mode": "complementary-multi", "evidence": "x"})
+    assert read["growth_basis"] == "revenue-trajectory"
+    assert read["source_mode"] == "complementary-multi"
+    # unrecognized basis / mode -> '' (NOT fenced; back-compat)
+    loose = se.normalize_growth_read({"growth_band": "high", "growth_basis": "vibes"})
+    assert loose["growth_basis"] == "" and loose["source_mode"] == ""
+
+
 def test_flatten_growth_read_columns():
-    parsed = {"growth_read": {"growth_band": "solid", "evidence": "35% YoY (Latka)"}}
+    parsed = {"growth_read": {"growth_band": "solid", "growth_basis": "revenue-rate",
+                              "source_mode": "single-source", "evidence": "35% YoY (Latka)"}}
     cols = se.flatten_growth_read(parsed)
     assert cols["growth_band"] == "solid"
+    assert cols["growth_basis"] == "revenue-rate"
+    assert cols["growth_source_mode"] == "single-source"
     assert cols["growth_evidence"] == "35% YoY (Latka)"
     assert se.flatten_growth_read({"company": "x"})["growth_band"] == "unknown"
-    assert se.GROWTH_READ_FIELDS == ["growth_band", "growth_evidence"]
+    assert se.GROWTH_READ_FIELDS == ["growth_band", "growth_basis", "growth_source_mode", "growth_evidence"]
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +127,35 @@ def test_fenced_count_only_company_bands_unknown_not_a_leaked_rate():
     read = se.normalize_growth_read({"growth_band": "unknown", "evidence": "only covered-lives growth (fenced)"})
     score, _ = se.score_growth(read, "series-c")
     assert score == 4
+
+
+# ---------------------------------------------------------------------------
+# 3b. v1.25 FENCE BACKSTOP (gate-in-code) + complementary-multi allowed.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("basis", ["counts-scale", "none"])
+def test_fence_backstop_forces_unknown_even_if_llm_bands_high(basis):
+    # pomelo case: the LLM banded HIGH but its OWN basis says counts/none -> code FORCES UNKNOWN=4.
+    read = se.normalize_growth_read({"growth_band": "high", "growth_basis": basis,
+                                     "evidence": "covered-lives / member scale expansion"})
+    score, note = se.score_growth(read, "series-c")
+    assert score == 4
+    assert "FENCED" in note
+
+
+def test_revenue_basis_bands_are_honored():
+    # a HIGH band resting on a real revenue basis is NOT fenced (equip/bicycle complementary-multi trajectory).
+    for basis, mode in [("revenue-rate", "single-source"), ("revenue-trajectory", "complementary-multi")]:
+        read = se.normalize_growth_read({"growth_band": "high", "growth_basis": basis, "source_mode": mode,
+                                         "evidence": "$4.5M-2021 (Latka) + $35M-2023 (CB Insights)"})
+        score, note = se.score_growth(read, "series-c")
+        assert score == 9 and "FENCED" not in note
+
+
+def test_absent_basis_is_not_fenced_backcompat():
+    # a read with NO basis (old-style / a test) is honored, not fenced (back-compat).
+    score, note = se.score_growth({"growth_band": "high", "evidence": "x"}, "series-c")
+    assert score == 9 and "FENCED" not in note
 
 
 # ---------------------------------------------------------------------------

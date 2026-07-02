@@ -1581,23 +1581,30 @@ def run_company_background_fit(
 # are SCALE) is preserved. Pure builder so it is asserted in tests without an API key.
 # =============================================================================
 
-GROWTH_BAND_EXTRACTOR_PROMPT_TEMPLATE = """You classify a health company's REVENUE-GROWTH into ONE band, for a downstream stage-relative growth score. Read the evidence and emit ONE growth read. You CLASSIFY into a band; you do NOT compute or combine numbers.
+GROWTH_BAND_EXTRACTOR_PROMPT_TEMPLATE = """You classify a health company's REVENUE-GROWTH into ONE band, for a downstream stage-relative growth score. Read the evidence and emit ONE growth read. You CLASSIFY into a band; you do NOT compute a precise rate.
 
 Output ONE JSON object and nothing else:
-{{"growth_band": "high" | "solid" | "slow" | "unknown", "evidence": "<one line: the rate/trajectory + its source that you banded on; write 'declining' explicitly if revenue is shrinking>"}}
+{{"growth_band": "high" | "solid" | "slow" | "unknown",
+  "growth_basis": "revenue-rate" | "revenue-trajectory" | "counts-scale" | "none",
+  "source_mode": "single-source" | "complementary-multi" | "conflict" | "none",
+  "evidence": "<one line: the figures + their sources + the trajectory you banded on; write 'declining' if revenue is shrinking>"}}
 
 THE BANDS -- phase-relative; the cutoffs below are for THIS company's stage ({stage}):
-- "high"  -- fast-growing FOR ITS STAGE: year-over-year REVENUE growth AT OR ABOVE {high_cut}%, OR "tripled / 3x / Nx", OR a clearly-high revenue run-rate reached fast for the stage.
-- "solid" -- real, credible growth: YoY REVENUE growth roughly {solid_lo}%-{high_cut}% for this stage, or clear revenue-scaling language.
-- "slow"  -- modest / decelerating / DECLINING: YoY REVENUE growth BELOW {solid_lo}% for this stage, flat, or shrinking. (If revenue is actually shrinking, still band "slow" AND write "declining" in evidence.)
-- "unknown" -- NO credible REVENUE-growth signal in the evidence. Do NOT guess; do NOT manufacture growth. This is a neutral, honestly-absent read.
+- "high"  -- fast-growing FOR ITS STAGE: revenue growth AT OR ABOVE {high_cut}% YoY, OR "tripled / 3x / Nx", OR a clearly-high revenue run-rate/trajectory for the stage.
+- "solid" -- real, credible revenue growth: roughly {solid_lo}%-{high_cut}% YoY for this stage, or a clear multi-fold revenue trajectory that lands in this range.
+- "slow"  -- modest / decelerating / DECLINING: below {solid_lo}% YoY for this stage, flat, or shrinking. (If revenue is shrinking, band "slow" AND write "declining" in evidence.)
+- "unknown" -- NO credible REVENUE-growth signal. Do NOT guess; do NOT manufacture growth.
 
-HOW TO BAND:
-- A growth rate STATED by the company OR by ONE analyst (Latka / CB Insights / Growjo / Sacra / ...) is a valid banding signal -- use it against the cutoffs above. NEVER combine two DIFFERENT sources into a rate; if the only figures are single points from different publishers and none states a growth rate, band on the trajectory language, or use "unknown".
+HOW TO BAND -- TRAJECTORY MAGNITUDE, not a precise rate:
+- You read the ORDER OF MAGNITUDE of the revenue trajectory (grew ~Nx over ~M years) and pick the band -- you do NOT need an exact rate.
+- A band MAY rest on: (a) a single-source stated rate; (b) a single-source revenue series (SAME source, 2+ dated points); OR (c) COMPLEMENTARY revenue points from DIFFERENT sources/years with NO competing estimate for the same period (e.g. $4.5M-2021 from one shop + $35M-2023 from another) -- read TOGETHER as a trajectory magnitude. Two independent shops both showing several-fold growth is MORE credible, not less -- do NOT refuse them.
+- REFUSE only a genuine CONFLICT: two sources giving CONTRADICTORY figures for the SAME period. Then do not manufacture a number -> band on the most-credible single point, else "unknown". (Different years from different shops is NOT a conflict.)
 - A launch-from-$0 revenue trajectory ($0 -> $N): band by how large $N is FOR THE STAGE (a big run-rate reached fast is "high").
+- Set "source_mode": "single-source" | "complementary-multi" (different years/sources, no same-period conflict) | "conflict" (contradictory same-period) | "none" (no revenue figures).
 
-REVENUE / $ ONLY -- the FENCE (the most important rule):
-- Band ONLY on revenue / ARR / $ growth. NON-revenue COUNTS -- covered lives, patients, members, users, downloads, MAU, headcount, partners -- are SCALE, NOT revenue. NEVER band on a count. ("Covered lives rose 50%" / "patients grew 485%" is NOT revenue growth -- if that is all you have, use "unknown".)
+REVENUE / $ ONLY -- the FENCE (HARD, the most important rule):
+- A band may rest ONLY on REVENUE / ARR / $ growth. NON-revenue COUNTS -- covered lives, members, patients, users, downloads, MAU, headcount, partners -- are SCALE, NOT revenue. If the ONLY growth signal is a count/scale figure, the band is "unknown" and "growth_basis" is "counts-scale". NEVER band HIGH/SOLID on counts. ("Covered lives rose 50%" / "members grew 3x" / "patients grew 485%" is NOT revenue growth.)
+- Set "growth_basis": "revenue-rate" (a stated %/multiple) | "revenue-trajectory" (dated revenue points read as magnitude) | "counts-scale" (only non-revenue counts -> band MUST be "unknown") | "none" (no growth signal at all).
 
 Company: {company}
 Evidence:

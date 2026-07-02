@@ -1,10 +1,10 @@
-# Commit 8 — R1 RE-VALIDATION PROTOCOL (§B v1.24 — caching; growth BAND + bg N=4-average)
+# Commit 8 — R1 RE-VALIDATION PROTOCOL (§B v1.25 — caching; growth BAND [trajectory + hard fence] + bg N=4-average)
 
 > The R1 re-validation is the LAST Phase-3 hardening step: re-derive the tiering by NAMED company
 > (`R1_TARGET = P0=4 / P1=6 / P2=6 / P3=38`, the live-54 — an OUTPUT re-validated by name, never forced) by
 > taking each company's four §B reads ONCE, caching them, and scoring off the cache. It is a LIVE Colab job.
-> Code branch `phase3-commit8-r1` (v1.24 = commit `730df7e`), against SOT **v1.24** (docs-scoring-sot
-> `c84a91c`). **R1 is an HONEST check — a tally that only hits 4/6/6/38 via a quiet threshold nudge is a
+> Code branch `phase3-commit8-r1` (v1.25 — growth BAND on trajectory magnitude + HARD fence), against SOT
+> **v1.25** (docs-scoring-sot). **R1 is an HONEST check — a tally that only hits 4/6/6/38 via a quiet threshold nudge is a
 > FAILED R1. Drift is diagnosed real-bug vs documented-exception BEFORE any re-fit; a re-fit is doc-first,
 > never a silent nudge.**
 >
@@ -107,7 +107,10 @@ from health_tech_research_agent import structured_evidence as se
 assert hasattr(se, "GROWTH_BAND_SCORE"), "STILL OLD CODE — growth band scorer missing; reinstall (delete runtime)"
 assert hasattr(se, "floored_on_bg"), "STILL OLD CODE — floored_on_bg missing; reinstall (delete runtime)"
 assert not hasattr(se, "derive_growth_from_figures"), "STILL OLD CODE — derive subsystem present; reinstall"
-print("v1.24 OK — bands:", se.GROWTH_BAND_SCORE)     # -> {'high': 9, 'solid': 6, 'slow': 3, 'unknown': 4}
+assert "growth_basis" in se.GROWTH_READ_FIELDS, "STILL v1.24 — the v1.25 fence/basis is missing; reinstall"
+# v1.25 fence backstop: a counts-scale basis is FORCED to UNKNOWN (=4) even if the LLM banded HIGH
+assert se.score_growth({"growth_band": "high", "growth_basis": "counts-scale"})[0] == 4, "v1.25 fence not active"
+print("v1.25 OK — bands:", se.GROWTH_BAND_SCORE, "| fields:", se.GROWTH_READ_FIELDS)
 ```
 
 **Cell 2 — OpenAI client (your existing Step-2 setup):**

@@ -1049,6 +1049,13 @@ PMF_NEUTRAL_HALF = 4          # single-absent-half neutral, v1.24-RESCOPED to th
 GROWTH_BAND_SCORE = {"high": 9, "solid": 6, "slow": 3, "unknown": 4}
 GROWTH_BANDS = frozenset(GROWTH_BAND_SCORE)
 
+# §B6 v1.25 — the band's declared BASIS (what evidence it rests on) + the multi-SOURCE mode (review trail).
+# The FENCE backstop (score_growth) forces UNKNOWN when the basis is counts-scale / none — the
+# mechanically-checkable fence the LLM sometimes violates (pomelo banded HIGH on covered-lives) goes in code.
+GROWTH_BASES = frozenset({"revenue-rate", "revenue-trajectory", "counts-scale", "none"})
+GROWTH_FENCED_BASES = frozenset({"counts-scale", "none"})   # a band on these can NEVER be HIGH/SOLID -> UNKNOWN
+GROWTH_SOURCE_MODES = frozenset({"single-source", "complementary-multi", "conflict", "none"})
+
 # §B6.1 FENCE — terms that mark a NON-revenue COUNT (scale, not growth): these must NOT feed growth_score.
 _FENCE_RE = re.compile(
     r"headcount|employee|staff|download|install|\bmau\b|\busers?\b|user-scale|registered|active users|"
@@ -1129,18 +1136,27 @@ def arr_level_score(revenue_text, stage):
 
 
 def score_growth(growth_read, stage=None):
-    """Score a BAND-CLASSIFIED growth read (§B6 v1.24). The read carries ``{growth_band, evidence}``; the band
-    maps HIGH=9 / SOLID=6 / SLOW=3 / UNKNOWN=4. The mapping is stage-INDEPENDENT — the phase-relativity is
-    already baked into the band the extractor assigned using the stage's Scale-B cutpoints (``band_for_rate``
-    is the deterministic anchor). Returns ``(score, note)``. An unrecognized / missing band -> UNKNOWN=4
-    (neutral, Rule-8 honest-absence): growth is NEVER None now, so the v1.23 pmf growth-absence cap is retired.
-    ``stage`` is accepted for caller compatibility but not used (band -> score needs no stage)."""
+    """Score a BAND-CLASSIFIED growth read (§B6 v1.24/v1.25). The read carries ``{growth_band, growth_basis,
+    source_mode, evidence}``; the band maps HIGH=9 / SOLID=6 / SLOW=3 / UNKNOWN=4 (stage-INDEPENDENT — the
+    phase-relativity is already baked into the band the extractor assigned against the stage's Scale-B
+    cutpoints). Returns ``(score, note)``.
+
+    §B6 v1.25 FENCE BACKSTOP (gate-in-code): a band that RESTS on non-revenue counts/scale (or on nothing) can
+    NEVER be HIGH/SOLID — if ``growth_basis`` is ``counts-scale`` / ``none``, the band is FORCED to UNKNOWN
+    here regardless of what the extractor emitted (the mechanically-checkable fence the LLM sometimes violates,
+    e.g. `pomelo` banding HIGH on covered-lives). An absent/unspecified basis is NOT fenced (back-compat: the
+    band stands). An unrecognized / missing band -> UNKNOWN=4 (Rule-8 honest-absence). ``stage`` is accepted
+    for caller compatibility but not used."""
     read = growth_read if isinstance(growth_read, dict) else {}
     band = _norm_enum(read.get("growth_band"))
     if band not in GROWTH_BAND_SCORE:
         band = "unknown"
+    basis = _norm_enum(read.get("growth_basis"))
+    fenced = ""
+    if basis in GROWTH_FENCED_BASES and band != "unknown":
+        band, fenced = "unknown", f" [FENCED:{basis}]"     # counts/none basis -> never HIGH/SOLID
     evidence = _safe_text(read.get("evidence")) or "no-signal"
-    return GROWTH_BAND_SCORE[band], f"{band}({evidence})"
+    return GROWTH_BAND_SCORE[band], f"{band}({evidence}){fenced}"
 
 
 def pmf_score(arr_level, growth):
@@ -1153,27 +1169,39 @@ def pmf_score(arr_level, growth):
     return round(PMF_LEVEL_WEIGHT * al + PMF_GROWTH_WEIGHT * g)
 
 
-# Growth-read columns persisted from the §B6 v1.24 BAND extractor (Rule-7: the band + its evidence trail).
-GROWTH_READ_FIELDS = ["growth_band", "growth_evidence"]
+# Growth-read columns persisted from the §B6 v1.25 BAND extractor (Rule-7: band + basis + source-mode + trail).
+GROWTH_READ_FIELDS = ["growth_band", "growth_basis", "growth_source_mode", "growth_evidence"]
 
 
 def normalize_growth_read(block) -> dict:
-    """Normalize the §B6 v1.24 band-extractor JSON into the structured read ``score_growth`` consumes:
-    ``{growth_band, evidence}``. The band is normalized to one of high/solid/slow/unknown; an unrecognized /
-    missing band -> 'unknown' (Rule 8, honest-absence, never a fabricated growth). Tolerant of a non-dict
-    block. (v1.24 SUPERSEDES the v1.23 figures/derive schema — the extractor now BANDS, never derives.)"""
+    """Normalize the §B6 v1.25 band-extractor JSON into the structured read ``score_growth`` consumes:
+    ``{growth_band, growth_basis, source_mode, evidence}``. The band is normalized to high/solid/slow/unknown
+    (unrecognized/missing -> 'unknown', Rule 8). ``growth_basis`` (revenue-rate / revenue-trajectory /
+    counts-scale / none) drives the §B6 v1.25 fence backstop; an unrecognized/absent basis -> '' (NOT fenced,
+    back-compat — the band stands). ``source_mode`` (single-source / complementary-multi / conflict / none) is
+    a review-trail label (recorded, not scored). Accepts either ``source_mode`` or ``growth_source_mode`` as
+    the key. Tolerant of a non-dict block. (v1.25 refines v1.24 — still BANDS, never derives.)"""
     block = block if isinstance(block, dict) else {}
     band = _norm_enum(block.get("growth_band"))
     if band not in GROWTH_BANDS:
         band = "unknown"
-    return {"growth_band": band, "evidence": _safe_text(block.get("evidence", ""))}
+    basis = _norm_enum(block.get("growth_basis"))
+    if basis not in GROWTH_BASES:
+        basis = ""
+    mode = _norm_enum(block.get("source_mode") or block.get("growth_source_mode"))
+    if mode not in GROWTH_SOURCE_MODES:
+        mode = ""
+    return {"growth_band": band, "growth_basis": basis, "source_mode": mode,
+            "evidence": _safe_text(block.get("evidence", ""))}
 
 
 def flatten_growth_read(parsed) -> dict:
     """Flatten the band-extractor's growth read (``parsed["growth_read"]``) into persisted Rule-7 columns
-    (``growth_band`` + ``growth_evidence``). Tolerant of a missing / non-dict block (-> band 'unknown')."""
+    (``growth_band`` + ``growth_basis`` + ``growth_source_mode`` + ``growth_evidence``). Tolerant of a missing
+    / non-dict block (-> band 'unknown')."""
     read = normalize_growth_read(parsed.get("growth_read") if isinstance(parsed, dict) else None)
-    return {"growth_band": read["growth_band"], "growth_evidence": read["evidence"]}
+    return {"growth_band": read["growth_band"], "growth_basis": read["growth_basis"],
+            "growth_source_mode": read["source_mode"], "growth_evidence": read["evidence"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1467,6 +1495,8 @@ def score_company(row, *, background_fit=None) -> dict:
     arr_level = arr_level_score(_row_get(row, "revenue_or_arr"), stage)
     growth_read = normalize_growth_read({
         "growth_band": _row_get(row, "growth_band"),
+        "growth_basis": _row_get(row, "growth_basis"),
+        "growth_source_mode": _row_get(row, "growth_source_mode"),
         "evidence": _row_get(row, "growth_evidence"),
     })
     growth, _gnote = score_growth(growth_read, stage)
