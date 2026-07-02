@@ -163,6 +163,19 @@ behind the package, and that gap is invisible until reconciliation + a live run 
 **ZOE** is the canonical reset test case; **Function Health** is the canonical
 maturity/commercial test case.
 
+**Intent-to-action confirmation (process rule).** When a recorded design intent is not directly,
+unambiguously actionable — i.e. turning it into a concrete rule, threshold, or mechanism requires choosing
+among interpretations — STOP and confirm the exact translation before building or documenting it. Do NOT
+fill the gap with the most plausible reading, even when one seems obvious: the plausible-but-wrong
+interpretation is the recurring failure mode — it passes review because it reads reasonably, and only a live
+run or a deterministic check later exposes the substitution. This applies with extra force when a number or
+term could attach to more than one quantity — name which quantity explicitly (e.g. the boundary-detector
+"±2" meant score-MOVEMENT run-to-run, but was mis-encoded as distance-from-BOUNDARY; two different rules
+sharing the same number — the mis-encoding collapsed P2 and was caught only by a deterministic pre-build
+check). **Test:** if you cannot state the rule in a way the human would recognize as EXACTLY what they
+meant, you are interpreting, not implementing — surface it. (Sits alongside the project's other working-
+discipline rules: doc-first, byte-level sign-off, test-then-ratify.)
+
 ## Immediate next action (update this line each time I start a new chat)
 
 > **MASTER REDESIGN RECONCILED + COMMITTED (2026-06-30).** `MASTER_REDESIGN_SPEC.md` (RECONCILED v1) is the
