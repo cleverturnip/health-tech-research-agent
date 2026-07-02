@@ -107,7 +107,7 @@ overrides always take precedence). **Scores and research data are write-once and
 incorrect outputs are fixed via upstream regen / improved logic, never by editing the ledger). Editing a
 score or a research fact in the ledger is forbidden; editing a priority/taxonomy *decision* is the ledger's job.
 
-### 3.4 The entry (JSON-per-entry; format-agnostic — renders to card, table row, or sheet)
+### 3.4 The entry (JSON-per-entry; format-agnostic — renders to card, table row, or CSV)
 
 ```jsonc
 {
@@ -177,15 +177,29 @@ score or a research fact in the ledger is forbidden; editing a priority/taxonomy
 
 ## 4. The GATE-2 review packet (what the front end hands Katelynd)
 
+> *Absorbs the Gate-2 review-surface scoping formerly in `PHASE3_HARDENING_PLAN` §5 (that file is archived).
+> Its two corrections to this section — the uniform ledger (Correction 1) and the precise card-eligibility
+> predicate (Correction 2) — are folded in below.*
+
 **EXTENDS the existing review packet** (`review.py:build_review_packet`) — it is a superset, not a rewrite:
 the current flat summary becomes the summary table; cards + floor-reasons + routing are added on top. The
 summary's score columns change to the §B set (bg_fit / pmf / strain / FINAL), replacing the old synthesis
-scores. **Honor Rule 3:** Google Sheets remains the human review surface — the cards render **in/around
-Sheets**, or via an additive front end that does NOT route decisions away from Sheets.
+scores. **Honor Rule 3:** CSV outputs are the human review surface — the summary table + cards are CSV
+artifacts Katelynd reviews directly (the eventual front end renders them, but must not route decisions away
+from the reviewed CSV artifacts). *(Google Sheets is retired — superseded by CSV.)*
 
-The **master** is uniform — every company a full entry. The **review packet** is differentiated by altitude:
-- **Cards** — floor-eligible scored companies + override candidates. The real judgment surface: scores,
-  per-component rationale, flags, recommended tier, and `[accept] / [override → ___]` controls.
+The **master/ledger is UNIFORM — every company is a full scored + stored entry, gate-floored or not** (same
+schema, same scoring). Floor status changes only HOW a company is surfaced at Gate 2, never WHETHER it is
+scored or stored — do NOT carry the spike's "floor-before-scoring → em-dash the components" LLM-call shortcut
+into the ledger (components may be computed lazily for cost, but the persisted entry holds the full scored
+entry for every company). The **review packet** is a render-time VIEW over those entries, differentiated by
+altitude (cards are never hand-built):
+- **Cards** — the deliberate accept-or-override surface. Eligibility is a render-time predicate:
+  **`card ⟺ model_tier ∈ {P0, P1, P2} OR override_candidate == true`** — NOT "all floor-eligible companies"
+  (a floor-PASS company that lands at model-tier P3 gets no card; an **override candidate always gets a card
+  even at model-tier P3** — e.g. Function Health, P3-by-rule but a P1-override candidate). Each card carries
+  the scores + per-component rationale, flags (with severity, §3.5), the recommended tier and where it
+  diverges from the rule, and `[accept] / [override → ___]` controls.
 - **Summary table (top)** — every company, scannable: company · model · stage · tier · FINAL · key flag.
 - **Gate-floored → one-line floor reason in the summary table, NO card.** (e.g. "medically home — B2B floor,
   enablement platform"; "hinge — agency floor, public.") Katelynd's **chance to catch a wrong floor** —
@@ -213,8 +227,8 @@ rigor). The field is present regardless; `history` still appends the change.
 ## 6. Open / deferred
 - Dashboard schema — separate doc; format-fluid by design (Katelynd iterates).
 - Exact front-end render + controls — front-half track (later/unstarted per COLLABORATION); must honor Rule 3.
-- Storage/format of the master (repo artifact vs Sheets vs both) — decide at build time; schema is
-  format-agnostic (JSON-per-entry renders to card, table row, or sheet equally).
+- Storage/format of the master (repo artifact / CSV) — decide at build time; schema is
+  format-agnostic (JSON-per-entry renders to card, table row, or CSV equally).
 - Whether `recommended_action: accept` allows true bulk-approve or still one-click-per-company.
 
 ## 7. Phase-3 migration punch-list (code to re-point / retire — built later, not now)
@@ -228,7 +242,7 @@ rigor). The field is present regardless; `history` still appends the change.
   invariant (only gate-2-reviewed entries).
 - `candidate_priority.py` (+ `candidate_priority_reference_spec.md`) — **retire or recast** as Gate-1 discovery.
 - `decisions.py` — **reconcile** the APPROVE/HOLD/REJECT decision flow into the ledger decision-block writes.
-- `review.py` + `google_sheets.py` — **extend** to cards + summary + routing (§4); Sheets stays the surface (Rule 3).
+- `review.py` — **extend** to cards + summary + routing (§4), emitting CSV artifacts; **`google_sheets.py` retires** (Sheets superseded; Rule 3 → CSV).
 - `colab_workflow.py` — the STEP-12 / 12B master-build loops, the summary→master parse, and the dashboard/
   market-map cells — **re-point/retire** as the package functions are.
 - `maintenance/step_12C_priority_label_migration.py` — **delete** (one-time migration; no legacy labels under the ledger).

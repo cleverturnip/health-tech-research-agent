@@ -472,7 +472,7 @@ billing email. Budget ~$0.55/company *(token estimate predating the per-field re
 credits against the higher call count below).* **This regen's LOCKED web-search budget: 21 web searches/
 company × 55 = ~1,155**, plus 55 fit-brief synthesis calls + per-field presence checks (revenue 5 +
 growth 5 + paying 5 + commercial 5 + funding 2). Confirm credits + the monthly auto-recharge cap cover
-that before the GO. Full cost basis + the rest of the GO gate: `specs/PRE_REGEN_READINESS.md`.
+that before the GO. Full cost basis + the rest of the GO gate: `archive/specs/PRE_REGEN_READINESS.md`.
 
 Only if billing has headroom is it an actual server-side throttle (`gpt-5.4-mini`'s TPM is generous;
 web_search runs as a tool *on* the model, not the 6k-TPM `*-search-preview` models). That case IS
