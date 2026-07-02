@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GATE-2 review surface — locked mockup (2026-07-02)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.17.0/dist/tabler-icons.min.css">
+<style>
+:root{
+ --surface-0:#faf9f5;--surface-1:#f1efe8;--surface-2:#ffffff;
+ --text-primary:#2C2C2A;--text-secondary:#5F5E5A;--text-muted:#888780;
+ --border:rgba(0,0,0,0.10);--border-strong:rgba(0,0,0,0.18);
+ --bg-accent:#E6F1FB;--text-accent:#185FA5;--border-accent:#378ADD;
+ --bg-warning:#FAEEDA;--text-warning:#854F0B;
+ --bg-danger:#FCEBEB;--text-danger:#A32D2D;
+ --bg-success:#EAF3DE;--border-success:#639922;--text-success:#3B6D11;
+ --radius:8px;
+}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--text-primary);background:var(--surface-0);margin:0;padding:24px;line-height:1.5}
+.wrap{max-width:720px;margin:0 auto}
+.doc-note{font-size:13px;color:var(--text-secondary);background:var(--surface-1);border-radius:var(--radius);padding:12px 14px;margin-bottom:20px}
+button{font:inherit;font-size:13px;background:transparent;border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:7px 12px;cursor:pointer;color:var(--text-primary)}
+button:hover{background:var(--surface-1)}
+select,textarea{font:inherit;font-size:13px;border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:7px 10px;background:var(--surface-2);color:var(--text-primary)}
+.g2 table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
+.g2 th{text-align:left;font-weight:500;color:var(--text-secondary);font-size:12px;padding:7px 10px;border-bottom:0.5px solid var(--border)}
+.g2 td{padding:8px 10px;border-bottom:0.5px solid var(--border);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g2 tr.row{cursor:pointer;border-left:3px solid transparent}
+.g2 tr.row:hover,.g2 tr.sel{background:var(--surface-1)}
+.g2 tr.floored td{color:var(--text-muted)}
+.badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:var(--radius);font-weight:500}
+.mc{background:var(--surface-1);border-radius:var(--radius);padding:8px 10px;text-align:center}
+.mc .lab{font-size:11px;color:var(--text-secondary)}
+.mc .val{font-size:19px;font-weight:500;margin-top:2px}
+.submc{background:var(--surface-2);border:0.5px dashed var(--border-strong);padding:6px 8px}
+.submc .val{font-size:15px}
+.sec{font-size:12px;color:var(--text-secondary);margin:16px 0 7px;font-weight:500}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:0.5px solid var(--border)}
+.floorrow{display:flex;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:13px}
+.floorrow .nm{width:96px;flex:none;color:var(--text-secondary)}
+.compbox{border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px}
+.evid{font-size:12px;color:var(--text-muted);margin-top:5px;padding-left:10px;border-left:2px solid var(--border)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="doc-note"><b>GATE-2 review surface — locked mockup (2026-07-02).</b> Reference for <code>MASTER_REDESIGN_SPEC.md §4</code>.
+Click any company row to open its review card. Display labels are spelled out ("Background Fit", "Product Market Fit"); ARR stays short. The three CSV views (summary / cards / master_full_export) and the JSONL master are described in the spec.</div>
+
+<div class="g2">
+<div style="display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;margin:0 0 10px">
+  <div style="font-size:16px;font-weight:500">GATE 2 — batch_03 review</div>
+  <div style="font-size:12px;color:var(--text-muted)">click a company · framework v1.25</div>
+</div>
+<table>
+<colgroup><col style="width:24%"><col style="width:13%"><col style="width:13%"><col style="width:9%"><col style="width:9%"><col style="width:32%"></colgroup>
+<thead><tr><th>Company</th><th>Model</th><th>Stage</th><th>Tier</th><th>FINAL</th><th>Key flag</th></tr></thead>
+<tbody id="g2body"></tbody>
+</table>
+<div id="g2card" style="margin-top:16px"></div>
+</div>
+</div>
+
+<script>
+const DATA=[
+ {company:"function health",model:"B2C",stage:"series-b",tier:"P3",final:16,rec:"review_override",keyflag:"override_candidate",floored:false,
+  ol:"Comprehensive biomarker lab testing on a consumer membership",
+  bg:{s:4},arr:{s:10},growth:{s:10},strain:{s:2},pmf:10,
+  flags:[
+   {t:"override_candidate",sev:"info",note:"Rule tier is P3 by the low-score floor, but revenue + complexity make it a P1 candidate"},
+   {t:"low_score_floor",sev:"warn",note:"Triggered: floor rule (Background Fit ≤ 4) → capped at P3 regardless of FINAL"}],
+  floors:{
+   path:{pass:true,why:"B2C consumer end-user; engine alive (revenue + growth present)"},
+   agency:{pass:true,why:"Series B → within the build window",stage:"series-b",recent:"Series B, $298M, Nov 2025",reset:"no reset event"},
+   low:{pass:false,why:"Background Fit = 4 (≤ 4) fails the floor gate; PMF 10 passes — floored on background fit alone"}},
+  why:{bg:"Low-frequency, episodic engagement → scored low (correct; not a habit loop)",
+   arr:"$298M ARR at Series B is top-of-scale for the stage",
+   growth:"+450% YoY is elite for the stage (single-source stated rate)",
+   strain:"Rapid headcount + lab-throughput scaling; structural strain, capped at +2"},
+  research:{bg:"Operating characteristics: 2×/year lab panel + async results review; membership renews annually; no daily/weekly touchpoint.",
+   arr:"Sacra: ~$298M ARR (2025); membership subscriptions + à-la-carte testing.",
+   growth:"Sacra: revenue +450% YoY 2024→2025. One estimator, dated series.",
+   strain:"100+ clinicians onboarded in 12 months; lab capacity expanding to meet demand."},
+  prov:"model-accepted",div:"Model rule → P3 (low-score floor). Review for a P1 override — revenue + complexity unicorn."},
+
+ {company:"pomelo care",model:"B2B2C",stage:"series-b",tier:"P1",final:15,rec:"review_override",keyflag:"data_gap",floored:false,
+  ol:"Virtual maternity and newborn care through health plans",
+  bg:{s:7},arr:{s:6},growth:{s:6},strain:{s:2},pmf:6,
+  flags:[
+   {t:"data_gap",sev:"warn",note:"Triggered: growth fence — only growth signal is covered-lives (a count), not revenue; band held to its revenue basis"},
+   {t:"tier_review",sev:"info",note:"FINAL 15 sits on the P1/P2 boundary"}],
+  floors:{
+   path:{pass:true,why:"B2B2C — real institutional channel (covered lives via plans)"},
+   agency:{pass:true,why:"Series B → within the build window",stage:"series-b",recent:"Series B, 2024",reset:"no reset event"},
+   low:{pass:true,why:"Background Fit 7 and PMF 6 both > 4 — passes"}},
+  why:{bg:"Ongoing care-management relationship across pregnancy → mid-high fit",
+   arr:"Mid ARR for a Series B",
+   growth:"SOLID band, but rests on covered-lives, not a revenue series (fenced)",
+   strain:"Scaling clinical ops; moderate"},
+  research:{bg:"Care team + app across pregnancy and postpartum; recurring member engagement.",
+   arr:"Estimated ARR mid-range; contracts with several health plans.",
+   growth:"Covered-lives grew sharply; no dated revenue series disclosed → growth held to a revenue basis, not the count.",
+   strain:"Hiring across clinical + engineering; multi-market expansion underway."},
+  prov:"model-accepted",div:"Model rule → P1, but on thin revenue evidence. Check the growth basis."},
+
+ {company:"medically home",model:"B2B",stage:"series-c",tier:"P3",final:null,rec:"floor",keyflag:"b2b_floor",floored:true,
+  ol:"Hospital-at-home enablement for health systems",
+  bg:{s:null},arr:{s:7},growth:{s:5},strain:{s:1},
+  flags:[{t:"b2b_floor",sev:"warn",note:"Triggered: PATH Test A — human-locked B2B floor list → not scored, capped at P3"}],
+  floors:{
+   path:{pass:false,why:"On the human-locked B2B floor list — enablement platform sold to health systems; the end user is the care team, not a consumer",evidence:"Payer/institutional finding: contracts with health systems; product operates behind clinician workflows (no consumer end-user)."},
+   agency:{na:true},low:{na:true}},
+  why:{bg:"Not scored — professional end-user (no consumer), so the Background Fit gradient doesn't apply",
+   arr:"Solid revenue for a Series C enablement platform",
+   growth:"Moderate; no clear revenue-growth series disclosed",
+   strain:"Steady operational scaling"},
+  research:{bg:"Product operates behind clinician workflows; no consumer-facing engagement to score.",
+   arr:"Contracts across multiple health systems; enablement-fee revenue.",
+   growth:"Expansion into new systems reported; no dated revenue series disclosed.",
+   strain:"Scaling implementation teams with each health-system deployment."},
+  div:"Recommended: uphold the floor (no consumer end-user)."},
+
+ {company:"hinge health",model:"B2B2C",stage:"public",tier:"P3",final:null,rec:"floor",keyflag:"agency_floor",floored:true,
+  ol:"Digital musculoskeletal care via employers",
+  bg:{s:6},arr:{s:8},growth:{s:3},strain:{s:2},
+  flags:[{t:"agency_floor",sev:"warn",note:"Triggered: AGENCY gate — public, no reset fired → build window closed, capped at P3"}],
+  floors:{
+   path:{pass:true,why:"B2B2C — institutional channel present"},
+   agency:{pass:false,why:"Public (IPO) → out of the build window; no reset event fired to reopen it",stage:"public",recent:"IPO, 2025 (last private: Series E, $400M, 2021)",reset:"reset events [none]; none fired"},
+   low:{na:true}},
+  why:{bg:"Regular exercise-therapy engagement via the app → moderate fit",
+   arr:"Large revenue, but the public-stage benchmark is high",
+   growth:"SLOW band for a public company",
+   strain:"Large org; structural strain, capped at +2"},
+  research:{bg:"Members complete guided MSK exercise sessions; ongoing but program-bounded engagement.",
+   arr:"~$400M+ revenue at IPO; benchmarked against the public row of Scale A.",
+   growth:"Revenue growth decelerating post-IPO; mature-stage rates.",
+   strain:"Thousands of employees; multi-product operations."},
+  div:"Recommended: uphold the floor (public, no reset)."},
+];
+
+const TIERBG={P0:["var(--bg-accent)","var(--text-accent)"],P1:["#E1F5EE","#0F6E56"],P2:["#FAEEDA","#854F0B"],P3:["var(--surface-1)","var(--text-muted)"]};
+const ACCENT={accept:"#639922",review_override:"#EF9F27",floor:"var(--border-strong)"};
+function tierBadge(t){const c=TIERBG[t]||TIERBG.P3;return `<span class="badge" style="background:${c[0]};color:${c[1]}">${t}</span>`}
+function esc(s){return String(s).replace(/</g,"&lt;")}
+
+const body=document.getElementById("g2body");
+DATA.forEach((c,i)=>{
+ const tr=document.createElement("tr");tr.className="row"+(c.floored?" floored":"");
+ tr.style.borderLeftColor=ACCENT[c.rec]||"transparent";
+ const fc=c.floored?`<span style="color:var(--text-muted)"><i class="ti ti-lock" style="font-size:13px;vertical-align:-1px" aria-hidden="true"></i> ${esc(c.keyflag)}</span>`:`<span class="pill">${esc(c.keyflag)}</span>`;
+ tr.innerHTML=`<td style="font-weight:500">${esc(c.company)}</td><td>${c.model}</td><td>${c.stage}</td><td>${tierBadge(c.tier)}</td><td>${c.final==null?'<span style="color:var(--text-muted)">—</span>':c.final}</td><td>${fc}</td>`;
+ tr.onclick=()=>{document.querySelectorAll("#g2body tr").forEach(r=>r.classList.remove("sel"));tr.classList.add("sel");renderCard(i)};
+ body.appendChild(tr);
+});
+
+function floorLine(nm,f){
+ if(!f||f.na)return `<div class="floorrow"><div class="nm">${nm}</div><div style="color:var(--text-muted)">n/a — floored earlier</div></div>`;
+ const tag=f.pass?`<span class="badge" style="background:#E1F5EE;color:#0F6E56">Pass</span>`:`<span class="badge" style="background:var(--bg-danger);color:var(--text-danger)">Floored</span>`;
+ let b=`<div>${tag} <span style="color:${f.pass?'var(--text-secondary)':'var(--text-primary)'}">${esc(f.why)}</span>`;
+ if(f.stage!==undefined)b+=`<div style="font-size:12px;color:var(--text-muted);margin-top:3px">stage: ${esc(f.stage)} · latest: ${esc(f.recent)} · ${esc(f.reset)}</div>`;
+ if(f.evidence)b+=`<div class="evid">${esc(f.evidence)}</div>`;
+ return `<div class="floorrow"><div class="nm">${nm}</div>${b}</div></div>`;
+}
+function comp(nm,score,why,research){
+ return `<div class="compbox"><div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:500">${nm}</span><span class="badge" style="background:var(--surface-1);color:var(--text-primary)">${score}</span></div>
+ <div style="font-size:13px;margin-top:4px">${esc(why)}</div><div class="evid"><span style="color:var(--text-secondary)">research:</span> ${esc(research)}</div></div>`;
+}
+
+function renderCard(i){
+ const c=DATA[i];const el=document.getElementById("g2card");
+ const head=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+   <div><div style="font-size:16px;font-weight:500">${esc(c.company)}</div><div style="color:var(--text-secondary);font-size:13px;margin-top:2px">${c.model} · ${c.stage} · ${esc(c.ol)}</div></div>
+   <div>${tierBadge(c.tier)}</div></div>`;
+
+ let scores="";
+ if(!c.floored){
+  scores=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px">
+    <div class="mc"><div class="lab">Background Fit</div><div class="val">${c.bg.s}</div></div>
+    <div class="mc"><div class="lab">Product Market Fit</div><div class="val">${c.pmf}</div></div>
+    <div class="mc"><div class="lab">Strain</div><div class="val">+${c.strain.s}</div></div>
+    <div class="mc" style="background:var(--bg-accent)"><div class="lab" style="color:var(--text-accent)">FINAL</div><div class="val" style="color:var(--text-accent)">${c.final}</div></div></div>
+   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:5px">
+    <div></div>
+    <div><div style="text-align:center;color:var(--text-muted);font-size:12px;line-height:1;margin-bottom:2px"><i class="ti ti-chevron-down" aria-hidden="true"></i></div>
+      <div style="display:flex;gap:6px"><div class="mc submc" style="flex:1"><div class="lab">ARR</div><div class="val">${c.arr.s}</div></div><div class="mc submc" style="flex:1"><div class="lab">Growth</div><div class="val">${c.growth.s}</div></div></div></div>
+    <div></div><div></div></div>
+   <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Product Market Fit ${c.pmf} = 0.4·ARR + 0.6·Growth · FINAL = Background Fit + Product Market Fit + Strain</div>`;
+ }
+
+ const flags=`<div class="sec">Flags · triggered rules</div>${c.flags.map(f=>`<div style="font-size:13px;background:${f.sev==='warn'?'var(--bg-warning)':'var(--surface-1)'};border-radius:var(--radius);padding:8px 10px;margin-bottom:6px"><span class="badge" style="background:${f.sev==='warn'?'#FAC775':'var(--surface-2)'};color:${f.sev==='warn'?'#633806':'var(--text-secondary)'}">${f.t} · ${f.sev}</span> <span style="color:var(--text-secondary)">${esc(f.note)}</span></div>`).join("")}`;
+ const floors=`<div class="sec">Floors — pass / fail and why</div><div>${floorLine("Path to Scale",c.floors.path)}${floorLine("Agency",c.floors.agency)}${floorLine("Low Score",c.floors.low)}</div>`;
+ const bgScore=(c.bg&&c.bg.s!=null)?c.bg.s:"n/a";
+ const why=`<div class="sec">Why these scores</div>${comp("Background Fit",bgScore,c.why.bg,c.research.bg)}${comp("ARR",c.arr.s,c.why.arr,c.research.arr)}${comp("Growth",c.growth.s,c.why.growth,c.research.growth)}${comp("Strain","+"+c.strain.s,c.why.strain,c.research.strain)}`;
+
+ const recBox=`<div style="flex:1 1 230px;background:var(--surface-1);border-radius:var(--radius);padding:10px 12px">
+   <div style="font-size:11px;color:var(--text-secondary);margin-bottom:5px"><i class="ti ti-sparkles" aria-hidden="true"></i> Recommendation</div>
+   <div style="font-size:13px">${esc(c.div)}</div>
+   ${!c.floored?`<div style="font-size:11px;color:var(--text-muted);margin-top:6px">recommended action: ${c.rec.replace("_"," / ")}</div>`:''}</div>`;
+ const controls=c.floored
+  ? `<div style="flex:1 1 260px"><div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Catch a wrong floor</div><div style="display:flex;gap:8px"><button>Confirm floor</button><button>Overturn → score it</button></div></div>`
+  : `<div style="flex:1 1 260px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button style="border-color:var(--border-success);color:var(--text-success)"><i class="ti ti-check" aria-hidden="true"></i> Accept ${c.tier}</button><span style="color:var(--text-muted);font-size:12px">or override →</span><select style="width:auto"><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></div><textarea placeholder="Why are you overriding? (encouraged, not required)" style="width:100%;margin-top:8px;min-height:48px"></textarea></div>`;
+ const decision=`<div class="sec">Your decision</div><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">${controls}${recBox}</div>`;
+
+ el.innerHTML=`<div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:16px 18px">${head}${scores}${flags}${floors}${why}${decision}</div>`;
+}
+renderCard(0);
+document.querySelector("#g2body tr").classList.add("sel");
+</script>
+</body>
+</html>
