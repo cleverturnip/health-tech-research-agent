@@ -1477,7 +1477,7 @@ def score_company(row, *, background_fit=None) -> dict:
     key = _norm_company(company)
 
     # §B2 classifier — floor / override / mapper on the persisted who_uses / who_pays read (Rule 6/7).
-    business_model, _ = business_model_for(
+    business_model, bm_needs_review = business_model_for(
         company, _row_get(row, "who_uses"), _row_get(row, "who_pays"), _row_get(row, "who_uses_confidence"))
 
     # §B3 PATH gate.
@@ -1521,6 +1521,28 @@ def score_company(row, *, background_fit=None) -> dict:
         background_fit=bf, pmf=pmf, strain=strain, reset_detail=reset_detail)
     rec.update(business_model=business_model, funding_stage=stage, background_fit=bf,
                pmf=pmf, strain=strain, arr_level=arr_level, growth=growth)
+    # RATIONALE PASSTHROUGH (2026-07-02) — the per-component reasons/evidence the scorer ALREADY computes
+    # but previously discarded, surfaced so the ledger entry (MASTER_REDESIGN_SPEC §3.4) can render each
+    # score's "why" + basis faithfully. Additive only: no score changes, existing consumers unaffected.
+    rec.update(
+        path_passed=path_passed,
+        agency_passed=agency_passed,
+        background_fit_basis=_row_get(row, "background_fit_basis"),
+        data_feedback_loop=_row_get(row, "data_feedback_loop"),
+        growth_band=growth_read.get("growth_band"),
+        growth_basis=growth_read.get("growth_basis"),
+        growth_source_mode=growth_read.get("source_mode"),
+        growth_evidence=growth_read.get("evidence"),
+        growth_note=_gnote,
+        strain_strength=_sttag,
+        strain_rationale=_stwhy,
+        path_detail=path_reason,
+        agency_detail=agency_reason,
+        reset_fired=reset_fired,
+        reset_detail=reset_detail,
+        business_model_needs_review=bm_needs_review,
+        revenue_or_arr=_row_get(row, "revenue_or_arr"),
+    )
     return rec
 
 
