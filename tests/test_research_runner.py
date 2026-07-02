@@ -327,7 +327,8 @@ def test_prompt_has_maturity_evidence_block():
     prompt = rr.build_fit_brief_prompt("C", "F", "T")
     assert '"maturity_evidence": {' in prompt
     for field in [
-        "funding_stage",
+        "funding_rounds",
+        "ipo_event",
         "ipo_status",
         "founding_year",
         "last_raise_date",
@@ -336,9 +337,11 @@ def test_prompt_has_maturity_evidence_block():
         "funding_stage_evidence",
     ]:
         assert f'"{field}":' in prompt
+    # B-rec (v1.2): the LLM gathers rounds and NEVER emits funding_stage (a code mapper derives it)
+    assert '"funding_stage":' not in prompt
     # the maturity-revenue separation backstop, stated in the prompt (Function fix)
-    assert "do NOT infer a stage from headcount, revenue" in prompt
-    assert 'still funding_stage = "series-b"' in prompt
+    assert "do NOT infer rounds from headcount, revenue" in prompt
+    assert "still a series-b round (NOT a higher stage)" in prompt
 
 
 def test_prompt_has_commercial_evidence_and_four_redflags():
@@ -347,6 +350,7 @@ def test_prompt_has_commercial_evidence_and_four_redflags():
     for field in [
         "revenue_or_arr",
         "paying_customer_count",
+        "sponsored_user_scale",
         "revenue_per_user",
         "growth_signal",
         "business_model_type",
@@ -358,6 +362,8 @@ def test_prompt_has_commercial_evidence_and_four_redflags():
     # funding is structurally excluded; q3 phrased as the counterfactual (Solace catch)
     assert "structurally excluded" in prompt
     assert "setting the funding/valuation story aside" in prompt
+    # sponsored_user_scale (SOT B6.1 v1.3): secondary signal, structurally barred from the score
+    assert "NEVER feeds growth_signal OR growth_score" in prompt
 
 
 def test_prompt_q4_evidence_quality_anchors():
@@ -407,15 +413,18 @@ def test_prompt_has_reset_evidence_block():
 
 def test_prompt_reset_vs_pivot_framing():
     prompt = rr.build_fit_brief_prompt("C", "F", "T")
-    # the forward-mandate vs defensive-reaction poles, both concrete
-    assert "FORWARD-LOOKING MANDATE" in prompt
+    # the build-mandate vs defensive-reaction poles (v1.15 wording)
+    assert "needs a senior operator to BUILD" in prompt
     assert "DEFENSIVE reaction" in prompt
-    # restructuring-layoffs is not pre-judged — the opening question decides (now per-event)
+    # restructuring-layoffs is not pre-judged — the opening question decides (per-event)
     assert "do NOT prejudge it; the opening question for THIS event decides" in prompt
-    # the strategic-pivot strengthening: a "transformation" framing can't upgrade a pivot
-    assert 'strategic-pivot EVEN IF the company frames it as a "transformation"' in prompt
-    assert '"Changed what we sell" = strategic-pivot' in prompt
-    assert '"rebuilding how we operate" = declared-transformation' in prompt
+    # the strategic-pivot strengthening (v1.15): "transformation"/"evolution"/"pivotal" can't upgrade a pivot
+    assert 'strategic-pivot EVEN IF framed as a "transformation," "evolution," or "pivotal" moment' in prompt
+    assert '"Changed/added what we sell or how we price/sell it" = strategic-pivot' in prompt
+    assert '"rebuilding how we operate internally" = declared-transformation' in prompt
+    # v1.15/v1.16 additions: ipo-prep type + the structural-role exec-add rule
+    assert "ipo-prep — IPO preparation" in prompt
+    assert "EXEC ADD — read the opening by STRUCTURAL ROLE" in prompt
 
 
 def test_prompt_reset_multi_event_per_event_framing():
@@ -423,8 +432,7 @@ def test_prompt_reset_multi_event_per_event_framing():
     prompt = rr.build_fit_brief_prompt("C", "F", "T")
     assert "List EACH distinct event as its own object in reset_events" in prompt
     assert "answer the opening question PER EVENT" in prompt
-    assert "Do NOT let one event's nature determine another's" in prompt
-    assert "a loud pivot must NOT hide a restructuring that IS an opening" in prompt
+    assert "do NOT let one event's nature determine another's" in prompt
     assert "return an empty list" in prompt
 
 
@@ -507,10 +515,12 @@ def test_load_taxonomy_block_falls_back_when_builder_raises(monkeypatch):
 class BatchClient:
     """Fake OpenAI client for batch tests.
 
-    Distinguishes the four web searches (kwargs carry ``tools``) from the fit
-    brief (no ``tools``). It detects which company a call is for by finding a
-    company name inside the prompt, then:
+    Distinguishes web searches (kwargs carry ``tools`` — incl. the commercial
+    recovery passes) from the revenue presence check (no ``tools``, detected by its
+    "PRESENT or ABSENT" prompt) from the fit brief (no ``tools``). It detects which
+    company a call is for by finding a company name inside the prompt, then:
       * search calls -> return a short finding string;
+      * presence-check calls -> return "PRESENT" (observability only);
       * fit-brief calls -> return minimal valid JSON, UNLESS the company is in
         ``fail_on`` (raise ``fail_exc``) or ``bad_json_for`` (return non-JSON).
     Use company names that are not substrings of one another (e.g. Acme / Beta).
@@ -537,8 +547,10 @@ class BatchClient:
         self.calls.append(kwargs)
         prompt = kwargs["input"]
         company = self._company_in(prompt)
-        if "tools" in kwargs:  # one of the four research searches
+        if "tools" in kwargs:  # any web search (incl. the commercial recovery passes)
             return FakeResponse(f"finding for {company}")
+        if "PRESENT or ABSENT" in prompt:  # the revenue presence check (observability only)
+            return FakeResponse("PRESENT")
         # otherwise the fit-brief synthesis call
         if company in self.fail_on:
             raise self.fail_exc
@@ -547,7 +559,11 @@ class BatchClient:
         return FakeResponse('{"company": "%s", "priority_level": "P2"}' % company)
 
     def fitbrief_inputs(self):
-        return [c["input"] for c in self.calls if "tools" not in c]
+        return [
+            c["input"]
+            for c in self.calls
+            if "tools" not in c and "PRESENT or ABSENT" not in c["input"]
+        ]
 
 
 def _seed_complete_checkpoint(path, company):
@@ -697,11 +713,25 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         client=client,
         checkpoint_path=ckpt,
         wait_between_searches=7,
+        wait_between_passes=3,
         sleep_fn=sleeps.append,
     )
 
-    # per successful company: 5 waits between the 6 searches + 1 trailing wait
-    assert sleeps == [7] * 12
+    # per company: funding is now a recovery too. Each recovery contributes (N-1) inter-pass waits of 3
+    # then an after-wait of 7; the single searches (payer, outcomes) + after-org + trailing are 7 each.
+    # (operating has no trailing wait; synthesis none.) Order: funding, payer, outcomes, commercial,
+    # growth, paying, org, trailing.
+    def _recovery_waits(n):
+        return [3] * (n - 1) + [7]
+    per_company = (
+        _recovery_waits(rr.FUNDING_RECOVERY_PASSES)
+        + [7, 7]                                       # payer, outcomes
+        + _recovery_waits(rr.REVENUE_RECOVERY_PASSES)
+        + _recovery_waits(rr.GROWTH_RECOVERY_PASSES)
+        + _recovery_waits(rr.PAYING_RECOVERY_PASSES)
+        + [7, 7]                                       # after-org, trailing
+    )
+    assert sleeps == per_company * 2
 
 
 # --- KeyboardInterrupt / SystemExit propagate (not caught as Exception) ------
@@ -877,6 +907,11 @@ def test_search_funding_gathers_fact_list_with_founding_year():
     assert "founding year" in prompt                          # added field (was uncovered)
     assert "FACT LIST" in prompt
     assert "Tag each fact with its source name and date." in prompt
+    # B-rec (v1.2): search GATHERS the dated rounds; a deterministic mapper picks funding_stage
+    assert "DATED funding-round sequence" in prompt
+    assert "priced equity round" in prompt
+    assert "do NOT compute or pick a single funding_stage" in prompt
+    assert "date-unknown" in prompt
 
 
 def test_search_commercial_scale_gathers_provenance_and_trend():
@@ -927,40 +962,108 @@ def test_row_is_complete_only_with_both_operator_findings():
     assert rr._row_is_complete(row) is True                  # complete only with BOTH
 
 
-def test_build_latest_status_findings_has_six_labeled_sections():
-    out = rr._build_latest_status_findings("F", "P", "O", "C", "OE", "OC")
+def test_build_latest_status_findings_has_eight_labeled_sections():
+    out = rr._build_latest_status_findings("F", "P", "O", "C", "G", "PC", "OE", "OC")
     for label in (
         "Funding:",
         "Payer / institutional signal:",
         "Outcomes:",
         "Commercial scale / revenue quality:",
+        "Revenue growth / dated revenue endpoints:",
+        "Paying-customer count:",
         "Recent org / leadership events",
         "Operating characteristics",
     ):
         assert label in out
-    assert "OE" in out and "OC" in out                       # the two new findings are carried
+    assert "G" in out and "PC" in out                        # growth + paying recovery unions carried
+    assert "OE" in out and "OC" in out                       # the two operator findings are carried
 
 
-def test_batch_runs_six_searches_and_persists_operator_findings(tmp_path):
-    """The loop calls all six searches per company and persists the two new finding columns."""
+def test_batch_runs_searches_and_persists_operator_findings(tmp_path):
+    """The loop runs all searches per company and persists the new finding columns.
+    Funding, commercial, growth-rate AND paying-count are each recoveries now."""
     ckpt = tmp_path / "c.csv"
     client = BatchClient(companies=["Acme"])
     run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
     search_calls = [c for c in client.calls if "tools" in c]
-    assert len(search_calls) == 6                            # 4 original + 2 operator
+    # 4 single (payer/outcomes/org/operating) + funding/commercial/growth/paying recoveries
+    expected = (4 + rr.FUNDING_RECOVERY_PASSES + rr.REVENUE_RECOVERY_PASSES
+                + rr.GROWTH_RECOVERY_PASSES + rr.PAYING_RECOVERY_PASSES)
+    assert len(search_calls) == expected
     df = pd.read_csv(ckpt)
     for col in ("org_events_finding", "operating_characteristics_finding"):
         assert col in df.columns
         assert str(df.iloc[0][col]).strip() != ""
 
 
-def test_fit_brief_reset_nudge_points_at_org_events_and_does_not_rejudge():
-    """Reset nudge: synthesis is pointed at the org-events section and emits the canonical
-    reset_events, carrying through the search's reads WITHOUT re-judging the opening."""
+def test_batch_commercial_uses_recovery_union_and_resume_is_idempotent(tmp_path):
+    """Step 5 wiring: commercial_scale_finding is the N=5 recovery UNION; a completed
+    company is skipped on resume with zero new calls (resume/idempotency unchanged)."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+
+    commercial = pd.read_csv(ckpt).iloc[0]["commercial_scale_finding"]
+    # all five passes are unioned into the one finding (pass 1 general + 4 source-directed)
+    assert "pass1 (general)" in commercial
+    assert "pass5 (source-directed)" in commercial
+    n_passes = commercial.count("(general)") + commercial.count("(source-directed)")
+    assert n_passes == 5
+
+    # resume: Acme already complete -> skipped, NOTHING re-researched (no new API calls)
+    client2 = BatchClient(companies=["Acme"])
+    result2 = run_research_batch(
+        ["Acme"], client=client2, checkpoint_path=ckpt, sleep_fn=_noop_sleep
+    )
+    assert result2.reused == ["Acme"]
+    assert result2.completed == []
+    assert client2.calls == []  # idempotent resume: search_with_recovery NOT re-invoked
+
+
+def test_batch_growth_recovery_union_persisted_and_feeds_synthesis(tmp_path):
+    """FRAMEWORK_VERSION v1.1 wiring: growth-rate gets its OWN N=5 recovery union
+    (growth-directed retries), persisted as growth_finding and fed to the synthesis as
+    the 'Revenue growth / dated revenue endpoints' section."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+
+    growth = pd.read_csv(ckpt).iloc[0]["growth_finding"]
+    n_passes = growth.count("(general)") + growth.count("(source-directed)")
+    assert n_passes == 5                                     # always-run-N=5 union (pass1 + 4 retries)
+    # the growth union reaches the synthesis as its own labeled section
+    fit_inputs = "\n".join(client.fitbrief_inputs())
+    assert "Revenue growth / dated revenue endpoints:" in fit_inputs
+
+
+def test_batch_paying_recovery_union_persisted_and_feeds_synthesis(tmp_path):
+    """FRAMEWORK_VERSION v1.2 wiring: paying-count gets its OWN N=5 recovery union
+    (paying-directed retries), persisted as paying_finding and fed to the synthesis as
+    the 'Paying-customer count' section."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+
+    paying = pd.read_csv(ckpt).iloc[0]["paying_finding"]
+    n_passes = paying.count("(general)") + paying.count("(source-directed)")
+    assert n_passes == 5                                     # always-run-N=5 union (pass1 + 4 retries)
+    # the paying union reaches the synthesis as its own labeled section
+    fit_inputs = "\n".join(client.fitbrief_inputs())
+    assert "Paying-customer count:" in fit_inputs
+
+
+def test_fit_brief_reset_emitter_classifies_by_substance():
+    """Reset emitter (v1.15): the synthesis is the SINGLE emitter — it CLASSIFIES BY SUBSTANCE from the
+    org-events facts (re-classifying press framing), NOT a transcribe-the-search's-label step. The old
+    'carry through / do not re-derive' instruction is what let sword's 'evolution' and oura's S-1 fire,
+    so it is intentionally REVERSED here."""
     prompt = rr.build_fit_brief_prompt("Acme", "FINDINGS", "TAX")
-    assert "Recent org / leadership events" in prompt
-    assert "carry each event's event_type and opening read through" in prompt
-    assert "do NOT re-derive or override the opening here" in prompt
+    assert "Recent org / leadership events" in prompt           # still points at the org-events findings
+    assert "CLASSIFY BY SUBSTANCE, NOT PRESS FRAMING" in prompt
+    assert "re-classifying how the source framed it" in prompt
+    # the old transcribe / don't-re-derive instruction is GONE (the substance-classify shift)
+    assert "do NOT re-derive or override the opening here" not in prompt
+    assert "carry each event's event_type and opening read through" not in prompt
 
 
 def test_fit_brief_commercial_nudge_points_at_provenance_and_trend():
@@ -1017,3 +1120,459 @@ def test_fit_brief_capability_block_and_schema():
     for key in ('"a1_score"', '"a1_basis"', '"a2_score"', '"a2_basis"', '"a3_score"', '"a3_basis"'):
         assert key in prompt
     assert "HIGH = strained / high opportunity, LOW = smoothly-scaling" in prompt
+
+
+# ---------------------------------------------------------------------------
+# search_with_recovery — always-run-N + union (generic mechanism, Step 1)
+# ---------------------------------------------------------------------------
+
+
+def _stub_search(text):
+    """A search_fn double that ignores the client and returns fixed text, so the
+    client.calls count reflects only the source-directed retry passes."""
+
+    def _search(research_query, *, client, model):
+        return text
+
+    return _search
+
+
+def _retry_builder(query):
+    return f"source-directed retry for {query}"
+
+
+def _present(union_text, *, client, model):
+    return True
+
+
+def _absent(union_text, *, client, model):
+    return False
+
+
+def test_search_with_recovery_always_runs_n_passes_and_unions():
+    client = ScriptedClient(["pass2 text", "pass3 text"])  # passes 2 and 3
+    union, prov = rr.search_with_recovery(
+        _stub_search("pass1 text"),
+        "Acme Health",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert len(client.calls) == 2  # passes 2,3 hit the client; pass 1 is stubbed
+    assert all(s in union for s in ("pass1 text", "pass2 text", "pass3 text"))
+    assert prov.n_passes == 3
+    assert prov.field_name == "revenue"
+    assert prov.figure_present is True
+
+
+def test_search_with_recovery_runs_all_passes_even_when_pass1_has_content():
+    # No early stop: pass 1 "finding" a figure does NOT short-circuit the rest.
+    client = ScriptedClient(["p2", "p3", "p4"])
+    _union, prov = rr.search_with_recovery(
+        _stub_search("pass1 has $150M run-rate"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=4,
+    )
+    assert len(client.calls) == 3  # passes 2,3,4 all ran
+    assert prov.n_passes == 4
+
+
+def test_search_with_recovery_retry_passes_use_web_search():
+    client = ScriptedClient(["p2", "p3"])
+    rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    for call in client.calls:  # every retry pass is a web search
+        assert call["tools"] == [{"type": "web_search"}]
+        assert call["tool_choice"] == "auto"
+
+
+def test_search_with_recovery_union_preserves_conflicting_figures():
+    client = ScriptedClient(["$150M run-rate (CB Insights)", "no revenue disclosed"])
+    union, _prov = rr.search_with_recovery(
+        _stub_search("$115.9M revenue (Latka)"),
+        "Midi",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert "115.9" in union and "150M" in union  # both legitimate figures kept
+
+
+def test_search_with_recovery_excludes_failed_passes_from_union():
+    client = ScriptedClient([rr.SEARCH_FAILED_MARKER, "pass3 real text"])
+    union, _prov = rr.search_with_recovery(
+        _stub_search("pass1 real text"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert rr.SEARCH_FAILED_MARKER not in union
+    assert "pass1 real text" in union and "pass3 real text" in union
+    assert not rr.is_search_failure(union)
+
+
+def test_search_with_recovery_returns_marker_when_all_passes_fail():
+    client = ScriptedClient([rr.SEARCH_FAILED_MARKER, rr.SEARCH_FAILED_MARKER])
+    union, prov = rr.search_with_recovery(
+        _stub_search(rr.SEARCH_FAILED_MARKER),
+        "Ghost",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,  # would say present, but all-failed short-circuits first
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert union == rr.SEARCH_FAILED_MARKER
+    assert rr.is_search_failure(union)
+    assert prov.figure_present is False
+
+
+def test_search_with_recovery_presence_check_is_observability_only():
+    def run(presence_check):
+        client = ScriptedClient(["p2", "p3"])
+        union, prov = rr.search_with_recovery(
+            _stub_search("p1"),
+            "Acme",
+            client=client,
+            model="m",
+            retry_prompt_builder=_retry_builder,
+            presence_check=presence_check,
+            field_name="revenue",
+            n_passes=3,
+        )
+        return union, prov, len(client.calls)
+
+    union_t, prov_t, calls_t = run(_present)
+    union_f, prov_f, calls_f = run(_absent)
+    assert union_t == union_f  # union content identical regardless of presence verdict
+    assert calls_t == calls_f == 2  # pass count identical
+    assert prov_t.figure_present is True and prov_f.figure_present is False
+
+
+def test_search_with_recovery_sleeps_between_passes_when_configured():
+    sleeps = []
+    client = ScriptedClient(["p2", "p3", "p4"])
+    rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=4,
+        wait_between_passes=9,
+        sleep_fn=sleeps.append,
+    )
+    assert sleeps == [9, 9, 9]  # one wait before each of the 3 retry passes (2,3,4)
+
+
+def test_search_with_recovery_no_sleep_when_wait_is_zero():
+    sleeps = []
+    client = ScriptedClient(["p2", "p3"])
+    rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+        wait_between_passes=0,
+        sleep_fn=sleeps.append,
+    )
+    assert sleeps == []  # zero wait -> no sleep calls (the mechanism-defeating value)
+
+
+def test_search_with_recovery_provenance_carries_raw_passes():
+    client = ScriptedClient(["p2", "p3"])
+    _union, prov = rr.search_with_recovery(
+        _stub_search("p1"),
+        "Acme",
+        client=client,
+        model="m",
+        retry_prompt_builder=_retry_builder,
+        presence_check=_present,
+        field_name="revenue",
+        n_passes=3,
+    )
+    # raw per-pass findings, so the harness can SEE independence (not infer it)
+    assert prov.passes == ["p1", "p2", "p3"]
+
+
+# ---------------------------------------------------------------------------
+# Revenue config: source-directed retry prompt + presence check (Step 2)
+# ---------------------------------------------------------------------------
+
+
+def test_revenue_source_directed_prompt_leads_but_does_not_filter():
+    prompt = rr.revenue_source_directed_prompt("Midi Health (midihealth.com)")
+    assert "Midi Health (midihealth.com)" in prompt  # query interpolated
+    for src in ("CB Insights", "Latka", "Growjo", "PitchBook", "Sacra"):
+        assert src in prompt  # leads with the aggregators
+    assert "LEAD, NOT a filter" in prompt
+    # Gate-2 hardening: company-disclosed figures wherever they live, never restricted
+    low = prompt.lower()
+    assert "press release" in low
+    assert "crowdcube" in low  # the ZOE recovery source
+    assert "founder" in low and "interview" in low
+    assert "do not restrict" in low
+
+
+def test_revenue_source_directed_prompt_has_url_targeting_and_alias_handling():
+    # B1: direct-URL targeting + alias/former-name handling, framed as ADDITIVE (not a filter).
+    prompt = rr.revenue_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    low = prompt.lower()
+    # direct-URL patterns for the named aggregators (reliability boost on pages we know exist)
+    assert "getlatka.com/companies/" in low
+    assert "cbinsights.com/company/" in low
+    # alias / former-name handling (the Pelago/Quit Genius, Join-X miss class)
+    assert "former name" in low
+    assert "alias" in low
+    # ADDITIVE framing — must NOT become the filter we rejected (Gate-2 softening)
+    assert "in addition to, not instead of" in low
+    # off-aggregator company-disclosed figures still required, incl. statutory filings (ZOE/Companies House)
+    assert "companies house" in low or "statutory filing" in low
+
+
+def test_prompt_entity_carry_and_flag_rule():
+    # B2: plausible-alias -> carry + flag (queryable field); clear mismatch -> drop; prefer carry when unsure.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert '"entity_review_needed"' in prompt  # dedicated queryable field in the schema
+    assert "possible-alias" in prompt
+    assert "PLAUSIBLE alias" in prompt
+    assert "CLEAR mismatch" in prompt
+    assert "(entity-uncertain: possible alias of" in prompt
+    assert "NEVER silently omit" in prompt
+    assert "PREFER carry+flag over silent drop" in prompt
+
+
+def test_build_summary_surfaces_entity_review_needed_field():
+    # B2: the flag must be a QUERYABLE column (routes to manual review), not buried free-text.
+    import json
+
+    from health_tech_research_agent.review import build_summary
+
+    fit_present = json.dumps(
+        {
+            "entity_review_needed": "possible-alias",
+            "commercial_evidence": {
+                "revenue_or_arr": "$82.3M (entity-uncertain: possible alias of ZOE — verify)"
+            },
+        }
+    )
+    fit_absent = json.dumps({"commercial_evidence": {"revenue_or_arr": "$10M"}})
+    df = pd.DataFrame(
+        [
+            {"company": "ZOE", "fit_brief_json": fit_present},
+            {"company": "Other", "fit_brief_json": fit_absent},
+        ]
+    )
+    summary = build_summary(df)
+    assert "entity_review_needed" in summary.columns  # queryable/filterable column
+    by_company = dict(zip(summary["company"], summary["entity_review_needed"]))
+    assert by_company["ZOE"] == "possible-alias"
+    assert by_company["Other"] == ""  # additive default; no false flags
+
+
+# ---------------------------------------------------------------------------
+# Group 1 field configs: growth-rate + paying-customer-count
+# ---------------------------------------------------------------------------
+
+
+def test_growth_rate_source_directed_prompt():
+    prompt = rr.growth_rate_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    assert "Pelago (pelago.health), formerly Quit Genius" in prompt
+    low = prompt.lower()
+    assert "quantified" in low and "growth rate" in low
+    # Tightening 1: a rate is only usable WITH its time period
+    assert "time period" in low
+    assert "not a usable rate" in low
+    assert "period unclear" in low
+    # source-directed URL targeting + lead-not-filter + alias (B1 principles)
+    assert "getlatka.com/companies/" in low
+    assert "in addition to, not instead of" in low
+    assert "former name" in low and "alias" in low
+    # refine-to-derive: [1] compute-don't-just-report + [2] mandatory show-the-inputs / never bare + DERIVED tag
+    assert "compute the rate" in low
+    assert "show the inputs" in low
+    assert "never emit a bare" in low
+    assert "derived-by-you" in low
+    # FENCE (FRAMEWORK_VERSION v1.2 / SOT B6.1): revenue or PAID-user growth ONLY; headcount/employee,
+    # partner/client-count, funding, and non-paying user/MAU/download growth are excluded
+    assert "paid-user growth rate" in low                # :688 tightened (no loose "revenue/user")
+    assert "headcount/" in low and "employee/team growth" in low
+    assert "partner/client-count growth" in low
+
+
+def test_growth_rate_presence_check_requires_period_and_parses():
+    client = RecordingClient(["PRESENT"])
+    rr.growth_rate_presence_check("$60M->$150M in 2024-2025", client=client, model="m")
+    low = client.last_prompt.lower()
+    assert "time period" in low  # usable rate needs a period (Tightening 1 preserved)
+    assert "derived" in low and "dated revenue endpoints" in low  # (b) a derived rate counts PRESENT
+    # FENCE (v1.2 / SOT B6.1): employee/headcount/funding/partner/non-paying-user growth do NOT count
+    assert "employee/headcount growth" in low and "non-paying" in low
+    assert "tools" not in client.calls[-1]  # no web search
+    assert rr.growth_rate_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.growth_rate_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+
+
+def test_prompt_growth_signal_carries_derived_rate():
+    # Companion edit 1: synthesis carries a DERIVED rate with inputs+period; never strips/bare-emits.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert "if COMPUTED from dated endpoints, WITH its inputs and a DERIVED tag" in prompt
+    assert "NEVER strip the inputs/period or emit a bare rate" in prompt
+    assert "moderate-confidence source, NOT company-reported" in prompt
+
+
+def test_paying_count_source_directed_prompt():
+    prompt = rr.paying_count_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    assert "Pelago (pelago.health), formerly Quit Genius" in prompt
+    low = prompt.lower()
+    assert "paying" in low
+    # paying-only: exclude free / covered / eligible lives
+    assert "free" in low and "covered" in low and "eligible" in low
+    # Tightening 2: paying employer clients belong HERE; covered/eligible lives NON-paying & distinct
+    assert "employer" in low and "client" in low
+    assert "3.4m eligible lives" in low  # the Pelago coexistence example, kept distinct
+    # non-paying counts carried + labeled, not dropped
+    assert "label them non-paying" in low
+    # URL targeting + lead-not-filter + alias (B1 principles)
+    assert "getlatka.com/companies/" in low
+    assert "in addition" in low
+    assert "former name" in low and "alias" in low
+
+
+def test_paying_count_presence_check_excludes_covered_lives_and_parses():
+    client = RecordingClient(["PRESENT"])
+    rr.paying_count_presence_check("100,000 paying members", client=client, model="m")
+    low = client.last_prompt.lower()
+    assert "covered" in low and "eligible" in low  # covered/eligible lives don't count
+    assert "tools" not in client.calls[-1]  # no web search
+    assert rr.paying_count_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.paying_count_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+
+
+def test_funding_rounds_source_directed_prompt():
+    prompt = rr.funding_rounds_source_directed_prompt("Pelago (pelago.health), formerly Quit Genius")
+    assert "Pelago (pelago.health), formerly Quit Genius" in prompt
+    low = prompt.lower()
+    assert "most recent priced round" in low                 # the recall goal (latest round)
+    assert "crunchbase" in low and "pitchbook" in low         # lead with full-history pages
+    assert "in addition to, not instead of" in low           # lead-not-filter
+    assert "former name" in low and "alias" in low            # alias / former-name handling
+    assert "last ~24 months" in low                           # the recall window
+    assert "do not compute or pick a single funding_stage" in low   # gather-not-pick (the mapper picks)
+
+
+def test_funding_latest_round_presence_check_is_observability():
+    client = RecordingClient(["PRESENT"])
+    rr.funding_latest_round_presence_check("series-d $90M 2024", client=client, model="m")
+    low = client.last_prompt.lower()
+    assert "last ~24 months" in low and "priced equity round" in low
+    assert "tools" not in client.calls[-1]                    # no web search (observability)
+    assert rr.funding_latest_round_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.funding_latest_round_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+
+
+def test_prompt_revenue_per_user_derive_in_synthesis():
+    # Group 2: rev-per-user derives in the synthesis from already-recovered revenue ÷ paying-count.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    assert "COMPUTE it from figures already recovered" in prompt
+    assert "revenue ÷ paying-customer count" in prompt
+    assert "SHOW THE INPUTS" in prompt
+    assert "Mark a computed value DERIVED" in prompt
+    assert "Never emit a bare per-user number" in prompt
+
+
+def test_revenue_presence_check_prompt_shape_and_no_web_search():
+    client = RecordingClient(["PRESENT"])
+    rr.revenue_presence_check(
+        "--- pass1 ---\n$150M run-rate (CB Insights)", client=client, model="m"
+    )
+    prompt = client.last_prompt
+    assert "$150M run-rate (CB Insights)" in prompt  # union included
+    assert "PRESENT or ABSENT" in prompt  # asks the binary
+    low = prompt.lower()
+    assert "funding rounds" in low and "valuation" in low  # exclusions
+    assert "paying-customers x pricing" in low  # implied-from-pricing counts as present
+    assert "tools" not in client.calls[-1]  # NO web search on the presence check
+
+
+def test_revenue_presence_check_parses_present_and_absent():
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["PRESENT"]), model="m") is True
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["ABSENT"]), model="m") is False
+    # tolerant of trailing text / case
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["present — $10M"]), model="m") is True
+    assert rr.revenue_presence_check("x", client=ScriptedClient(["absent, none found"]), model="m") is False
+
+
+def test_search_with_recovery_with_revenue_config_end_to_end():
+    # pass 1 = real search_commercial_scale; passes 2-3 = source-directed; then the
+    # presence check. All four calls hit the scripted client in order.
+    client = ScriptedClient(
+        [
+            "pass1: $115.9M revenue (Latka, 2025)",  # search_commercial_scale (pass 1)
+            "pass2: $150M run-rate (CB Insights)",   # source-directed pass 2
+            "pass3: no further figure",              # source-directed pass 3
+            "PRESENT",                                # presence check
+        ]
+    )
+    union, prov = rr.search_with_recovery(
+        rr.search_commercial_scale,
+        "Midi Health",
+        client=client,
+        model="m",
+        retry_prompt_builder=rr.revenue_source_directed_prompt,
+        presence_check=rr.revenue_presence_check,
+        field_name="revenue",
+        n_passes=3,
+    )
+    assert "115.9M" in union and "150M run-rate" in union  # union preserves both
+    assert prov.figure_present is True
+    assert len(client.calls) == 4  # 3 searches + 1 presence check
+
+
+def test_prompt_revenue_carry_and_rate_and_multi_figure_q4():
+    # Step 4: Option-A carry-and-rate surfacing + multi-figure q4 resolution.
+    prompt = rr.build_fit_brief_prompt("C", "F", "T")
+    # schema field surfaces ALL figures with the sanctioned type tags; empty only if none
+    assert "List ALL revenue/ARR/run-rate figures found" in prompt
+    assert "implied-from-pricing / weak-single-source" in prompt
+    assert "Empty ONLY if NO real figure was found in any pass" in prompt
+    # carry-and-rate instruction, tightened to STATED or implied-from-pricing (no open "credibly implied")
+    assert "a source actually STATED, or that is implied from paying-customers × pricing" in prompt
+    assert "credibly implied" not in prompt  # the over-inference phrasing must be absent
+    assert "Do NOT omit a real figure for being low-quality" in prompt
+    # q4 = strongest source type present, with the multiple-weak guard
+    assert "STRONGEST quality among them" in prompt
+    assert "Multiple weak or single-source figures do NOT promote q4" in prompt
+    assert "NEVER lifts q4's source-type bucket" in prompt
+    # q4's existing 3-value enum is unchanged (the deterministic Q4_STRONG_OK gate relies on it)
+    assert '"q4_evidence_quality": "company-reported / credible-estimate / unverified-promotional"' in prompt

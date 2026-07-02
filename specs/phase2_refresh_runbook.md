@@ -178,7 +178,7 @@ lost. **Read this before running any full research refresh.**
 ## Notebook cell at a pre-slice state — STEP 10A schema drop (CORRECTNESS, fix before the run)
 
 9. **STEP 10A drops the two Slice 3.7 findings + truncates the checkpoint.** ⛔ Fix in the notebook
-   before the run. The `## 10A` cell defines a **stale 7-column** `required_current_schema_cols`
+   before the run. The `## 10A` cell defines a **stale HARDCODED** `required_current_schema_cols`
    (no `org_events_finding`, no `operating_characteristics_finding`) and then does
    `df = df[required_current_schema_cols]` — which (a) drops those two columns from `df`, so 10C
    lands them **BLANK** on every regenerated row (scoring is unaffected — capability/reset/maturity
@@ -187,10 +187,14 @@ lost. **Read this before running any full research refresh.**
    the local + Drive **checkpoints with 7 columns**, so any disconnect after 10A makes
    `run_research_batch` see "incomplete" rows and **re-research the whole set**. *Why it was hidden:*
    the item-8 ZOE/Function verification only checked the derived signals, not these two raw columns.
-   **Fix:** update 10A's `required_current_schema_cols` to the 9-column schema (matching Step 7 +
-   `regen_execution_runsheet.md`). The dry-run verification cell also hard-stops on a blank
-   `org_events_finding` as a backstop. *(Classic "old-flow cell never wired for a later slice" —
-   anticipated per COLLABORATION_CONTEXT.)*
+   **Fix (drift-proof — the list has now gone stale twice):** the recovery work added
+   `growth_finding` + `paying_finding`, so the package schema is **11 columns** and a hardcoded 10A
+   would drop *those* next. Replace 10A's `required_current_schema_cols = [...]` with the package
+   import so it can never drift again — `from health_tech_research_agent.review import
+   REQUIRED_RESEARCH_COLUMNS; required_current_schema_cols = list(REQUIRED_RESEARCH_COLUMNS)` — and
+   apply the same one-line import in Step 7 (see `regen_execution_runsheet.md`). The dry-run
+   verification cell also hard-stops on blank findings as a backstop. *(Classic "old-flow cell never
+   wired for a later slice" — anticipated per COLLABORATION_CONTEXT; the import ends the whole class.)*
 
 ## The full data regeneration is RUN-ONCE — clear the gate first
 
@@ -198,7 +202,7 @@ lost. **Read this before running any full research refresh.**
 > read-back verified, all rows `New batch - needs review`, `videahealth` excluded (transient fit-brief
 > JSONDecodeError). The gate below is now **historical** (fully passed). **All "deferred until after
 > the run-once" items are now ACTIONABLE:** ROOT fix #1 (inline STEP 12 → package call), ROOT fix #2
-> (10A 9-col port to the `colab_workflow.py` mirror), and the fit-brief JSON-retry hardening. Next
+> (10A import-schema port to the `colab_workflow.py` mirror), and the fit-brief JSON-retry hardening. Next
 > track: Commit 5 → Commit 6 / remediation → calibration → dashboard (LAST — it needs real
 > `final_priority_level`, blank until Commit 5). See `COLLABORATION_CONTEXT.md` → Immediate next action.
 
@@ -233,8 +237,10 @@ built" is no longer the gate. The real remaining gate is the explicit checklist 
    full clear, not just throwaways, so nothing pre-item-8 is reused), STEP 26 off the regen path
    (decision: re-research all via Step 7), multi-event reset verified (✅ Function Health).
 7. **STEP 10A schema-drop fix applied in the notebook** — ⬜ DO BEFORE THE RUN (see item 9 above):
-   update 10A's `required_current_schema_cols` to the 9-column schema, else the regen lands blank
-   `org_events_finding` / `operating_characteristics_finding` and truncates the checkpoint.
+   replace 10A's `required_current_schema_cols` with the package import
+   (`list(REQUIRED_RESEARCH_COLUMNS)`, 11 cols), else the regen drops `growth_finding` /
+   `paying_finding` (and `org_events_finding` / `operating_characteristics_finding`) and truncates the
+   checkpoint. Same import in Step 7.
 
 Regenerating before the gate is clear would bake gaps into the "trusted" data and force a second
 expensive full refresh. Regenerate **once**, only when every checklist item above is green.
@@ -287,21 +293,22 @@ behavior as importable package functions, not re-implemented in cells.)
 collapsing the inline cell into the package call is too invasive to do safely right before a
 run-once. Do it first in the post-regen cleanup pass.
 
-## ROOT-CAUSE fix #2 — port the STEP 10A 9-column schema fix to the mirror (deferred, same weight)
+## ROOT-CAUSE fix #2 — make the STEP 10A schema DRIFT-PROOF in the mirror (deferred, same weight)
 
-⚠️ Same trap-class as the inline STEP 12 above — record at that weight. The Slice 3.7 schema-drop fix
-found this session (STEP 10A's `required_current_schema_cols` raised 7→9 cols, so `org_events_finding`
-/ `operating_characteristics_finding` are no longer dropped from `df` and the checkpoint isn't
-truncated to 7) was applied to the **notebook cell only**. `colab_workflow.py`'s mirror STILL carries
-the stale **7-column** list, so the repo copy is a TRAP: a future session that reads, ports, or runs
-the mirror's 10A would silently reintroduce the column-drop + checkpoint-truncation bug and might not
-catch it until columns came back missing.
+⚠️ Same trap-class as the inline STEP 12 above — record at that weight. STEP 10A's hardcoded
+`required_current_schema_cols` has now gone stale TWICE (first the Slice 3.7 cols, then the recovery
+cols `growth_finding` / `paying_finding`); each time a hand-typed list drops the new columns from `df`
+and truncates the checkpoint. The notebook cell is being moved to the package import; `colab_workflow.py`'s
+mirror STILL carries a stale HARDCODED list, so the repo copy is a TRAP: a future session that reads,
+ports, or runs the mirror's 10A would silently reintroduce the column-drop + checkpoint-truncation bug.
 
-**The fix:** port the 9-column `required_current_schema_cols` into `colab_workflow.py`'s STEP 10A
-(exact corrected cell in `specs/snippets/step_10A_fixed.py` — only the two schema lines differ).
-**Deferred to the post-regen cleanup pass**, alongside the inline-STEP-12 collapse above — both are
-"the repo copy is a trap until the notebook/inline fix is ported back." Until ported, do NOT trust
-`colab_workflow.py`'s 10A.
+**The fix (drift-proof, not another count bump):** replace the hardcoded list in `colab_workflow.py`'s
+STEP 10A with `from health_tech_research_agent.review import REQUIRED_RESEARCH_COLUMNS;
+required_current_schema_cols = list(REQUIRED_RESEARCH_COLUMNS)`. This ends the whole bug-class — the
+mirror then tracks whatever the package writes. **Deferred to the post-regen cleanup pass**, alongside
+the inline-STEP-12 collapse above. Until ported, do NOT trust `colab_workflow.py`'s 10A. (A
+`specs/snippets/step_10A_fixed.py` was referenced historically but does not exist — use the import line
+above, not a byte-exact snippet.)
 
 ## Deferred / optional (not scheduled)
 

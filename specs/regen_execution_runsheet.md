@@ -41,58 +41,54 @@ company an INSERT in both the dry-run and the real write — the only difference
 
 ---
 
-## ⚠️ Required code fix before the run — Step 10A drops the two Slice 3.7 findings
+## ⚠️ Required code fix before the run — Step 10A must IMPORT the schema (or it DROPS new columns)
 
-Step 10A's schema list was never updated for Slice 3.7. Near the top of the `## 10A` cell it defines
-a **7-column** `required_current_schema_cols` (no `org_events_finding`, no
-`operating_characteristics_finding`), and later does `df = df[required_current_schema_cols]` — which
-**drops those two columns from `df` and overwrites both the local and Drive checkpoints with the
-7-column version.**
+Step 10A near the top defines a HARDCODED `required_current_schema_cols`, then at
+`df = df[required_current_schema_cols]` **drops any output column not in that hand-typed list** and
+overwrites the local + Drive checkpoints with the narrowed `df`. This list has gone stale **twice**:
+first missing the Slice 3.7 `org_events_finding` / `operating_characteristics_finding`; **now missing
+the recovery columns `growth_finding` / `paying_finding`** (added by the per-field recovery work, so
+the package schema is 11 columns). Each drift breaks two things:
 
-Two consequences for the run-once:
-1. **Every company lands BLANK `org_events_finding` + `operating_characteristics_finding` on the
-   master** (10C reads them from `df`, which no longer has them). Scoring is unaffected —
-   capability/reset/maturity all derive from `fit_brief_json`, which 10A preserves — but the master
-   loses the Slice 3.7 operator-evidence text the master-completeness work deliberately carried.
-2. **The checkpoint is silently truncated to 7 columns** → any disconnect after 10A makes
-   `run_research_batch` treat every row as "incomplete" and **re-research the whole set.**
+1. **The dropped columns land BLANK on the master** (10C reads them from `df`). Scoring still works
+   (capability/reset/maturity/commercial all derive from `fit_brief_json`, which 10A preserves), but
+   the master loses that raw finding text.
+2. **The checkpoint is silently truncated** → because `run_research_batch` resume checks ALL of
+   `REQUIRED_RESEARCH_COLUMNS` (now 11) for completeness, a narrowed checkpoint makes every row look
+   "incomplete", so any disconnect after 10A **re-researches the whole set.**
 
-**Fix** — in the `## 10A` cell, replace its `required_current_schema_cols = [...]` with the
-9-column list (matching Step 7):
+**Fix — make it un-drift-able: import the package's schema instead of hand-typing it.** In the `## 10A`
+cell, replace the whole `required_current_schema_cols = [ ... ]` block with:
 
 ```python
-required_current_schema_cols = [
-    "company",
-    "date_researched",
-    "funding_finding",
-    "payer_institutional_finding",
-    "outcomes_finding",
-    "commercial_scale_finding",
-    "org_events_finding",                  # add (Slice 3.7)
-    "operating_characteristics_finding",   # add (Slice 3.7)
-    "fit_brief_json",
-]
+# SINGLE SOURCE OF TRUTH — tracks exactly what run_research_batch writes, so it can NEVER drift again
+# (today 11 cols incl. growth_finding + paying_finding; a future field is picked up automatically).
+from health_tech_research_agent.review import REQUIRED_RESEARCH_COLUMNS
+required_current_schema_cols = list(REQUIRED_RESEARCH_COLUMNS)
 ```
 
-The verification cell below also hard-stops on a blank `org_events_finding`, so the dry-run gate is
-a backstop — but fix 10A so the hole never opens.
+Apply the SAME one-line import in **Step 7's** schema-print block, so both cells stay locked to the package.
 
-**Confirm the fix actually took — run this RIGHT AFTER the 10A cell.** A Colab edit that's typed but
-not re-run, or made in the wrong cell, leaves the old 7-column list active in globals; the only
-symptom is `df` coming back `(N, 7)` at 10B (observed twice during the verify pass). This gate catches
-it at 10A instead of three cells later:
+**Confirm the fix took — run this RIGHT AFTER the 10A cell.** A typed-but-not-re-run edit leaves the old
+list active in globals; the symptom is the new recovery columns missing from `df`. This gate catches it
+at 10A instead of three cells later:
 
 ```python
 # Run RIGHT AFTER the 10A cell.
-assert {"org_events_finding","operating_characteristics_finding"} <= set(required_current_schema_cols), \
-    "STOP: 10A still has the 7-column list — edit the 10A cell and re-run it."
-print("✅ 10A fix active:", len(required_current_schema_cols), "cols | df shape:", df.shape, "(want (N, 9))")
+from health_tech_research_agent.review import REQUIRED_RESEARCH_COLUMNS
+_want = set(REQUIRED_RESEARCH_COLUMNS)
+assert _want <= set(required_current_schema_cols), \
+    f"STOP: 10A schema list is stale — re-run the fixed 10A cell. Missing {_want - set(required_current_schema_cols)}"
+assert {"growth_finding", "paying_finding"} <= set(df.columns), \
+    "STOP: growth_finding/paying_finding were dropped — 10A still has a hardcoded list; re-run the fixed 10A."
+print(f"✅ 10A fix active: {len(required_current_schema_cols)} cols | df shape:", df.shape,
+      f"(want (N, {len(REQUIRED_RESEARCH_COLUMNS)}))")
 ```
 
-The byte-exact corrected cell is also saved at `snippets/step_10A_fixed.py` (generated from the
-notebook; only the two schema lines differ) if hand-editing keeps slipping. **This fix is
-notebook-only** — `colab_workflow.py`'s mirror still has the stale 7-column 10A (post-regen
-mirror-port tracked in `phase2_refresh_runbook.md`); don't trust or port the mirror's 10A until then.
+The dry-run verification cell also hard-stops on blank findings as a backstop — but fix 10A so the hole
+never opens. (The `colab_workflow.py` mirror still carries a stale HARDCODED 10A — don't port from it;
+post-regen mirror-port tracked in `phase2_refresh_runbook.md`. The import method ends this whole class of
+bug, so the mirror should adopt the same import.)
 
 ---
 
@@ -112,7 +108,7 @@ mirror-port tracked in `phase2_refresh_runbook.md`); don't trust or port the mir
 | **Cell V3 Setup** → replace contents with **[NEW] Batch config** | **RUN** | `Regen batch: <name> | companies: N` + per-company roster list — eyeball every query |
 | **[NEW] Archive master** *(insert after V3)* | **RUN ONCE** | `✅ Archived <rows> rows × <cols> cols -> ...pre_v42_regen_<date>.csv` |
 | **[NEW] Fresh empty master** *(insert after Archive)* | **RUN ONCE** | `✅ Fresh empty master: 0 rows × <cols> cols (schema preserved)` |
-| **Step 7** | **RUN** (long; resumable) | `Researched this run: [all N]` · **`Failed: []`** · `df shape: (N, 9)` |
+| **Step 7** | **RUN** (long; resumable) | `Researched this run: [all N]` · **`Failed: []`** · `df shape: (N, 11)` |
 | **Cell V6** | **RUN** (tail forced-fail probe is harmless — one wasted call, no conflict) | All 6 findings `POPULATED` per company · **`✅ No SEARCH_FAILED markers`** |
 | **Cell S3.5-A** | **RUN** | Per company: reset events + per-event opening + `reset_or_restructure_signal` |
 | **Cell S3.5-B** | **DON'T RUN** (moot vs empty master; writes only a throwaway) | — |
@@ -120,7 +116,7 @@ mirror-port tracked in `phase2_refresh_runbook.md`); don't trust or port the mir
 | **Cell V5** | **RUN** | Per company: funding stage / maturity + q1–q4 commercial |
 | **Cell V7** | **RUN** | `CANDIDATE_FRAMEWORK_VERSION: V4.2` · suppressed demo → `P3 / True` |
 | **10 - Validation summary** | **RUN** | `summary_df` built · no `WARNING: Some rows could not be parsed`, no `STOP` |
-| **10A - Deterministic priority adjudication** | **EDIT (9-col fix), RUN, then the gate cell** | `PASS: …` + gate prints `✅ 10A fix active … df shape (N, 9)` — **(N, 7) here means the fix didn't take** |
+| **10A - Deterministic priority adjudication** | **EDIT (import-schema fix), RUN, then the gate cell** | `PASS: …` + gate prints `✅ 10A fix active … df shape (N, 11)` — **fewer than 11 cols here means the fix didn't take** |
 | **10 - Validation summary** *(re-run — required by 10A)* | **RUN AGAIN** | `summary_df` rebuilt with adjudicated priorities, no `STOP` |
 | **10B - Batch QA checks** | **RUN** | `QA passed. No issues flagged.` (if flags appear → review before continuing) |
 | **10C - Slice 2/3.5/4 + engine-signal derivation** | **RUN** | `All slice columns present: True` · per-company maturity/commercial/reset/capability table populated |
@@ -427,8 +423,8 @@ from the dry-run STEP 12. The real master is still empty; nothing is lost.
   `BATCH_NAME`**, so the roster cell must come *after* B — and keep its `BATCH_NAME` unchanged so the
   SAVED/mirror files match.
 - **The 10A fix survives a reconnect — it's a NOTEBOOK edit, not the repo.** Step A re-clones the repo
-  (the stale `colab_workflow.py` mirror still has the 7-column 10A), but the regen path NEVER executes
-  that mirror — you run the notebook's own cells, which Colab reopens with your 9-column fix intact.
+  (the stale `colab_workflow.py` mirror still has the hardcoded-list 10A), but the regen path NEVER executes
+  that mirror — you run the notebook's own cells, which Colab reopens with your import-schema fix intact.
   (Only old-flow STEP 20–27 read the mirror; you don't run them.) Do NOT re-derive 10A from
   `colab_workflow.py`. **Backstop:** after any reconnect, run the **10A gate cell** right after 10A —
   if Colab hadn't autosaved your edit before the disconnect (rare), the gate catches it before 10B.
@@ -444,7 +440,8 @@ from the dry-run STEP 12. The real master is still empty; nothing is lost.
   from pathlib import Path
   from google.colab import drive; drive.mount("/content/drive")
   drive_folder = Path("/content/drive/MyDrive/Job Search/Health Tech Research")
-  want = {"org_events_finding", "operating_characteristics_finding"}
+  from health_tech_research_agent.review import REQUIRED_RESEARCH_COLUMNS
+  want = set(REQUIRED_RESEARCH_COLUMNS)   # full 11-col schema (was a hardcoded 2-col subset)
   for label, p in [("SAVED restore file", drive_folder / f"{BATCH_NAME}_checkpoint_SAVED.csv"),
                    ("Drive mirror checkpoint", drive_folder / "research_batches" / f"{BATCH_NAME}_checkpoint.csv")]:
       if p.exists():
@@ -452,10 +449,10 @@ from the dry-run STEP 12. The real master is still empty; nothing is lost.
           print(f"{'✅' if not miss else '❌'} {label}: {len(d.columns)} cols, {len(d)} rows" + ("" if not miss else f"  MISSING {sorted(miss)}"))
       else: print(f"• {label}: NOT FOUND")
   ```
-  SAVED ✅ 9-col → RESTORE → Step 7 (reuses, fast). SAVED ❌ 7-col → skip RESTORE → Step 7 (re-researches).
+  SAVED ✅ full-width (11-col) → RESTORE → Step 7 (reuses, fast). SAVED ❌ narrowed → skip RESTORE → Step 7 (re-researches).
 - **One-time cells — NEVER re-run on a reconnect:** Clear, Archive, Fresh-init. Clearing would wipe
   restored research; the others are guarded but skip them. Keep `CONFIRM_CLEAR_ALL=False` after the
-  initial clear. (With the 10A fix, the checkpoint stays 9-column, so a post-10A disconnect resumes
+  initial clear. (With the 10A fix, the checkpoint stays full-width 11-column, so a post-10A disconnect resumes
   instead of re-researching.)
 
 ## When research stalls on "rate limit" errors — CHECK BILLING FIRST
@@ -471,7 +468,11 @@ fails and OpenAI emails about the paused auto-recharge.
 limit. Fix = **manually purchase credits** (not subject to the auto-recharge cap, so it unblocks
 immediately) and/or raise the cap. Telltales it's credits, not rate limits: it 429s on the very FIRST
 request, never eases with time, your Limits page shows TPM/RPM barely used, and there's often a
-billing email. Budget ~$0.55/company.
+billing email. Budget ~$0.55/company *(token estimate predating the per-field recovery wiring — size
+credits against the higher call count below).* **This regen's LOCKED web-search budget: 21 web searches/
+company × 55 = ~1,155**, plus 55 fit-brief synthesis calls + per-field presence checks (revenue 5 +
+growth 5 + paying 5 + commercial 5 + funding 2). Confirm credits + the monthly auto-recharge cap cover
+that before the GO. Full cost basis + the rest of the GO gate: `specs/PRE_REGEN_READINESS.md`.
 
 Only if billing has headroom is it an actual server-side throttle (`gpt-5.4-mini`'s TPM is generous;
 web_search runs as a tool *on* the model, not the 6k-TPM `*-search-preview` models). That case IS

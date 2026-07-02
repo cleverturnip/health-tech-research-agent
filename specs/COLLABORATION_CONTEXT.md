@@ -47,10 +47,26 @@ segment defers a judgment to a gate instead of stalling or guessing.
   before Claude Code builds it.
 - Architecture principle ("Rule 7"): the LLM gathers EVIDENCE; deterministic rules DECIDE.
   Persist evidence components as columns so labels/signals are recomputable without re-research.
+- Absence is an upper bound, not a measurement ("Rule 8"): a blank or "not found" in our OWN
+  output means the data isn't IN our output — it does NOT establish the data doesn't exist.
+  "Truly absent" and "present but our search/pass missed it" produce an IDENTICAL blank. So never
+  attribute a cause to an empty field from the output alone; that's a ceiling on non-existence, not
+  a count of it. Convert the bound to a measurement with a live test that actually goes looking
+  (e.g. a repeat-N variance probe) BEFORE building on the attribution. This caught three wrong
+  calls in the research-layer work (revenue "non-disclosure", "weak prompt", "token starvation" —
+  all falsified by live re-runs; the real cause was web-search execution variance).
 - Every temporary measure is built toward the North Star end state. Testing scaffolding and
   partial builds (e.g. temporary Colab cells to define a batch before the front end exists) must
   minimize friction for the eventual autonomous flow — solve the immediate step in the shape the
   end state will reuse, not in a throwaway shape that has to be undone later.
+- The scoring + priority framework has ONE source of truth:
+  `specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (FRAMEWORK_VERSION-stamped). Any scoring-logic
+  decision changes the DOC FIRST (the version bumps), and Claude Code commits the doc-update as
+  its own commit BEFORE building anything that depends on it. The doc-commit IS the sync; the
+  build references the committed doc. If a locked decision isn't in the doc, it isn't locked.
+- Both the research-layer and scoring work cite the framework version they were built against
+  ("built against FRAMEWORK_VERSION vN"). Output citing a superseded version is an instant
+  staleness flag — a mismatch becomes VISIBLE instead of relying on someone remembering it.
 
 ## Source-of-truth files (in the repo — I can paste these into chat, or hand them to Claude Code)
 1. `PROJECT_TRACKER.md` — current state, done, next.
@@ -60,6 +76,10 @@ segment defers a judgment to a gate instead of stalling or guessing.
    `specs/slice3_7_search_layer_redesign_spec.md`, `specs/slice4_capability_fit_spec.md`.
 4. Engine: `specs/candidate_priority_reference_spec.md` and
    `src/health_tech_research_agent/candidate_priority.py`.
+5. Research-layer (branch `research-search-recovery`): `specs/search_recovery_retry_union_spec.md`,
+   `specs/all_fields_blink_probe_spec.md`, `specs/claude_code_growthrate_derive.md`; findings in
+   `audits/` (`research_prompt_audit.md`, `research_revenue_cause_isolation_findings.md`,
+   `revenue_live_validation_findings.md`, `all_fields_probe_findings.md`).
 
 If a new chat needs full detail, I'll paste the relevant spec.
 
@@ -93,9 +113,8 @@ normal and anticipated — investigate, don't assume the notebook matches the pa
   `search_operating_characteristics`) + commercial/funding re-budget + REQUIRED_RESEARCH_COLUMNS
   7→9. Merged via PR #36.
 
-**Complete + Colab-verified — on branch `slice4-capability-fit`, NOT yet merged to main**
-(merge gated on the pre-regen STEP 10/12 master-landing reconciliation — see *Immediate next
-action*):
+**Slice 4 — MERGED to main (PR #38); the V4.2 regen ran on it** (the pre-regen STEP 10/12
+master-landing reconciliation that had gated the merge is complete):
 - Slice 4 — real capability-fit: three-attribute A1/A2/A3 rubric replacing the role_fit bridge,
   built on Slice 3.7's operating-characteristics search; gate-time A1/A3 no-double-count recompute
   for reset-lifted scale-ups; engine repoint to REAL (`CANDIDATE_FRAMEWORK_VERSION = "V4.2"`,
@@ -104,10 +123,12 @@ action*):
 - Pre-regen master-completeness — engine-input signals (reset, scale signals, Slice 2 components,
   capability) carried to the master via `optional_model_cols`, so the regenerated master is
   engine-ready.
-- Net engine state: REAL (V4.2) on this branch; **Commit 5** (write `final_priority_level`) is now
-  **UNBLOCKED** but not yet built — so the engine remains INERT until Commit 5 lands.
+- Net engine state: REAL (V4.2) merged; **Commit 5** (write `final_priority_level`) is now
+  **RE-GATED behind the SECOND (recovery-enabled) regen** (see the 2026-06-26 correction) — the
+  engine stays INERT until Commit 5, which now waits on trustworthy data.
 
-**Build order (current):**
+**Build order (⚠️ PARTLY SUPERSEDED 2026-06-26 — regen #1 is done; Commit 5 is now re-gated behind
+the SECOND, recovery-enabled regen per *Immediate next action*. Kept for history):**
 1. ✅ **Full data regeneration** — DONE (run-once, 2026-06-24). Canonical 55-company V4.2 master.
 2. ✅ **Field-landing remediation** — DONE (PR #41). Re-landed the role/timing + taxonomy-LLM clusters
    the inline STEP 10 build dropped from the summary→master landing (blank-only, completeness +
@@ -115,9 +136,9 @@ action*):
 3. **Commit 5** — wire candidate→final_priority_level authority + fix false "Human Reviewed"
    labeling + sticky reviewed_priority_level auto-seed. **NEXT** (unblocked). Locked design:
    `candidate_priority_reference_spec.md` §10.
-3. **Commit 6 / master remediation**, then **calibration** (judge too-strict/too-loose only
+4. **Commit 6 / master remediation**, then **calibration** (judge too-strict/too-loose only
    against trusted regenerated data — NOT before).
-4. **Post-migration cleanup pass** — colab_workflow.py AND the notebook old-flow cells (prune
+5. **Post-migration cleanup pass** — colab_workflow.py AND the notebook old-flow cells (prune
    superseded steps/dead code incl. the sheet-queue STEP 21–25; tag residual reset-flavored
    text-scans like `_rt_has_high_agency_exception`). Deferred until the back-half migration
    completes.
@@ -143,35 +164,106 @@ behind the package, and that gap is invisible until reconciliation + a live run 
 maturity/commercial test case.
 
 ## Immediate next action (update this line each time I start a new chat)
-**The run-once regeneration is COMPLETE (2026-06-24).** The master is a clean-slate **55-company
-V4.2 regeneration** — landed + read-back verified (55 inserts / 0 updates; change log all
-`new_company_added`). ⚠️ A follow-up audit caught that that read-back checked column *presence*, not
-*population* — two LLM-JSON clusters (role/timing + taxonomy-LLM) had landed BLANK; **re-landed
-2026-06-24 via `reland.py` / PR #41** (the read-back now asserts per-field counts vs the checkpoint —
-see the engine track below). Every row is staged **`New batch - needs review`**
-(no human review yet). **`videahealth` is deliberately absent** — a transient fit-brief
-`JSONDecodeError` dropped it; excluded (not a primary target), JSON-retry hardening scheduled (below).
 
-How it landed (gate all ✅): `slice4-capability-fit` merged to main (PR #38); the STEP 10A schema-drop
-fixed in the notebook (9-col); research via the inline-list → `run_research_batch` path (WAIT=120 +
-item-8 guard); STEP 12 dry-run HARD GATE passed; one-way `DRY_RUN` flip → single real write →
-read-back. Full play-by-play + every recovery (credits wall, disconnects, the videahealth JSON slip)
-in `regen_execution_runsheet.md`.
+> **MASTER REDESIGN RECONCILED + COMMITTED (2026-06-30).** `MASTER_REDESIGN_SPEC.md` (RECONCILED v1) is the
+> committed target: the master becomes the **GATE-2 scoring-review ledger** (Option 2), with a clean
+> from-scratch priority model (`model_priority`/`human_override`/`final_priority`/override-only `provenance`/
+> `history`/`framework_version`/`taxonomy_override`), the GATE INVARIANT + Rule-6/8 clause, §B-supersedes-
+> candidate_priority, and the cards+summary review packet (extends `build_review_packet`, honors Rule 3).
+> **NEXT = Phase-3 hardening** builds the §B scorer (per `spike_pass1_notes.md` R1/§9) → then the ledger →
+> then the dashboard, all against this spec. (Cross-branch: this annotation + the Commit-5/6 supersession +
+> the CLAUDE.md status update live on `docs-scoring-sot`; sync to `research-search-recovery` when adopted.)
 
-**Immediate next: the engine/calibration track — NOT the dashboard yet.**
-- ✅ **Field-landing remediation (DONE, 2026-06-24, PR #41)** — the role/timing + taxonomy-LLM clusters
-  that landed blank are re-landed via `reland.py` (blank-only; 1:1 completeness + per-field read-back
-  guards). This **cleared the Commit 5 gate** — the engine reads `stage_timing_fit` +
-  `likely_agency_level`, now 55/55. (The 4 role/timing siblings + 5 deterministic-taxonomy fields +
-  `primary_market_segment_code` are deferred to the dashboard milestone / STEP 14, Rule 7.)
+> **PASS-2 COMPLETE — Phase-2 spike retired (2026-06-29).** The SECOND (recovery-enabled) regen CSV
+> (`v42_full_regen…full56_checkpoint_FINAL`, 54 of 55; `firefly health` + `videahealth` deferred) was scored
+> by the disposable Phase-2 SPIKE; the framework is now fully pressure-tested, calibrated, and committed to
+> the SOT (**v1.11**): classifier TRUSTED (human-locked B2B floor §B2 v1.4 + 3 overrides); RESET §B4 v1.5;
+> bg_fit §B5 v1.7 LOCKED (Nourish regression passed); PMF Scale A + Scale B + geometric interp §B6 v1.8
+> (acceleration removed); stage rule §B4 v1.10 (designated-series); THRESHOLDS + dials §B7 v1.11 LOCKED
+> (P0 ≥18 / P1 15-17 / P2 13-14 / P3 <13, floor-rule-gates-first). Final tiered deliverable:
+> `SPIKE_FINAL_RANKING.md` (P0=4 / P1=6 / P2=6 / P3=38 = 54; SPIKE OUTPUT — disposable). 2 human decisions
+> recorded (Function P1-override; Angle/Oula P3-by-floor). **NEXT = Phase-3 hardening:** build the scorer as
+> committed package code per R1 + `spike_pass1_notes.md §9` (carry the spike's logic intact, then RE-VALIDATE
+> thresholds against the hardened scorer). The spike is NOT the system. Non-normative records:
+> `spike_pass1_notes.md` (on `docs-scoring-sot`).
+
+> ⚠️ **STATUS CORRECTED 2026-06-26 — there are TWO run-once regens; do not conflate them.**
+> The 2026-06-24 V4.2 regen (below) is the FIRST. A subsequent **research-layer thread** discovered that
+> the V4.2 master's DATA is not trustworthy (~42% empty revenue, plus recoverable figures missing across
+> other fields — root cause: web-search EXECUTION VARIANCE, not non-disclosure; the canonical Pelago
+> "genuine absence" was falsified live, Rule 8). That discovery **supersedes** the old "Commit 5 →
+> calibrate" next-step: calibration must NOT run against the V4.2 master. A **SECOND run-once regen** —
+> on recovery-enabled data (the `search_with_recovery` mechanism) — is now the gate before calibration.
+> See "## RESEARCH-LAYER THREAD (in flight)" below for the live state and the exact open decision.
+
+**FIRST regen — COMPLETE (2026-06-24).** The master is a clean-slate **55-company V4.2 regeneration** —
+landed + read-back verified (55 inserts / 0 updates; change log all `new_company_added`). ⚠️ A follow-up
+audit caught that that read-back checked column *presence*, not *population* — two LLM-JSON clusters
+(role/timing + taxonomy-LLM) had landed BLANK; **re-landed 2026-06-24 via `reland.py` / PR #41**. Every
+row is staged **`New batch - needs review`**. **`videahealth` is deliberately absent** — a transient
+fit-brief `JSONDecodeError` dropped it; excluded, JSON-retry hardening scheduled.
+
+How it landed (gate all ✅): `slice4-capability-fit` merged to main (PR #38); STEP 10A schema-drop fixed
+(9-col); research via inline-list → `run_research_batch` (WAIT=120 + item-8 guard); STEP 12 dry-run HARD
+GATE passed; one-way `DRY_RUN` flip → single real write → read-back. Full play-by-play in
+`regen_execution_runsheet.md`.
+
+> ⚠️ **COMMIT 5 / COMMIT 6 SUPERSEDED by the ledger (`MASTER_REDESIGN_SPEC.md`, RECONCILED v1, 2026-06-30).**
+> The master is now the **GATE-2 scoring-review ledger** (Option 2 — the ONE master, superseding the V4.2/V1
+> data master; raw research data lives durably in the research output). The **§B scoring system** (not
+> `candidate_priority`) is the master's priority source → `model_priority`; **Commit 5's "wire candidate →
+> `final_priority_level`" is OBSOLETE**, and the old six priority columns retire in favor of a clean
+> from-scratch model (`model_priority` / `human_override` / `final_priority` / override-only `provenance` /
+> `history` / `framework_version` / `taxonomy_override`). **GATE 2 = the ledger review.** Two hard rules now
+> stated in the redesign spec: **(Rule-6/8 clause)** the decision block edits PRIORITY + TAXONOMY only (Rule
+> 6); scores + research data are write-once, never hand-edited (Rule 8, fix via upstream regen). **(GATE
+> INVARIANT)** presence in the dashboard ⟹ the entry passed GATE-2 review — nothing reaches the dashboard
+> un-gated (this is what makes override-only provenance unambiguous). The blocks below are HISTORICAL.
+
+**Immediate next is NO LONGER "Commit 5 → calibrate" — it is the research-layer thread, THEN a second
+regen, THEN Commit 5/calibration.** The engine/calibration track below is still the eventual path, but it
+is GATED behind the second regen (calibrating on untrustworthy data would bake in wrong thresholds — the
+exact `^c10` / "calibrate only against trusted data" rule).
 - **Commit 5** — wire the candidate engine → `final_priority_level` (+ fix false "Human Reviewed"
-  labeling + sticky reviewed_priority auto-seed). Unblocked (real capability-fit + trusted data +
-  engine inputs now landed).
-  ⚠️ The landed master has **`final_priority_level` BLANK** — Commit 5 is what populates it.
-- → **Commit 6 / master remediation** → **calibration** (the QA flags that landed with the master are
-  the input — calibrate the logic, do NOT hand-edit the master, per Rule 8).
-- **Dashboard is LAST.** `dashboard.py` is built around `final_priority_level/_code/_rank` (sorts by
-  rank, groups by code) — all blank until Commit 5 + calibration. Building it now = building it twice.
+  labeling + sticky reviewed_priority auto-seed). Was marked unblocked on 2026-06-24, but is now
+  **re-gated behind the second (recovery-enabled) regen** — the landed V4.2 master's data is the thing
+  the research thread is fixing. `final_priority_level` is currently BLANK; Commit 5 populates it AFTER
+  trustworthy data exists.
+- → **Commit 6 / master remediation** → **calibration** (calibrate the logic against the *second-regen*
+  master, do NOT hand-edit the master, per Rule 8).
+- **Dashboard is LAST** — built around `final_priority_level/_code/_rank`, all blank until Commit 5 +
+  calibration on trustworthy data.
+
+## RESEARCH-LAYER THREAD (in flight — the current work; gates the second regen)
+**Why it exists:** ~42% of the V4.2 master had empty revenue. Root cause PROVEN via live probes:
+web-search execution variance (searches coin-flip on reaching the page holding a figure; byte-identical
+runs blink). **Fix built + live-validated:** `search_with_recovery` — a field-agnostic always-run-N +
+union + provenance mechanism; per-field config (presence check + source-directed retry prompt + N). On
+branch `research-search-recovery`, **pushed to origin for the Colab runs (NOT merged to main)**,
+~268 tests green; the Group-1 configs (growth-rate, paying-count) + the re-measure harness are committed.
+
+**Per-field scoping status (toward knowing the COMPLETE field set before the second regen):**
+- revenue — enabled, N=5 (kept high for the run-once regen's corroboration).
+- paying-customer-count — re-measured clean → enable N=5 (Tightening 2 validated: paying employer-clients
+  kept distinct from non-paying covered-lives).
+- growth-rate — the hard one (worst-case 20% at the usable bar; rates exist as RAW dated points more than
+  as stated rates). **OPEN DECISION:** stop-on-hit REJECTED (growth = 60% of PMF; first-hit luck must not
+  pick a weak rate). Fix = refine-to-derive (compute the rate from dated endpoints, mandatory
+  show-the-inputs + period), re-measure, then size N via ALWAYS-RUN-N (never stop-on-hit). Drafted prompt:
+  `specs/claude_code_growthrate_derive.md` — **committed to the repo + received by Claude Code 2026-06-26;
+  the refine-to-derive WORDING is NOT yet built (awaiting the joint review the doc asks for).**
+- valuation, revenue-per-user (Group 2) — flagged LOWER-STAKES; not yet designed; match rigor to stakes.
+- diffuse fields (payer/outcomes/org-events/strain) + capability_fit — single-pass (diffuse "robust" from
+  BLIND measurement is PROVISIONAL, not final — Pelago lesson).
+
+**Sequence:** enable paying-count → growth-rate derive (joint wording) → re-measure → set growth N →
+Group 2 → enable all + set permanent per-field N → **SECOND run-once regen on recovery-enabled data** →
+THEN Commit 5 → Commit 6 → calibration → dashboard.
+
+**Verified finding parked for the PATH-gate (scoring) work:** `payer_institutional` is too narrowly
+scoped — it detects PAYER-reimbursement only, but PATH Test B needs "ANY real institutional/B2B2C
+channel." Function Health proves the gap (real EMPLOYER-DIRECT channel "Function for Work", but
+insurance-free). When building PATH Test B, cover employer-direct, not just payer-reimbursed.
 
 **Deferred cleanup — NOW ACTIONABLE (run-once done, so unblocked):**
 - **ROOT fix #1** — collapse the inline STEP 12 into a call to the package `master_update` function

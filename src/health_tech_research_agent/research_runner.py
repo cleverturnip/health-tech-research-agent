@@ -27,6 +27,7 @@ separately-reviewable change — not part of this faithful extraction.)
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,8 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+from . import structured_evidence as se
 
 try:  # openai is an optional extra (see pyproject); keep the package importable offline.
     from openai import APIError, RateLimitError
@@ -53,6 +56,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_WAIT_BETWEEN_SEARCHES = 120  # seconds
+# Inter-pass wait for search_with_recovery's N passes. NON-ZERO by design: the
+# mechanism exploits web-search execution variance, so rapid-fire identical queries
+# risk correlated / cached result sets that defeat the variance we depend on. Well
+# short of the 120s between DISTINCT searches (these are retries of ONE query). This
+# is a hypothesis to validate via the live run's pass-level logging — tune up if the
+# passes come back near-identical.
+DEFAULT_WAIT_BETWEEN_PASSES = 45  # seconds
 
 
 SEARCH_FAILED_MARKER = (
@@ -157,14 +167,15 @@ Use live web search to find the latest credible funding, valuation, stage, inves
 {research_query}
 
 Look specifically for:
-- latest funding round
+- EACH priced funding round WITH ITS DATE and amount (e.g. "Series C, $40M, 2022; Series D, $90M, 2024")
+  -- the full dated sequence, not just a single "stage". Note any bridge / extension / SAFE / convertible
+  / debt events too (with dates), but mark them as such -- they do NOT redefine the stage bucket.
 - total funding
 - valuation
 - named investors
-- company stage
 - founding year (when the company was founded)
 - major acquisitions or strategic investments
-- IPO/S-1/public company status if applicable
+- IPO / S-1 / public-listing status (with the IPO/filing date)
 - evidence that funding supports growth versus survival
 
 Important:
@@ -172,9 +183,12 @@ Important:
 - Do not overstate uncertain funding information.
 - If source quality is weak, say so.
 
-Return a concise, sourced FACT LIST covering, where available: funding stage; IPO / public
-status (with the filing or IPO date if any); the date and amount of the latest raise; total
-funding to date; valuation; and founding year. Tag each fact with its source name and date.
+Return a concise, sourced FACT LIST covering, where available: the DATED funding-round sequence (EACH
+round with its date, amount, and whether it is a priced equity round vs a bridge / extension / SAFE /
+debt event); any IPO / public-listing event with its date; total funding to date; valuation; and
+founding year. Tag each fact with its source name and date. GATHER every round (including undated ones,
+marked date-unknown) -- do NOT compute or pick a single funding_stage; a deterministic rule downstream
+selects it from the rounds you gather.
 If a particular fact is not found, say so rather than guessing.
 If no credible public funding evidence exists at all, say "No strong public funding evidence found."
 Do not invent figures.
@@ -447,6 +461,453 @@ claims. Do not invent figures or events.
 
 
 # =============================================================================
+# STEP 4c - Search recovery: always-run-N + union on web-search variance
+# =============================================================================
+#
+# Web search is nondeterministic: a single pass coin-flips on whether it reaches
+# the page that holds a figure (see audits/research_revenue_cause_isolation_findings.md
+# -- Midi revenue 2/5 byte-identical tries; Solace 5/5; Pelago 0/5, genuinely
+# absent). ``search_with_recovery`` is the field-agnostic fix: run a FIXED N passes
+# on every company and UNION all results. Pass 1 is the proven general search;
+# passes 2..N are source-directed (lead, not filter). There is NO conditional stop,
+# so the retry layer makes NO quality judgment -- quality is rated entirely
+# downstream by the fit-brief synthesis (evidence_confidence_score / q4).
+# ``call_openai`` is untouched; its blank-guard still protects each individual pass.
+# Spec: specs/search_recovery_retry_union_spec.md.
+
+
+@dataclass
+class RecoveryProvenance:
+    """Observability-only record of one recovery run. Gates nothing and judges no
+    quality. ``figure_present`` is the single end-of-union presence check (the only
+    presence role left once stop-on-hit is gone); it feeds logging and the Mode-B
+    cross-check (the union held a figure the synthesis later left empty). ``passes``
+    holds the raw per-pass findings so callers (the live-validation harness) can SEE
+    pass independence — if the passes come back near-identical, the inter-pass
+    cadence is too tight and the variance is not actually varying."""
+
+    field_name: str
+    n_passes: int
+    figure_present: bool
+    passes: list = field(default_factory=list)
+
+
+def _union_findings(findings) -> str:
+    """Concatenate labeled ``(label, text)`` pass findings, preserving everything.
+    Conflicting figures are NOT collapsed -- the synthesis adjudicates (Rule 7)."""
+    return "\n\n".join(f"--- {label} ---\n{text}" for label, text in findings)
+
+
+def search_with_recovery(
+    search_fn,
+    research_query,
+    *,
+    client,
+    model: str = DEFAULT_MODEL,
+    retry_prompt_builder,
+    presence_check,
+    field_name: str,
+    n_passes: int = 5,
+    wait_between_passes: float = 0.0,
+    sleep_fn=time.sleep,
+):
+    """Run ``n_passes`` web searches and UNION the results -- the field-agnostic
+    recovery mechanism (no early stop; every company gets all N passes).
+
+    * Pass 1 calls ``search_fn(research_query, client=, model=)`` verbatim (the
+      proven general search).
+    * Passes 2..N call ``call_openai`` with ``retry_prompt_builder(research_query)``
+      (source-directed; web search ON), each preceded by a ``wait_between_passes``
+      sleep so rapid-fire identical queries don't return correlated / cached result
+      sets that would defeat the execution variance this mechanism depends on.
+      ``wait_between_passes`` should be NON-ZERO in production; the 0.0 default is for
+      unit tests / direct callers that inject their own cadence (production wiring
+      passes ``DEFAULT_WAIT_BETWEEN_PASSES``).
+    * Passes that returned ``SEARCH_FAILED_MARKER`` or blank contribute NOTHING to
+      the union. If EVERY pass failed, ``SEARCH_FAILED_MARKER`` is returned so
+      downstream ``is_search_failure`` still tells a failed search apart from a
+      genuine no-figure finding.
+    * ``presence_check(union_text, client=, model=) -> bool`` is OBSERVABILITY ONLY
+      (provenance + Mode-B cross-check): it gates nothing and judges no quality.
+
+    ``search_fn`` / ``retry_prompt_builder`` / ``presence_check`` / ``field_name``
+    are per-field config, so adding a field is configuration, not a rewrite. The raw
+    per-pass findings are returned in ``RecoveryProvenance.passes`` so a caller can
+    inspect pass independence. Returns ``(union_text, RecoveryProvenance)``.
+    """
+    if n_passes < 1:
+        raise ValueError("n_passes must be >= 1")
+
+    findings = [
+        ("pass1 (general)", search_fn(research_query, client=client, model=model))
+    ]
+    for p in range(2, n_passes + 1):
+        if wait_between_passes:
+            sleep_fn(wait_between_passes)  # let the search result set vary (avoid cache)
+        text = call_openai(
+            retry_prompt_builder(research_query),
+            client=client,
+            model=model,
+            use_web_search=True,
+            max_output_tokens=700,
+        )
+        findings.append((f"pass{p} (source-directed)", text))
+
+    raw_passes = [text for _label, text in findings]
+
+    real = [
+        (label, text)
+        for label, text in findings
+        if str(text or "").strip() and not is_search_failure(text)
+    ]
+    if not real:
+        # Every pass failed or was blank -> preserve the failure signal so the
+        # union is not mistaken for a genuine "no figure found".
+        return SEARCH_FAILED_MARKER, RecoveryProvenance(
+            field_name=field_name,
+            n_passes=n_passes,
+            figure_present=False,
+            passes=raw_passes,
+        )
+
+    union_text = _union_findings(real)
+    figure_present = bool(presence_check(union_text, client=client, model=model))
+    return union_text, RecoveryProvenance(
+        field_name=field_name,
+        n_passes=n_passes,
+        figure_present=figure_present,
+        passes=raw_passes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Revenue config (the first instance of search_with_recovery)
+# ---------------------------------------------------------------------------
+
+# Per-field pass budget for revenue recovery (spec: N=5 -> ~92% worst-case recovery
+# on the Midi p=.40 case; passes 2..N are source-directed so real recovery >= that).
+REVENUE_RECOVERY_PASSES = 5
+
+# Per-field pass budget for growth-rate recovery (always-run-N, never stop-on-hit). Sized from the
+# post-refine-to-derive re-measure (FRAMEWORK_VERSION v1.1): worst RECOVERABLE case Midi 60% -> ~99%
+# at N=5; ZOE 100%. Solace EXCLUDED from sizing -- genuine-absent for growth (one dated revenue
+# point, consistent across passes; the qualitative floor catches it), not a recoverable blinker.
+GROWTH_RECOVERY_PASSES = 5
+
+# Per-field pass budget for paying-customer-count recovery (always-run-N). Re-measured clean
+# (Tightening 2: paying employer-clients kept distinct from non-paying covered-lives; the Pelago
+# stress case) -> N=5, matching the measurement -- its OWN paying-directed recovery, not riding on
+# the revenue-directed commercial union. Built against FRAMEWORK_VERSION v1.2.
+PAYING_RECOVERY_PASSES = 5
+
+# Per-field pass budget for funding-ROUNDS recovery (always-run-N), source-directed for LATEST-round
+# RECALL. LOCKED = 2 by the source-directed re-measure (audits/all_fields_probe_findings.md §14): per-pass
+# recall is ~100% once source-directed (Sword's Series D/F was gathered in ALL 5 passes; the prior "60%"
+# was a MAPPER artifact on non-canonical types, now fixed by the canonical-stage filter). So N=2 is a thin
+# BUFFER on a GATE input (1 general + 1 source-directed, two shots at the latest round) -- NOT N=4
+# (brute-forcing a non-problem), NOT N=1 (no margin on a gate signal). Built against FRAMEWORK_VERSION v1.2.
+FUNDING_RECOVERY_PASSES = 2
+
+
+def revenue_source_directed_prompt(research_query) -> str:
+    """Source-directed retry prompt for passes 2..N of revenue recovery.
+
+    Targets the financial-data sources that recurred across our recoveries
+    (CB Insights / Latka / Growjo / PitchBook / Sacra) by constructing their canonical
+    URLs directly (a per-pass reliability boost) AND by trying known aliases / former
+    names (the Pelago/Quit Genius, "Join X" miss class). This is ADDITIVE, never a
+    filter (Gate-2): it MUST still surface company-disclosed figures that live OUTSIDE
+    aggregators -- press releases, crowdfunding (Crowdcube), founder interviews,
+    statutory filings (Companies House) -- our own recoveries came through those. The
+    pass-1 general prompt (``search_commercial_scale``) is unchanged; this only sharpens
+    the retries. Issued with web search ON by ``search_with_recovery``."""
+    return f"""
+Use live web search to find REVENUE / ARR / run-rate evidence for:
+
+{research_query}
+
+START by going DIRECTLY to the financial-data sources that most often carry private-
+company revenue figures and estimates. Construct and open their canonical pages from
+the company's domain / name so you reliably land on pages we know exist:
+- Latka: getlatka.com/companies/<company domain> (e.g. .../companies/pelagohealth.com)
+- CB Insights: cbinsights.com/company/<company-name>/financials
+- Growjo: its company page for the name AND for any former name
+- PitchBook and Sacra: the company's profile page
+Also try the company's KNOWN ALIASES and FORMER NAMES -- aggregators often list a
+company under a former name or a brand alias (e.g. Quit Genius -> Pelago; a "Join X"
+brand for X). If a page shows an entry that looks wrong for this company (absurd scale,
+wrong employee count, wrong industry), treat it as a possible namesake and try the
+alias / former name before concluding no figure exists.
+
+This direct-URL targeting is IN ADDITION TO, NOT INSTEAD OF, the open search for
+company-disclosed figures wherever they live. The aggregators are a LEAD, NOT a filter
+-- you MUST ALSO surface company-disclosed figures that live OUTSIDE them, including:
+- company press releases, newsroom posts, and blog announcements
+- crowdfunding disclosures (e.g. Crowdcube, Wefunder) and investor / IR pages
+- founder or executive interviews and conference talks
+- statutory filings (e.g. Companies House) and reputable press citing a figure
+Do NOT restrict the search to the aggregators above -- a real figure that lives only in
+a press release, a crowdfunding round, or a statutory filing MUST still be returned.
+
+For EACH figure include: the value with its date / period; the SOURCE TYPE
+(company-reported / third-party estimate -- name the source and method / promotional);
+and the trend or history if available. Clearly distinguish company-reported from
+estimated figures. Include weak or single-source figures too -- label them weak; do
+NOT omit a real figure for being low-quality. If no revenue figure is found in any
+credible source, say "No revenue figure found." Do not invent figures.
+"""
+
+
+def _parse_presence(text) -> bool:
+    """Parse a PRESENT / ABSENT verdict. Conservative: only an explicit PRESENT is
+    True. This is observability-only, so a wrong guess gates nothing."""
+    return str(text or "").strip().upper().startswith("PRESENT")
+
+
+def revenue_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-only end-of-union presence check for revenue (NO web search).
+
+    Answers "did the union surface a real revenue figure?" for provenance / logging
+    and the Mode-B cross-check. It makes NO quality judgment and gates nothing --
+    quality is the synthesis's job (``evidence_confidence_score`` / ``q4``).
+    Implied-from-pricing counts as PRESENT (a real, labeled signal)."""
+    prompt = f"""
+Read the research findings below and decide ONE thing: do they contain a real
+REVENUE figure for the company -- revenue, ARR, run-rate, GMV, sales, or bookings
+that a source actually stated or credibly implied (including a figure implied from
+paying-customers x pricing)?
+
+Do NOT count as revenue: funding rounds, total raised, valuation, or a list / sticker
+price on its own. A weak or single-source revenue figure still counts as PRESENT --
+quality is judged elsewhere, not here.
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
+# ---------------------------------------------------------------------------
+# Group 1 field configs (source-directed prompts + presence checks)
+# ---------------------------------------------------------------------------
+
+
+def growth_rate_source_directed_prompt(research_query) -> str:
+    """Source-directed retry prompt for growth-RATE recovery (Group 1). Refine-to-derive: COMPUTES the
+    rate from dated revenue endpoints the search finds (not just pre-stated rates), with mandatory
+    show-the-inputs, because growth rates exist as RAW MATERIAL more often than as finished figures.
+    Keeps Tightening 1 (usable only WITH a period), lead-not-filter + alias (B1), and tags computed
+    rates DERIVED. Used on passes 2..N by search_with_recovery (web search ON); pass 1 = general
+    search_commercial_scale, unchanged. (Matched unit with the growth_signal carry text + the
+    growth_rate_presence_check derived-clause; ship together.)"""
+    return f"""
+Use live web search to find the company's QUANTIFIED revenue or PAID-user growth rate for:
+
+{research_query}
+
+A usable growth rate is a NUMBER WITH the time period it covers -- e.g. "287% in 2023",
+"+53% YoY 2024", "10x from Series B (2021) to 2023". The word "growing" with no number does
+NOT count.
+
+This is REVENUE growth or PAID-user/subscriber/member growth ONLY. Do NOT report headcount/
+employee/team growth, office or geographic expansion, partner/client-count growth, funding
+growth, or total-user/download/MAU growth that is NOT specifically PAID users/subscribers/
+members -- those are NOT the signal we need here.
+
+[1] COMPUTE the rate -- don't just look for a finished one. Growth rates exist as RAW MATERIAL
+(two or more dated revenue/ARR points) more often than as a pre-stated percentage. WHENEVER you
+find two or more dated revenue figures for the company, COMPUTE the growth between them yourself
+(e.g. Latka's "$0 in 2021 -> $115.9M in 2025"; a CEO's "$60M end-2024 -> $150M late-2025").
+Report derived rates AND any pre-stated rates; do not limit yourself to pre-stated ones.
+
+[2] SHOW THE INPUTS for every computed rate, inline -- ALWAYS. A derived rate MUST display the
+endpoints and dates it was computed from, e.g. "~2.5x over ~9 months, computed from $60M
+(Dec 2024) -> $150M (Sep 2025)". NEVER emit a bare derived number like "150% growth" with no
+visible inputs -- a number with no inputs is uninterpretable and is not acceptable. Mark a
+computed rate as DERIVED (vs a company-stated rate) so its provenance is clear.
+
+[3] TIME PERIOD IS REQUIRED for any rate, stated OR derived:
+- A relative figure ("doubled", "10x", "+53%") MUST carry the period it covers.
+- Endpoints (a from->to) WITHOUT dates are NOT usable -- record "endpoints found, dates missing
+  -- not a usable rate"; do not emit a dateless rate.
+- If a rate is stated but its period is unclear, record "rate found, period unclear" -- do NOT
+  assume a period.
+
+[4] START by going directly to the pages that carry growth figures and dated revenue series
+(construct the URLs), as a LEAD -- not a filter:
+- Latka: getlatka.com/companies/<domain> (a revenue series by year -> compute the rate from it)
+- Growjo: its company page for the name AND any former name
+- CB Insights: cbinsights.com/company/<name>/financials
+This is IN ADDITION TO, NOT INSTEAD OF, company-disclosed growth wherever it lives -- funding/
+milestone press releases ("287% revenue growth in 2023"), founder/executive interviews (often
+two dated revenue points), statutory filings (compute the rate; show inputs+dates). Try KNOWN
+ALIASES / FORMER NAMES (e.g. Quit Genius -> Pelago; a "Join X" brand); if a page looks like a
+wrong-entity namesake (absurd scale/industry), try the alias before concluding none.
+
+For EACH growth figure give: the value (a stated rate, OR a derived rate WITH its endpoints+dates),
+the PERIOD, and the SOURCE TYPE (company-reported / third-party estimate / DERIVED-by-you). If only
+a qualitative "growing" with no number and no dated endpoints is found, say so explicitly:
+"growth direction only, no quantified rate." Do not invent figures or fabricate dates.
+"""
+
+
+def growth_rate_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-only: is a USABLE quantified growth rate present -- a numeric rate WITH a time
+    period (Tightening 1)? A dateless relative figure, a from->to without dates, or a qualitative
+    "growing" is NOT usable -> absent. No web search; gates nothing; makes no quality judgment."""
+    prompt = f"""
+Read the findings below. Is there a USABLE quantified GROWTH RATE -- a numeric rate WITH a clear time
+period, EITHER (a) STATED (e.g. "287% in 2023", "+53% YoY", "10x since 2021"), OR (b) DERIVED from two
+or more dated revenue endpoints with the inputs shown (e.g. "~2.5x over ~9mo, from $60M (Dec 2024) ->
+$150M (Sep 2025)")?
+
+A numeric rate WITHOUT a time period, a from->to WITHOUT dates, or a qualitative "growing" with no
+number does NOT count -- those are ABSENT for a usable rate.
+
+Employee/headcount growth, funding growth, partner-count growth, office expansion, or non-paying
+user/download/MAU growth do NOT count -- only REVENUE or PAID-user/subscriber/member growth.
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
+def paying_count_source_directed_prompt(research_query) -> str:
+    """Source-directed retry prompt for PAYING customer-count recovery (Group 1). Paying-only: a
+    PAYING employer/health-plan client counts and belongs HERE; "covered / eligible lives" are
+    NON-paying reach (they belong to institutional-distribution), and the two coexist for the same
+    company (Pelago: "100+ employer clients" AND "3.4M eligible lives") -- keep them DISTINCT
+    (Tightening 2). Leads with where paid counts are disclosed (company press/about, interviews) plus
+    aggregators, as a LEAD not a filter; alias-aware; non-paying counts are returned + LABELED (not
+    dropped, so free-scale signal is preserved). Used on passes 2..N by search_with_recovery."""
+    return f"""
+Use live web search to find the company's PAYING customer / subscriber / member COUNT for:
+
+{research_query}
+
+We need a count of PAYING customers -- paid subscribers, paid members, or PAYING business/enterprise
+clients (e.g. "100+ employer clients" that PAY for the product). EXCLUDE free users, trials, pilots,
+waitlists, downloads, and registered (non-paying) users.
+
+Keep these DISTINCT -- do NOT conflate them:
+- PAYING entities (paid members, OR paying employer/health-plan clients) -> THIS field.
+- "Covered / eligible lives" under those clients are NON-paying reach, NOT a paying count -> they
+  belong to institutional-distribution, not here. A company can have BOTH at once (e.g. Pelago:
+  "100+ paying employer clients" AND "3.4M eligible lives") -- report the paying-client count here
+  and label the eligible-lives figure separately as NON-paying.
+
+START where paid counts are usually disclosed:
+- company press releases, newsroom, "about" / "impact" pages, milestone posts
+  ("over 100,000 paying members"; "100+ employer clients")
+- founder / executive interviews and conference talks
+- credible press citing a company-disclosed paid count
+IN ADDITION (not instead), check aggregators: Latka getlatka.com/companies/<domain>; Growjo;
+CB Insights company pages. Try KNOWN ALIASES / FORMER NAMES and a "Join X" brand; if a namesake looks
+wrong (absurd scale/industry), try the alias before concluding none.
+
+For EACH count give: the value, the date, whether it is explicitly PAYING (vs free / covered-lives),
+and the SOURCE TYPE. If only free / registered / covered-lives counts are found, RETURN them but
+LABEL them NON-paying. Do not invent figures.
+"""
+
+
+def paying_count_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-only: is a PAYING customer / subscriber / member / business-client count present?
+    Free / trial / registered users and "covered / eligible lives" do NOT count. No web search;
+    gates nothing; makes no quality judgment."""
+    prompt = f"""
+Read the findings below. Is there a count of PAYING customers -- paid subscribers, paid members, or
+PAYING business/enterprise clients?
+
+Do NOT count: free / trial / pilot / waitlist / registered (non-paying) users, app downloads, or
+"covered / eligible lives" (eligible-but-not-paying reach under an employer/health-plan).
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
+def funding_rounds_source_directed_prompt(research_query) -> str:
+    """Source-directed retry for passes 2..N of funding-ROUNDS recovery (FRAMEWORK_VERSION v1.2). Fixes
+    the recall gap -- a generic pass coin-flips on the MOST RECENT round (Sword's series-d dropped 2/4) --
+    the B1 way: lead with the pages carrying COMPLETE, dated round histories (Crunchbase / PitchBook /
+    company announcements), constructing URLs, AND try aliases / former names. ADDITIVE, never a filter.
+    The LLM GATHERS rounds (the fit-brief synthesis structures them per c3779cc) and NEVER picks a stage
+    (the deterministic mapper does). Issued with web search ON by search_with_recovery."""
+    return f"""
+Use live web search to find the company's COMPLETE, DATED funding-round history -- and ESPECIALLY its
+MOST RECENT priced round -- for:
+
+{research_query}
+
+The single most important thing to get right is the LATEST round: a generic search often stops at an
+older round and misses the most recent one (the recall gap this pass exists to close). START by going
+DIRECTLY to the sources that carry full, dated round histories. Construct and open their canonical pages
+from the company's domain / name:
+- Crunchbase: crunchbase.com/organization/<company-name> (the funding-rounds section)
+- PitchBook: the company's profile page
+- Growjo / CB Insights / Tracxn: the company page for the name AND for any former name
+- the company's OWN funding announcements / newsroom / press releases for each raise
+Also try KNOWN ALIASES and FORMER NAMES -- aggregators often list a company (and its later rounds) under
+a former name or brand alias (e.g. Quit Genius -> Pelago; a "Join X" brand for X). If a page looks wrong
+for this company (absurd scale, wrong industry), treat it as a possible namesake and try the alias /
+former name before concluding.
+
+This direct-URL targeting is IN ADDITION TO, NOT INSTEAD OF, the open search for company-disclosed rounds
+wherever they live -- press releases, investor / IR pages, reputable press citing a raise + date,
+statutory filings. The aggregators are a LEAD, NOT a filter: a recent round announced only in a press
+release MUST still be returned. Pay special attention to any round in the LAST ~24 MONTHS -- that is the
+one a generic pass most often misses.
+
+For EVERY round, report: its TYPE (seed / series-a / ... / series-d / ... / bridge / extension / SAFE /
+convertible / debt), its DATE (year or year-month), its AMOUNT, and whether it is a PRICED EQUITY round
+(seed/series-*) vs a bridge / extension / SAFE / convertible / debt event. Include undated rounds (mark
+them date-unknown), and report the FULL dated sequence INCLUDING the most recent round.
+Do NOT compute or pick a single funding_stage -- the deterministic rule downstream selects it from the
+rounds you gather.
+"""
+
+
+def funding_latest_round_presence_check(union_text, *, client, model: str = DEFAULT_MODEL) -> bool:
+    """Observability-ONLY: does the union contain a RECENT priced equity round WITH a date -- a PROXY for
+    'the latest round was gathered'? No web search; gates NOTHING; changes only provenance (figure_present),
+    never the union / pass count / the mapper's selection. We cannot verify the TRUE latest without ground
+    truth, so ABSENT is a SOFT signal (recall-miss OR genuinely-no-recent-raise) that only FEEDS the gate
+    fail-safe flag -- it never filters rounds or floors a company."""
+    prompt = f"""
+Read the funding findings below. Is there at least one PRICED EQUITY round (seed / series-a / series-b /
+... / series-d+) reported WITH a date in roughly the LAST ~24 MONTHS -- a plausible MOST-RECENT round? A
+round history that stops several years ago, or rounds with no date at all, does NOT count.
+
+Answer with exactly one word: PRESENT or ABSENT.
+
+Findings:
+{union_text}
+"""
+    out = call_openai(
+        prompt, client=client, model=model, use_web_search=False, max_output_tokens=64
+    )
+    return _parse_presence(out)
+
+
+# =============================================================================
 # STEP 5 - Company fit synthesis prompt
 # =============================================================================
 
@@ -556,14 +1017,27 @@ PMF / scale guardrails:
 - Do not require D2C revenue quality for a high PMF/scale score if the company has strong institutional distribution.
 - Pricing alone, a membership model alone, a waitlist alone, funding alone, or role-fit relevance alone is not enough to establish strong PMF/scale.
 
-Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label; the system derives it deterministically from funding_stage + ipo_status.
-- funding_stage = the company's MOST RECENT priced round. If credible sources don't establish it, use "unknown" — do NOT infer a stage from headcount, revenue, valuation, or "feel."
+Maturity evidence — gather FACTS ONLY. Do NOT output a maturity label OR a funding_stage; the system
+derives BOTH deterministically (a code mapper picks funding_stage from the rounds; maturity from
+funding_stage + ipo_status).
+- funding_rounds = GATHER every funding round you can source, each with its type, date, amount, and
+  is_priced_equity (priced equity vs bridge/extension/SAFE/convertible/debt). Include undated rounds
+  with date "unknown". Do NOT pick a single stage and do NOT infer rounds from headcount, revenue,
+  valuation, or "feel" — the deterministic mapper selects the stage (public-outranks; else latest-dated
+  priced round) from what you gather.
+- ipo_event = {{"occurred": true/false, "date": ...}} for a real IPO / public-listing event.
 - ipo_status = "public" if shares trade publicly; "filed" ONLY if an S-1 / IPO registration is publicly filed but shares are not yet trading; otherwise "private".
-- Revenue, ARR, valuation, and growth do NOT determine maturity — capture those under commercial_evidence. A Series B company with large revenue is still funding_stage = "series-b".
-- funding_stage_evidence: cite the source + date for the stage and IPO status.
+- Revenue, ARR, valuation, and growth do NOT determine maturity — capture those under commercial_evidence. A Series B company with large revenue is still a series-b round (NOT a higher stage).
+- funding_stage_evidence: cite the source + date for the funding rounds and IPO status.
 
 Commercial evidence — gather FACTS and answer the four red-flag questions. Do NOT output a commercial strength label; the system derives the 0-3 commercial signal deterministically.
 - Capture revenue/ARR and PAYING-customer counts with sources. Exclude free users, trials, pilots, and waitlists from paying_customer_count.
+- List every revenue/ARR/run-rate figure that a source actually STATED, or that is implied from paying-customers × pricing — including weak or single-source figures. Do NOT omit a real figure for being low-quality; quality is captured by evidence_confidence_score and q4, never by exclusion here. Leave the field empty only if NO real figure was found in any pass.
+- revenue_per_user: prefer a company-stated figure; otherwise COMPUTE it from figures already recovered -- revenue ÷ paying-customer count, or annual pricing -- and SHOW THE INPUTS inline, e.g. "~$500/yr, computed from ~$100M revenue ÷ ~200k paying members" or "from $29/mo pricing x 12". Mark a computed value DERIVED (not company-reported). Leave empty only if neither a stated figure nor the inputs to derive one are available. Never emit a bare per-user number with no inputs.
+- ENTITY-DOUBT handling for a revenue figure whose source name/domain you are NOT certain is THIS company:
+  - PLAUSIBLE alias (same or adjacent name; a brand alias or "Join X" / joinX.com matching the company's own domain root; or a known former name) -> CARRY the figure in revenue_or_arr, tag it inline "(entity-uncertain: possible alias of <company> -- verify)", set "entity_review_needed": "possible-alias", note it in unverified_or_weak_claims, and keep evidence_confidence_score moderate-to-low. NEVER silently omit it.
+  - CLEAR mismatch (a different industry/business, a clearly different named company, or a scale implausibly off -- e.g. orders of magnitude below the company's corroborated scale) -> EXCLUDE it as wrong-entity and say so in unverified_or_weak_claims.
+  - When genuinely unsure which applies, PREFER carry+flag over silent drop: a flagged figure is reviewable; a dropped one is invisible.
 - funding_evidence is context ONLY. Funding raised and valuation are NOT commercial traction and are structurally excluded from the signal — do not let them influence q1/q2.
 - The commercial research section now tags each figure with a SOURCE TYPE (company-reported / third-party estimate / promotional) and, where available, a TREND/history; read q4_evidence_quality off those SOURCE TYPE tags and read q1_acquisition off the TREND. Still answer q1-q4 here as defined below — the search only supplies richer evidence, it does not move where these are judged.
 - q1_acquisition: direction of the PAYING base (growing / flat / declining).
@@ -573,22 +1047,31 @@ Commercial evidence — gather FACTS and answer the four red-flag questions. Do 
   - "company-reported" = the company disclosed the figure;
   - "credible-estimate" = a named reputable third party with a methodology (Sacra, CB Insights, reputable press citing sources);
   - "unverified-promotional" = the company's own marketing, vague "fast-growing", or figures with no attributable source.
+  - When MULTIPLE revenue figures are present, set q4_evidence_quality to the STRONGEST quality among them: "company-reported" if any figure is company-reported; else "credible-estimate" if any is a named third-party estimate; else "unverified-promotional". Multiple weak or single-source figures do NOT promote q4 — if no figure is company-reported and none is a credible third-party estimate, q4 stays "unverified-promotional" however many weak figures exist. (More corroboration may raise evidence_confidence_score, but it NEVER lifts q4's source-type bucket.)
 
 Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
-A company may be doing SEVERAL of these at once (e.g. pivoting its business model AND restructuring its team). List EACH distinct event as its own object in reset_events, and answer the opening question PER EVENT, on that event's own terms. Do NOT let one event's nature determine another's — a strategic pivot does not make a coexisting restructuring an opening, and a loud pivot must NOT hide a restructuring that IS an opening. If you find no reset/restructure events, return an empty list [].
-The events, their types, and their per-event high-agency-opening reads come from the dedicated "Recent org / leadership events" section of the research findings above. Transcribe them into reset_events — emit one object per event and carry each event's event_type and opening read through; do NOT re-derive or override the opening here. The per-event definitions below are the shared criteria that search applied (use them only for consistent classification and citation); the deterministic rule downstream decides what fires.
+A company may be doing SEVERAL of these at once. List EACH distinct event as its own object in reset_events, answer the opening question PER EVENT on its own terms, and do NOT let one event's nature determine another's. If you find no reset/restructure events, return an empty list [].
+
+CLASSIFY BY SUBSTANCE, NOT PRESS FRAMING. Judge each event on what ACTUALLY changed, never on the company's label for it. "Transformation," "evolution," "pivotal," "next chapter" are marketing words — they do not decide event_type. You are the single emitter: classify event_type and read the opening from the underlying facts, even when that means re-classifying how the source framed it. (The per-event reads in the "Recent org / leadership events" findings are inputs to weigh, not labels to transcribe.)
+
 For each event:
-- event_type:
-  - leadership-change — new CEO / senior exec layer brought in to build or turn the company around.
-  - declared-transformation — an OPERATIONAL rebuild that creates a builder mandate (rebuilding HOW the company operates). Reserve this for an operating-model rebuild, NOT a change of what the company sells.
+- event_type — choose by SUBSTANCE:
+  - leadership-change — a new CEO / senior exec brought in to BUILD or TURN AROUND the company (a reopened operating window). NOT a routine functional hire to staff ongoing growth (see the opening rule).
   - founder-transition — founder stepping back / bringing in professional leadership to scale.
   - post-failure-rebuild — rebuilding after a stumble, with a forward mandate.
-  - restructuring-layoffs — restructuring / layoffs. This can be EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question for THIS event decides.
-  - strategic-pivot — a change of business model / go-to-market (e.g. D2C -> payer / B2B). A business-model or go-to-market change is strategic-pivot EVEN IF the company frames it as a "transformation". ("Changed what we sell" = strategic-pivot; "rebuilding how we operate" = declared-transformation.)
+  - restructuring-layoffs — restructuring / layoffs. EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question for THIS event decides.
+  - declared-transformation — an OPERATING-MODEL rebuild: rebuilding HOW the company runs INTERNALLY (its operating systems, org, processes). Reserve STRICTLY for an internal operating rebuild. A change to WHAT the company sells, its product line, its pricing, or its go-to-market is NOT this.
+  - strategic-pivot — a change to the BUSINESS MODEL, PRODUCT STRATEGY, PRICING, or GO-TO-MARKET: e.g. D2C -> payer / B2B; a new product category or an "evolution" into a different kind of product; a pricing-model change (engagement-based -> outcome-based); expansion into a new clinical / product area. This is strategic-pivot EVEN IF framed as a "transformation," "evolution," or "pivotal" moment. ("Changed/added what we sell or how we price/sell it" = strategic-pivot; "rebuilding how we operate internally" = declared-transformation.)
   - ma-integration — merger / acquisition integration work.
+  - ipo-prep — IPO preparation: an S-1 / draft (incl. confidential) registration statement, public-market-readiness, or "going public" activity. A MATURE-TRAJECTORY event, the OPPOSITE of a reopened build-window. Classify ALL IPO / S-1 / public-market-readiness events here, even when framed as a "transformation" or "next chapter."
 - basis — cite the source + date for THIS event.
-- creates_high_agency_opening — for THIS event: "yes" only when THIS event creates a FORWARD-LOOKING MANDATE for a senior operator to BUILD (the company is actively rebuilding / transforming and needs operators to do it); "no" when THIS event is a DEFENSIVE reaction (a pivot under competitive pressure, a contraction toward survival/decline, or routine integration); "unclear" when the evidence doesn't let you tell.
-  - Example: a company simultaneously (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures its team to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
+- creates_high_agency_opening — for THIS event, by HONEST confidence:
+  - "yes" ONLY when THIS event CLEARLY reopens a high-agency window (the company is actively rebuilding / turning around and needs a senior operator to BUILD). Do NOT round up to "yes" when uncertain.
+  - "no" when THIS event is a DEFENSIVE reaction (a pivot under pressure, a contraction toward survival/decline, routine integration) or a MATURE-trajectory event (ipo-prep).
+  - "unclear" when the evidence doesn't let you tell.
+  - EXEC ADD — read the opening by STRUCTURAL ROLE, not the company's growth framing: a senior exec ADDED to SUPPORT / DRIVE / SCALE an existing growth / expansion / partnerships / commercial motion (a CMO, CRO, or similar growth / commercial hire — "expanding the executive team" to fuel growth) -> "unclear". This is the common scaling-company case and is NOT a reopened build-window, EVEN when the title is senior. Emit "yes" for an exec add ONLY for a CLEAR structural reset — a NEW CEO replacing the prior CEO, a founder stepping back for professional leadership, OR a FIRST-EVER / NEWLY-CREATED C-suite seat that stands up a function the company did NOT previously have (e.g. its FIRST CFO building finance / operating discipline). The test: does this BUILD a missing operating function (-> "yes") or STAFF an existing growth thrust (-> "unclear")?
+  - Example: a company that (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
+(The deterministic rule downstream fires ONLY when event_type is a firing type AND creates_high_agency_opening == "yes". strategic-pivot, ma-integration, and ipo-prep NEVER fire; "unclear" / "no" never fire; multiple "unclear" events do NOT sum to a fire. Your job is an honest per-event SUBSTANCE classification + an honest opening read — the deterministic code decides what fires.)
 
 Capability-fit — score THREE company-SHAPE attributes (A1, A2, A3), each 0-100 within the
 bands below, each with a one-line basis. These measure how closely the company matches the
@@ -836,14 +1319,22 @@ Use this JSON schema exactly:
   "commercial_scale_assessment": "plain-English assessment of revenue quality, paid-customer scale, retention, pricing power, CAC/margin if available, and whether revenue is reported, estimated, or inferred",
   "pmf_scale_assessment": "plain-English assessment explaining the strongest scale engine, secondary scale engine if any, outcomes/product-value support, and key caveats",
   "maturity_evidence": {{
-    "funding_stage": "most recent priced round: pre-seed / seed / series-a / series-b / series-c / series-d-plus / public / unknown",
+    "funding_rounds": [
+      {{
+        "type": "pre-seed / seed / series-a / series-b / series-c / series-d / series-e / ... / bridge / extension / SAFE / convertible / debt",
+        "date": "YYYY or YYYY-MM, or 'unknown' if you cannot establish it",
+        "amount": "$ amount, or 'unknown'",
+        "is_priced_equity": "true for a priced equity round (seed/series-*); false for bridge/extension/SAFE/convertible/debt"
+      }}
+    ],
+    "ipo_event": {{ "occurred": "true or false", "date": "YYYY or YYYY-MM, or 'unknown'" }},
     "ipo_status": "private / filed / public",
     "ipo_or_filing_date": "date if filed or public, else empty",
     "founding_year": "YYYY, or empty",
     "last_raise_date": "date of most recent raise, or empty",
     "last_raise_amount": "amount + currency of most recent raise, or empty",
     "total_funding": "total disclosed funding, or empty",
-    "funding_stage_evidence": "short source/basis (name + date) for funding_stage and ipo_status"
+    "funding_stage_evidence": "short source/basis (name + date) for the funding rounds and ipo_status"
   }},
   "role_timing_assessment": {{
     "likely_agency_level": "high / medium / low / role-dependent",
@@ -854,17 +1345,18 @@ Use this JSON schema exactly:
   "reset_evidence": {{
     "reset_events": [
       {{
-        "event_type": "leadership-change / declared-transformation / founder-transition / post-failure-rebuild / restructuring-layoffs / strategic-pivot / ma-integration",
+        "event_type": "leadership-change / declared-transformation / founder-transition / post-failure-rebuild / restructuring-layoffs / strategic-pivot / ma-integration / ipo-prep",
         "basis": "source + date for THIS event",
         "creates_high_agency_opening": "yes / no / unclear"
       }}
     ]
   }},
   "commercial_evidence": {{
-    "revenue_or_arr": "figure + source/date, or empty if none found",
+    "revenue_or_arr": "List ALL revenue/ARR/run-rate figures found, each with source, date, and type (company-reported / credible-estimate / implied-from-pricing / weak-single-source). Empty ONLY if NO real figure was found in any pass.",
     "paying_customer_count": "PAYING users/subscribers/members/customers only (exclude free/trial/pilot/waitlist) + source, or empty",
-    "revenue_per_user": "reported or derived revenue per paying user, or empty",
-    "growth_signal": "growing / flat / declining (+ rough rate if available)",
+    "sponsored_user_scale": "NON-PAYING user-scale only -- total/registered/active users, MAU, app downloads/installs that are NOT paid -- with source/date and trend if available. e.g. '~2M registered users (2024), up from ~800k (2023)'. SECONDARY signal: NOT revenue, NOT paying customers; NEVER counts as revenue presence and NEVER feeds growth_signal OR growth_score. Empty if none.",
+    "revenue_per_user": "company-stated, OR DERIVED from revenue ÷ paying-customer count or annual pricing WITH the inputs shown (mark DERIVED, not company-reported); empty only if neither a figure nor the inputs to derive one exist",
+    "growth_signal": "growing / flat / declining, PLUS the quantified rate when found — carried WITH its period, and if COMPUTED from dated endpoints, WITH its inputs and a DERIVED tag. e.g. 'growing; 287% in 2023 (company-reported)' or 'growing; ~2.5x over ~9mo, DERIVED from $60M (Dec 2024) -> $150M (Sep 2025)'. NEVER strip the inputs/period or emit a bare rate. A DERIVED rate (or a third-party estimate) is a moderate-confidence source, NOT company-reported. Direction alone (no rate) is acceptable.",
     "business_model_type": "consumer-subscription / enterprise / payer-reimbursed / other",
     "funding_evidence": "raises / valuation (context ONLY; the system EXCLUDES this from the commercial signal)",
     "q1_acquisition": "is the PAYING base growing, flat, or declining? growing / flat / declining",
@@ -916,6 +1408,7 @@ Use this JSON schema exactly:
   "final_recommendation": "Strong fit, active pursuit / Strong fit, near-priority diligence / Possible fit, pending diligence / Watch list / Weak fit",
   "priority_level": "P0: Highest-priority target / P1: High-priority diligence / P2: Worth deeper diligence / P3: Watch list / P4: Low priority / likely reject",
   "calibration_flag": "short flag if needed, otherwise blank string",
+  "entity_review_needed": "none / possible-alias -- set 'possible-alias' when carrying an entity-uncertain figure per the entity-doubt rule, else 'none'",
   "final_takeaway": "1-3 sentence concise conclusion"
 }}
 """
@@ -950,6 +1443,211 @@ def run_company_fit_brief(
         model=model,
         use_web_search=False,
         max_output_tokens=6500,
+    )
+
+
+# =============================================================================
+# Business-model classifier (§B2) — Commit 1.
+# The LLM extracts who_uses / who_pays (Rule 7); the deterministic mapper in
+# structured_evidence.business_model_for emits the label. Prompt = SOT §B2 v1.13
+# (the gate-B-validated EVIDENCE-ONLY + FREE-TO-CONSUMER wording, 2026-06-30).
+# Pure builder so the prompt is asserted in tests without an API key.
+# =============================================================================
+
+BUSINESS_MODEL_PROMPT_TEMPLATE = """You classify a HEALTH company on TWO INDEPENDENT axes so a downstream deterministic mapper can label it B2B / B2B2C / B2C. You do NOT emit the label -- you emit ONLY the two axis reads, their bases, and a confidence. (A separate locked mapper turns these into the label; a human-locked floor overrides you for a few known cases. Your only job is an honest, evidence-grounded read of the two axes.)
+
+Output ONE JSON object and nothing else:
+{{"who_uses": "consumer" or "professional",
+  "who_uses_basis": "<one line: who actually operates/interacts with THIS company's OWN product/service>",
+  "who_pays": "consumer" or "institution" or "mixed",
+  "who_pays_basis": "<one line: who MATERIALLY pays for that use>",
+  "who_uses_confidence": "high" or "low"}}
+
+AXIS 1 -- who_uses. The ONLY question: who is the END-USER of THIS company's OWN product/service?
+- "consumer" = a regular person (patient / member / individual) personally interacts with the company's own product or service -- even when a clinician or coach is part of the service, and even when an institution pays. Care delivered THROUGH the company's own employed clinicians/coaches to a person is STILL consumer use (the person is the end-user of the company's service).
+- "professional" = the product is operated BEHIND THE SCENES by a professional (clinician, hospital/care-team staff, developer) as a tool / infrastructure / enablement layer / data product; the consumer never personally uses THIS company's product. Provider-facing tools, hospital-at-home enablement platforms, clinical-evidence/data products, and back-office APIs are "professional".
+- FREQUENCY FIREWALL: usage frequency is IRRELEVANT to who_uses. A clinician using a professional tool every day is STILL "professional"; a patient using a consumer app only occasionally is STILL "consumer". Do NOT let high professional-usage frequency pull a professional tool into "consumer".
+- If you genuinely cannot tell whether the consumer is the end-user or the product runs behind the scenes, set who_uses_confidence = "low".
+
+AXIS 2 -- who_pays. The question: who MATERIALLY pays for the consumer's use?
+- "consumer" = the individual pays out of pocket / cash-pay / a consumer subscription is the PRIMARY, material revenue path (even if a tiny employer or pilot channel also exists).
+- "institution" = an employer, health plan, payer, health system, government, or pharma/sponsor materially pays; the consumer receives it free or heavily subsidized.
+- "mixed" = BOTH a real consumer-pay path AND a real institutional-pay path are MATERIAL and established (not a single mention).
+- MATERIALITY BAR (do NOT over-read a minor proof-point): a SINGLE employer page, one pilot, one "ask your employer" mention, or one small partnership does NOT make who_pays "mixed" or "institution". Require a MATERIAL, established institutional payment channel -- named payers / covered lives / a scaled employer book / a health-system JV -- before moving off "consumer". When the consumer cash-pay path is clearly primary and the institutional path is a single minor proof-point, answer "consumer".
+- EVIDENCE-ONLY (do NOT use outside knowledge): base who_pays ONLY on payment channels MATERIALLY ESTABLISHED IN THE EVIDENCE BELOW. Do NOT infer an institutional channel from general or background knowledge about the company. If the Evidence does not materially establish an institutional payment channel, the consumer cash-pay path governs -> "consumer" -- even if you believe the company has institutional deals elsewhere.
+- FREE-TO-CONSUMER: a product that is FREE to the individual has NO consumer-pay path. If the consumer pays nothing and an institution (pharma / sponsor / employer / payer) materially pays, answer "institution", not "mixed". "mixed" requires BOTH a real consumer-PAYMENT path AND a real institutional one.
+
+Company: {company}
+Evidence:
+{evidence}"""
+
+
+def build_business_model_prompt(company_name, evidence) -> str:
+    """Build the §B2 who_uses / who_pays classifier prompt (gate-B-validated wording, SOT v1.13).
+
+    Pure function: no LLM call, no I/O. The LLM emits ONLY the two axis reads + bases + confidence;
+    the deterministic label comes from ``structured_evidence.business_model_for``.
+    """
+    return BUSINESS_MODEL_PROMPT_TEMPLATE.format(company=company_name, evidence=evidence)
+
+
+def run_company_business_model(
+    company_name,
+    evidence,
+    *,
+    client,
+    model: str = DEFAULT_MODEL,
+    max_output_tokens: int = 300,
+):
+    """Run the §B2 classifier extraction for one company: build the prompt, call the model with
+    web search OFF, return the raw model text (expected to be one JSON object). Parsing + the
+    deterministic mapper run downstream (``structured_evidence.flatten_business_model_fields`` /
+    ``business_model_for``). The classifier reads STORED evidence (Rule 7) — no web search."""
+    prompt = build_business_model_prompt(company_name, evidence)
+    return call_openai(
+        prompt,
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+# =============================================================================
+# Background-fit gradient (§B5) — Commit 4.
+# The LOCKED §B5 v1.7 prompt (validated 2026-06-29; byte-faithful to the SOT and the spike). A GRADIENT
+# 1-10, NOT a gate; errors are recoverable (re-runnable per company). Precondition: who_uses == consumer
+# (every gate-passed company meets it — professional was floored at PATH Test A). Emits background_fit
+# (int 1-10) + data_feedback_loop ("yes"/"no"). The frozen BG_FIT dict (spike bg_fit_scores.py) is the
+# VALIDATION REFERENCE — the hardened step RE-RUNS this prompt and should reproduce it within tolerance;
+# the frozen scores are NOT wired in as the scorer's output.
+# =============================================================================
+
+BACKGROUND_FIT_PROMPT_TEMPLATE = """You score BACKGROUND FIT for a CONSUMER-facing health company: HOW CLOSE its consumer-engagement model is to the "mobile-games loop" -- habitual, high-frequency, retention-driven engagement the consumer keeps returning to on their own. This is a GRADIENT (1-10), not a pass/fail. (Precondition already met upstream: the consumer is the end-user of the company's OWN product/service.)
+
+Output ONE JSON object and nothing else:
+{{"background_fit": <integer 1-10>,
+  "data_feedback_loop": "yes" or "no",
+  "basis": "<one line describing the consumer's ACTUAL ongoing engagement>"}}
+
+SCALE:
+- 9-10 = a tight DATA-FEEDBACK LOOP: the consumer sees their OWN body/health data -> acts on it -> sees the result reflected back -> repeats. The habitual self-tracking loop (metabolic / CGM / wearable / biomarker / continuous activity or glucose tracking). This loop is the top-of-scale AMPLIFIER -> set data_feedback_loop = "yes".
+- 6-8 = a STRONG consumer-habit model WITHOUT that tight data-loop: frequent, retention-driven engagement the consumer actively sustains (recurring coaching / therapy / care they personally show up for, a consumer app with real habitual use, an ongoing condition-management relationship). A strong consumer-health company that simply LACKS the data-feedback loop STILL SCORES SOLIDLY HERE -- do NOT floor it merely for lacking the loop.
+- 3-5 = a genuinely EPISODIC / intermittent consumer relationship: the consumer engages around a discrete need or event and then largely leaves, with little sustained habit.
+- 1-2 = almost no recurring consumer-engagement surface.
+
+DO NOT under-score (the "periodic" trap): judge the consumer's ACTUAL ongoing engagement with the company's OWN product/service. Care delivered through the company's employed clinicians/coaches, or paid for by an employer/health-plan, is STILL the consumer's own habit -- do not label it "periodic" for that reason. A serious or medically-driven condition is NOT automatically low-frequency: a daily nutrition program, an ongoing therapy relationship, or continuous condition management is HABITUAL even when the underlying need is medical. Score 3-5 ONLY when the engagement is genuinely one-off / intermittent.
+
+Company: {company}
+Evidence:
+{evidence}"""
+
+
+def build_background_fit_prompt(company_name, evidence) -> str:
+    """Build the §B5 v1.7 LOCKED background-fit gradient prompt (validated wording). Pure function:
+    no LLM call, no I/O. Emits background_fit (1-10) + data_feedback_loop + basis; the deterministic
+    persistence is ``structured_evidence.flatten_background_fit_fields``."""
+    return BACKGROUND_FIT_PROMPT_TEMPLATE.format(company=company_name, evidence=evidence)
+
+
+def run_company_background_fit(
+    company_name,
+    evidence,
+    *,
+    client,
+    model: str = DEFAULT_MODEL,
+    max_output_tokens: int = 220,
+):
+    """Run the §B5 background-fit gradient for one company: build the locked prompt, call the model with
+    web search OFF, return the raw model text (expected to be one JSON object). The caller enforces the
+    who_uses == consumer precondition (``structured_evidence.background_fit_applies``) and parses via
+    ``flatten_background_fit_fields``. Reads STORED evidence (Rule 7) — no web search."""
+    prompt = build_background_fit_prompt(company_name, evidence)
+    return call_openai(
+        prompt,
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+# =============================================================================
+# Growth extractor (§B6 v1.24 — BAND CLASSIFICATION). The last LLM-facing growth prompt.
+# The extractor now CLASSIFIES a company's revenue growth into ONE of four bands (high/solid/slow/unknown),
+# given the STAGE's Scale-B cutpoints — it does NOT report figures and NEVER derives a rate (the v1.23
+# report-figures / same-source derive machinery is SUPERSEDED + REMOVED). The deterministic scorer
+# (structured_evidence.score_growth) maps the band -> a fixed score. The §B6.1 fence (revenue/$ only; counts
+# are SCALE) is preserved. Pure builder so it is asserted in tests without an API key.
+# =============================================================================
+
+GROWTH_BAND_EXTRACTOR_PROMPT_TEMPLATE = """You classify a health company's REVENUE-GROWTH into ONE band, for a downstream stage-relative growth score. Read the evidence and emit ONE growth read. You CLASSIFY into a band; you do NOT compute a precise rate.
+
+Output ONE JSON object and nothing else:
+{{"growth_band": "high" | "solid" | "slow" | "unknown",
+  "growth_basis": "revenue-rate" | "revenue-trajectory" | "counts-scale" | "none",
+  "source_mode": "single-source" | "complementary-multi" | "conflict" | "none",
+  "evidence": "<one line: the figures + their sources + the trajectory you banded on; write 'declining' if revenue is shrinking>"}}
+
+THE BANDS -- phase-relative; the cutoffs below are for THIS company's stage ({stage}):
+- "high"  -- fast-growing FOR ITS STAGE: revenue growth AT OR ABOVE {high_cut}% YoY, OR "tripled / 3x / Nx", OR a clearly-high revenue run-rate/trajectory for the stage.
+- "solid" -- real, credible revenue growth: roughly {solid_lo}%-{high_cut}% YoY for this stage, or a clear multi-fold revenue trajectory that lands in this range.
+- "slow"  -- modest / decelerating / DECLINING: below {solid_lo}% YoY for this stage, flat, or shrinking. (If revenue is shrinking, band "slow" AND write "declining" in evidence.)
+- "unknown" -- NO credible REVENUE-growth signal. Do NOT guess; do NOT manufacture growth.
+
+HOW TO BAND -- TRAJECTORY MAGNITUDE, not a precise rate:
+- You read the ORDER OF MAGNITUDE of the revenue trajectory (grew ~Nx over ~M years) and pick the band -- you do NOT need an exact rate.
+- A band MAY rest on: (a) a single-source stated rate; (b) a single-source revenue series (SAME source, 2+ dated points); OR (c) COMPLEMENTARY revenue points from DIFFERENT sources/years with NO competing estimate for the same period (e.g. $4.5M-2021 from one shop + $35M-2023 from another) -- read TOGETHER as a trajectory magnitude. Two independent shops both showing several-fold growth is MORE credible, not less -- do NOT refuse them.
+- REFUSE only a genuine CONFLICT: two sources giving CONTRADICTORY figures for the SAME period. Then do not manufacture a number -> band on the most-credible single point, else "unknown". (Different years from different shops is NOT a conflict.)
+- A launch-from-$0 revenue trajectory ($0 -> $N): band by how large $N is FOR THE STAGE (a big run-rate reached fast is "high").
+- Set "source_mode": "single-source" | "complementary-multi" (different years/sources, no same-period conflict) | "conflict" (contradictory same-period) | "none" (no revenue figures).
+
+REVENUE / $ ONLY -- the FENCE (HARD, the most important rule):
+- A band may rest ONLY on REVENUE / ARR / $ growth. NON-revenue COUNTS -- covered lives, members, patients, users, downloads, MAU, headcount, partners -- are SCALE, NOT revenue. If the ONLY growth signal is a count/scale figure, the band is "unknown" and "growth_basis" is "counts-scale". NEVER band HIGH/SOLID on counts. ("Covered lives rose 50%" / "members grew 3x" / "patients grew 485%" is NOT revenue growth.)
+- Set "growth_basis": "revenue-rate" (a stated %/multiple) | "revenue-trajectory" (dated revenue points read as magnitude) | "counts-scale" (only non-revenue counts -> band MUST be "unknown") | "none" (no growth signal at all).
+
+Company: {company}
+Evidence:
+{evidence}"""
+
+
+def _fmt_cut(pct) -> str:
+    """Format a Scale-B cutpoint % for the prompt without a trailing '.0' (25.0 -> '25')."""
+    return f"{float(pct):g}"
+
+
+def build_growth_extractor_prompt(company_name, evidence, stage) -> str:
+    """Build the §B6 v1.24 BAND growth-extractor prompt. Pure function: no LLM call, no I/O. The stage's
+    Scale-B score-8 (HIGH cutpoint) and score-5 (SOLID floor) are injected so the LLM bands PHASE-RELATIVELY
+    against the LOCKED Scale B (the same cutoffs `structured_evidence.band_for_rate` uses). The LLM emits a
+    band + its evidence trail; the deterministic ``structured_evidence.score_growth`` maps band -> score."""
+    gstage = se._growth_stage(stage)
+    pts = se.GROWTH_SCALE[gstage]
+    return GROWTH_BAND_EXTRACTOR_PROMPT_TEMPLATE.format(
+        company=company_name, evidence=evidence, stage=gstage,
+        high_cut=_fmt_cut(pts[7]), solid_lo=_fmt_cut(pts[4]))
+
+
+def run_company_growth(
+    company_name,
+    evidence,
+    *,
+    stage,
+    client,
+    model: str = DEFAULT_MODEL,
+    max_output_tokens: int = 200,
+):
+    """Run the §B6 v1.24 growth BAND classification for one company: build the stage-aware prompt, call the
+    model with web search OFF, return the raw model text (expected to be one JSON band read). Parsing +
+    scoring run downstream (``structured_evidence.flatten_growth_read`` / ``score_growth``). Reads STORED
+    evidence (Rule 7)."""
+    prompt = build_growth_extractor_prompt(company_name, evidence, stage)
+    return call_openai(
+        prompt,
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
     )
 
 
@@ -1001,12 +1699,15 @@ def _row_is_complete(row) -> bool:
 
 
 def _build_latest_status_findings(
-    funding, payer, outcomes, commercial, org_events, operating_characteristics
+    funding, payer, outcomes, commercial, growth, paying, org_events, operating_characteristics
 ) -> str:
-    """Assemble the six research findings into the synthesis input.
+    """Assemble the research findings into the synthesis input.
 
-    The four original STEP 7 sections plus the two Slice 3.7 operator sections
-    (org events -> reset; operating characteristics -> capability-fit, scored in Slice 4).
+    The four original STEP 7 sections, the growth-rate recovery union (growth-directed
+    N=5; synthesis derives growth_signal from its dated endpoints) and the paying-count
+    recovery union (paying-directed N=5; synthesis derives paying_customer_count from it),
+    plus the two Slice 3.7 operator sections (org events -> reset; operating
+    characteristics -> capability-fit, scored in Slice 4).
     """
     return f"""
 Funding:
@@ -1020,6 +1721,12 @@ Outcomes:
 
 Commercial scale / revenue quality:
 {commercial}
+
+Revenue growth / dated revenue endpoints:
+{growth}
+
+Paying-customer count:
+{paying}
 
 Recent org / leadership events (last ~12-18 months):
 {org_events}
@@ -1038,6 +1745,7 @@ def run_research_batch(
     mirror_checkpoint_path=None,
     taxonomy_dir=None,
     wait_between_searches: float = DEFAULT_WAIT_BETWEEN_SEARCHES,
+    wait_between_passes: float = DEFAULT_WAIT_BETWEEN_PASSES,
     sleep_fn=time.sleep,
     validate_json: bool = True,
 ) -> ResearchBatchResult:
@@ -1049,9 +1757,11 @@ def run_research_batch(
       "complete"; those companies are skipped (``reused``) and not re-researched.
     * After each successful company the checkpoint is written atomically and
       (optionally) mirrored, so a runtime loss never loses completed work.
-    * The six web searches (the four original + the two Slice 3.7 operator
-      searches: org events, operating characteristics) run with the faithful
-      wait between them (injected ``sleep_fn``), then the fit brief is synthesized.
+    * The web searches (the four original + the two Slice 3.7 operator searches:
+      org events, operating characteristics) run with the faithful wait between them
+      (injected ``sleep_fn``); the commercial/revenue search is now an N-pass
+      ``search_with_recovery`` union with ``wait_between_passes`` between its passes.
+      Then the fit brief is synthesized.
 
     New here (the missing per-company recovery): each company's work is wrapped so
     one failure — an API error, a network error, or (when ``validate_json``) a fit
@@ -1088,7 +1798,27 @@ def run_research_batch(
             continue
 
         try:
-            funding = search_funding(research_query, client=client, model=model)
+            # Funding-ROUNDS recovery (the 4th recovery field): source-directed retries for LATEST-round
+            # RECALL (the Sword 2/4 miss) + an observability-only presence check. Built v1.2. The union ->
+            # fit-brief synthesis (maturity_evidence.funding_rounds, c3779cc) -> the funding_stage mapper.
+            funding, funding_recovery = search_with_recovery(
+                search_funding,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=funding_rounds_source_directed_prompt,
+                presence_check=funding_latest_round_presence_check,
+                field_name="funding_stage",
+                n_passes=FUNDING_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
+            )
+            logger.info(
+                "Funding-rounds recovery for %s: %s passes, recent_round_present=%s.",
+                company,
+                funding_recovery.n_passes,
+                funding_recovery.figure_present,
+            )
             sleep_fn(wait_between_searches)
 
             payer = search_payer_signal(research_query, client=client, model=model)
@@ -1097,7 +1827,70 @@ def run_research_batch(
             outcomes = search_outcomes(research_query, client=client, model=model)
             sleep_fn(wait_between_searches)
 
-            commercial = search_commercial_scale(research_query, client=client, model=model)
+            commercial, commercial_recovery = search_with_recovery(
+                search_commercial_scale,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=revenue_source_directed_prompt,
+                presence_check=revenue_presence_check,
+                field_name="revenue",
+                n_passes=REVENUE_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
+            )
+            logger.info(
+                "Revenue recovery for %s: %s passes, figure_present=%s.",
+                company,
+                commercial_recovery.n_passes,
+                commercial_recovery.figure_present,
+            )
+            sleep_fn(wait_between_searches)
+
+            # Growth-rate recovery: its OWN per-field config (growth-directed retries +
+            # presence check) at N=5 -- the synthesis derives growth_signal from this
+            # union's dated endpoints. Built against FRAMEWORK_VERSION v1.1.
+            growth, growth_recovery = search_with_recovery(
+                search_commercial_scale,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=growth_rate_source_directed_prompt,
+                presence_check=growth_rate_presence_check,
+                field_name="growth_rate",
+                n_passes=GROWTH_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
+            )
+            logger.info(
+                "Growth-rate recovery for %s: %s passes, figure_present=%s.",
+                company,
+                growth_recovery.n_passes,
+                growth_recovery.figure_present,
+            )
+            sleep_fn(wait_between_searches)
+
+            # Paying-customer-count recovery: its OWN per-field config (paying-directed retries +
+            # presence check) at N=5 -- matches the re-measure (paying-directed, not the
+            # revenue-directed commercial union). Built against FRAMEWORK_VERSION v1.2.
+            paying, paying_recovery = search_with_recovery(
+                search_commercial_scale,
+                research_query,
+                client=client,
+                model=model,
+                retry_prompt_builder=paying_count_source_directed_prompt,
+                presence_check=paying_count_presence_check,
+                field_name="paying_customer_count",
+                n_passes=PAYING_RECOVERY_PASSES,
+                wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn,
+            )
+            logger.info(
+                "Paying-count recovery for %s: %s passes, figure_present=%s.",
+                company,
+                paying_recovery.n_passes,
+                paying_recovery.figure_present,
+            )
             sleep_fn(wait_between_searches)
 
             org_events = search_org_events(research_query, client=client, model=model)
@@ -1108,7 +1901,7 @@ def run_research_batch(
             )
 
             latest_status_findings = _build_latest_status_findings(
-                funding, payer, outcomes, commercial, org_events, operating_characteristics
+                funding, payer, outcomes, commercial, growth, paying, org_events, operating_characteristics
             )
 
             fit_brief = run_company_fit_brief(
@@ -1131,6 +1924,8 @@ def run_research_batch(
                 "payer_institutional_finding": payer,
                 "outcomes_finding": outcomes,
                 "commercial_scale_finding": commercial,
+                "growth_finding": growth,
+                "paying_finding": paying,
                 "org_events_finding": org_events,
                 "operating_characteristics_finding": operating_characteristics,
                 "fit_brief_json": fit_brief,
@@ -1164,3 +1959,259 @@ def run_research_batch(
             continue
 
     return result
+
+
+# =============================================================================
+# HARDENED RESET RE-EMITTER (§B4 v1.16) — Commit 8 (Option B).
+#
+# The R1 checkpoint's reset_evidence was researched with the OLD pre-v1.5 emitter (liberal opening=yes on
+# many leadership-change events), so a naive type+opening read over-fires. Option B fixes the DATA, not the
+# deterministic engine: re-run the COMMITTED hardened v1.16 substance-classifier (the one validated 5/5 in
+# Commit 3a — grow/foodsmart FIRE; sword/oura/noom EXCLUDE by substance) over each company's org_events, so
+# the checkpoint carries correct classifications and `derive_reset_signal` stays clean (type + opening only,
+# NO basis-regex shim). The substance wording below is the SAME block embedded in build_fit_brief_prompt (a
+# sync test asserts byte-identity) — this is a standalone re-run of committed wording, not a fresh draft.
+# =============================================================================
+
+_RESET_SUBSTANCE_BLOCK = """Reset / restructure evidence — capture whether the company is in a moment of organizational disruption that creates a HIGH-AGENCY ENTRY OPENING for a senior operator (whitespace + a forward-looking mandate to BUILD) — NOT about strategy or health, and NOT a reward for any change that merely looks disruptive.
+A company may be doing SEVERAL of these at once. List EACH distinct event as its own object in reset_events, answer the opening question PER EVENT on its own terms, and do NOT let one event's nature determine another's. If you find no reset/restructure events, return an empty list [].
+
+CLASSIFY BY SUBSTANCE, NOT PRESS FRAMING. Judge each event on what ACTUALLY changed, never on the company's label for it. "Transformation," "evolution," "pivotal," "next chapter" are marketing words — they do not decide event_type. You are the single emitter: classify event_type and read the opening from the underlying facts, even when that means re-classifying how the source framed it. (The per-event reads in the "Recent org / leadership events" findings are inputs to weigh, not labels to transcribe.)
+
+For each event:
+- event_type — choose by SUBSTANCE:
+  - leadership-change — a new CEO / senior exec brought in to BUILD or TURN AROUND the company (a reopened operating window). NOT a routine functional hire to staff ongoing growth (see the opening rule).
+  - founder-transition — founder stepping back / bringing in professional leadership to scale.
+  - post-failure-rebuild — rebuilding after a stumble, with a forward mandate.
+  - restructuring-layoffs — restructuring / layoffs. EITHER a rebuild-toward-growth OR a contraction-toward-decline — do NOT prejudge it; the opening question for THIS event decides.
+  - declared-transformation — an OPERATING-MODEL rebuild: rebuilding HOW the company runs INTERNALLY (its operating systems, org, processes). Reserve STRICTLY for an internal operating rebuild. A change to WHAT the company sells, its product line, its pricing, or its go-to-market is NOT this.
+  - strategic-pivot — a change to the BUSINESS MODEL, PRODUCT STRATEGY, PRICING, or GO-TO-MARKET: e.g. D2C -> payer / B2B; a new product category or an "evolution" into a different kind of product; a pricing-model change (engagement-based -> outcome-based); expansion into a new clinical / product area. This is strategic-pivot EVEN IF framed as a "transformation," "evolution," or "pivotal" moment. ("Changed/added what we sell or how we price/sell it" = strategic-pivot; "rebuilding how we operate internally" = declared-transformation.)
+  - ma-integration — merger / acquisition integration work.
+  - ipo-prep — IPO preparation: an S-1 / draft (incl. confidential) registration statement, public-market-readiness, or "going public" activity. A MATURE-TRAJECTORY event, the OPPOSITE of a reopened build-window. Classify ALL IPO / S-1 / public-market-readiness events here, even when framed as a "transformation" or "next chapter."
+- basis — cite the source + date for THIS event.
+- creates_high_agency_opening — for THIS event, by HONEST confidence:
+  - "yes" ONLY when THIS event CLEARLY reopens a high-agency window (the company is actively rebuilding / turning around and needs a senior operator to BUILD). Do NOT round up to "yes" when uncertain.
+  - "no" when THIS event is a DEFENSIVE reaction (a pivot under pressure, a contraction toward survival/decline, routine integration) or a MATURE-trajectory event (ipo-prep).
+  - "unclear" when the evidence doesn't let you tell.
+  - EXEC ADD — read the opening by STRUCTURAL ROLE, not the company's growth framing: a senior exec ADDED to SUPPORT / DRIVE / SCALE an existing growth / expansion / partnerships / commercial motion (a CMO, CRO, or similar growth / commercial hire — "expanding the executive team" to fuel growth) -> "unclear". This is the common scaling-company case and is NOT a reopened build-window, EVEN when the title is senior. Emit "yes" for an exec add ONLY for a CLEAR structural reset — a NEW CEO replacing the prior CEO, a founder stepping back for professional leadership, OR a FIRST-EVER / NEWLY-CREATED C-suite seat that stands up a function the company did NOT previously have (e.g. its FIRST CFO building finance / operating discipline). The test: does this BUILD a missing operating function (-> "yes") or STAFF an existing growth thrust (-> "unclear")?
+  - Example: a company that (a) shifts its model under pressure [strategic-pivot, opening=no] AND (b) restructures to fund a rebuild toward expansion [restructuring-layoffs, opening=yes] — list BOTH; the restructuring's "yes" stands on its own.
+(The deterministic rule downstream fires ONLY when event_type is a firing type AND creates_high_agency_opening == "yes". strategic-pivot, ma-integration, and ipo-prep NEVER fire; "unclear" / "no" never fire; multiple "unclear" events do NOT sum to a fire. Your job is an honest per-event SUBSTANCE classification + an honest opening read — the deterministic code decides what fires.)"""
+
+
+RESET_EMITTER_PROMPT_TEMPLATE = (
+    "You classify a health company's recent org / leadership events into canonical reset_events.\n"
+    + _RESET_SUBSTANCE_BLOCK
+    + "\n\nOutput ONE JSON object and nothing else:\n"
+    + '{{"reset_events": [{{"event_type": "...", "basis": "...", "creates_high_agency_opening": "yes / no / unclear"}}]}}\n'
+    + "\nCompany: {company}\nRecent org / leadership events:\n{events}"
+)
+
+
+def build_reset_emitter_prompt(company_name, events) -> str:
+    """Build the standalone §B4 v1.16 hardened reset-emitter prompt (the committed substance block, run on
+    its own over org_events evidence). Pure function: no LLM call. The LLM emits reset_events; the
+    deterministic ``structured_evidence.derive_reset_signal`` decides what fires."""
+    return RESET_EMITTER_PROMPT_TEMPLATE.format(company=company_name, events=events)
+
+
+def run_company_reset(company_name, events, *, client, model: str = DEFAULT_MODEL, max_output_tokens: int = 400):
+    """Run the §B4 v1.16 hardened reset re-emission for one company: build the prompt, call the model with
+    web search OFF, return the raw model text (one JSON object with a reset_events list). Reads STORED
+    org_events evidence (Rule 7) — no web search."""
+    return call_openai(
+        build_reset_emitter_prompt(company_name, events),
+        client=client,
+        model=model,
+        use_web_search=False,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+# =============================================================================
+# R1 RE-VALIDATION ORCHESTRATION (§B7 v1.22 — CACHING / persisted reads) — Commit 8.
+#
+# The live driver behind the R1 re-validation. v1.22: take each company's four §B scoring reads (§B2
+# classifier, §B4 hardened reset, §B6 growth, §B5 bg_fit) ONCE, PERSIST them in a cache, and score OFF the
+# cache — reproducible BY CONSTRUCTION (a re-score reads the same frozen values → identical tiers; the N=5
+# stability machinery is RETIRED, and temp-0/seed model determinism is not available on gpt-5.4-mini). All
+# scoring/flattening/tally logic is committed, tested structured_evidence code; this layer does the ONE-TIME
+# LLM reads + the verified parsing (byte-faithful to the signed cells 177/178/180) and the caching.
+# =============================================================================
+
+
+def _extract_json(text) -> dict:
+    """Parse the first {...} object out of a raw model response (the signed cells' `out[find:{rfind}+1]`
+    slice). Returns {} on absence / malformed — never a guessed value."""
+    text = str(text or "")
+    i, j = text.find("{"), text.rfind("}")
+    if i < 0 or j <= i:
+        return {}
+    try:
+        parsed = json.loads(text[i:j + 1])
+    except (ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _r1_classifier_read(row, *, client, model):
+    """Live §B2 read -> {who_uses, who_pays, who_uses_confidence} (flat JSON, per signed cell 180)."""
+    d = _extract_json(run_company_business_model(
+        row["company"], se.classifier_evidence(row), client=client, model=model))
+    return {"who_uses": d.get("who_uses", ""), "who_pays": d.get("who_pays", ""),
+            "who_uses_confidence": d.get("who_uses_confidence", "")}
+
+
+def _r1_growth_read(row, *, client, model):
+    """Live §B6 v1.24 BAND read -> flattened growth columns (growth_band + growth_evidence). Evidence =
+    canonical_growth_evidence off the FLATTENED row (growth_signal + revenue_or_arr + growth_finding, §B6.1
+    v1.18); the band prompt is STAGE-AWARE (the persisted funding_stage, with the DOCUMENTED_STAGE_OVERRIDE
+    applied — same stage the scorer uses) so the LLM bands phase-relatively. The read is wrapped under
+    `growth_read` for flatten_growth_read (the extractor emits the read at top level)."""
+    flat = se.flatten_checkpoint_row(row)
+    stage = se._norm_stage(flat.get("funding_stage"))
+    key = se._norm_company(row.get("company"))
+    if key in se.DOCUMENTED_STAGE_OVERRIDES:
+        stage = se.DOCUMENTED_STAGE_OVERRIDES[key]
+    d = _extract_json(run_company_growth(
+        row["company"], se.canonical_growth_evidence(flat), stage=stage, client=client, model=model))
+    return se.flatten_growth_read({"growth_read": d})
+
+
+# §B5 v1.24 — bg_fit is the ONE genuinely noisy continuous read (grow wobbled 4<->8; a single cached sample
+# froze it low). Take N reads at cache-population and cache the ROUNDED-HALF-UP MEAN (growth is now a stable
+# band, reset/classifier are categorical, so bg is the SOLE averaging target). N is a dial; the 4 passes run
+# ONCE at population (NOT per re-score) so caching stays the reproducibility mechanism.
+BG_FIT_N_READS = 4
+
+
+def _r1_background_fit_once(row, *, client, model):
+    """ONE §B5 bg_fit read -> the raw background_fit value (flat JSON key, per signed cell 178). Evidence is
+    the tested background_fit_evidence blob (operating_characteristics_finding + commercial_scale_finding +
+    outcomes_finding)."""
+    d = _extract_json(run_company_background_fit(
+        row["company"], se.background_fit_evidence(row), client=client, model=model))
+    return d.get("background_fit")
+
+
+def _r1_background_fit_read(row, *, client, model, n=BG_FIT_N_READS):
+    """Live §B5 v1.24 read -> the MEAN of N bg_fit reads, ROUNDED HALF-UP to an int (before caching, so the
+    floor check sees the rounded mean: mean 4.5 -> 5 PASSES bg > 4; 4.4 -> 4 FAILS). Each read parses via the
+    scorer's clamp (1-10 int); reads that fail to parse are dropped. ALL N reads failing -> None (READ-FAILED,
+    a DISTINCT flag from a low score). This runs ONCE at cache population — the cached value is byte-stable,
+    so caching remains the reproducibility mechanism."""
+    vals = [v for v in (se._bg_score_or_none(_r1_background_fit_once(row, client=client, model=model))
+                        for _ in range(n)) if v is not None]
+    if not vals:
+        return None
+    return se.round_half_up(sum(vals) / len(vals))
+
+
+def _r1_reset_read(row, *, client, model):
+    """Live §B4 v1.16 hardened reset re-emit over the row's org_events_finding -> the reset_events list
+    (substance-classified). Returns the events ONLY (no row mutation); the events are applied deterministically
+    at score time via `_r1_apply_reset`."""
+    raw = run_company_reset(row["company"], str(row.get("org_events_finding") or ""), client=client, model=model)
+    events = _extract_json(raw).get("reset_events", [])
+    return events if isinstance(events, list) else []
+
+
+def _r1_apply_reset(row, reset_events):
+    """Return a COPY of ``row`` whose fit_brief_json.reset_evidence carries ``reset_events`` — so flatten ->
+    eligibility -> scoring all read the hardened reset. Pure (does not mutate the input row), so scoring off
+    a cache is reproducible."""
+    r = dict(row)
+    fbj = r.get("fit_brief_json")
+    parsed = {}
+    if isinstance(fbj, dict):
+        parsed = dict(fbj)
+    elif isinstance(fbj, str) and fbj.strip():
+        try:
+            parsed = json.loads(fbj)
+        except (ValueError, TypeError):
+            parsed = {}
+    parsed["reset_evidence"] = {"reset_events": reset_events if isinstance(reset_events, list) else []}
+    r["fit_brief_json"] = json.dumps(parsed)
+    return r
+
+
+def _r1_floor_eligible(row, classifier_read, reset_events) -> bool:
+    """A company gets bg_fit + growth reads ONLY if it passes PATH + AGENCY and is a consumer (background_fit
+    applies) — a floored company is P3 with no LLM spend. Reset (for AGENCY) is read off the FLATTENED row
+    with the hardened reset applied, via the strict reader (consistent with score_company)."""
+    flat = se.flatten_checkpoint_row(_r1_apply_reset(row, reset_events))
+    business_model, _ = se.business_model_for(
+        row.get("company"), classifier_read["who_uses"], classifier_read["who_pays"],
+        classifier_read["who_uses_confidence"])
+    path_passed, _ = se.path_gate(business_model, flat)
+    key = se._norm_company(row.get("company"))
+    stage = se._norm_stage(flat.get("funding_stage"))
+    if key in se.DOCUMENTED_STAGE_OVERRIDES:
+        stage = se.DOCUMENTED_STAGE_OVERRIDES[key]
+    agency_passed, _, _ = se.agency_gate(stage, se.reset_signal_for_row(flat), ipo_status=flat.get("ipo_status"))
+    return path_passed and agency_passed and se.background_fit_applies(classifier_read["who_uses"])
+
+
+def take_r1_reads(df, *, client, model=DEFAULT_MODEL, cache=None, refresh=None, progress=None):
+    """Take each company's four §B scoring reads ONCE (§B2 classifier, §B4 hardened reset, §B6 growth, §B5
+    bg_fit) and PERSIST them in ``cache`` (a dict keyed by company). A company already in ``cache`` is
+    REUSED (its frozen reads — no LLM re-call), UNLESS it is named in ``refresh`` (a deliberate re-take,
+    logged). Floored companies get None growth/bg_fit (no spend). Returns the populated cache (v1.22 —
+    caching IS the reproducibility mechanism; temp-0 is not available on this model)."""
+    cache = cache if cache is not None else {}
+    refresh = {se._norm_company(c) for c in (refresh or [])}
+    took = 0
+    for _, srow in df.iterrows():
+        row = dict(srow)
+        co = se._norm_company(row.get("company"))
+        if co in cache and co not in refresh:
+            continue  # reuse the frozen reads — reproducible, no re-call
+        if co in cache and co in refresh and progress:
+            progress(f"R1 --refresh: re-taking reads for {co}")
+        reset_events = _r1_reset_read(row, client=client, model=model)
+        classifier = _r1_classifier_read(row, client=client, model=model)
+        eligible = _r1_floor_eligible(row, classifier, reset_events)
+        cache[co] = {
+            "reset_events": reset_events,
+            "classifier": classifier,
+            "eligible": eligible,
+            "growth_read": _r1_growth_read(row, client=client, model=model) if eligible else None,
+            "background_fit": _r1_background_fit_read(row, client=client, model=model) if eligible else None,
+        }
+        took += 1
+    if progress:
+        n_elig = sum(1 for c in cache.values() if c["eligible"])
+        progress(f"R1 reads: took {took} (reused {len(cache) - took}); {n_elig} floor-eligible / {len(cache)}")
+    return cache
+
+
+def score_r1_from_cache(df, cache):
+    """Score the roster PURELY off the persisted read-cache (NO LLM). Deterministic function of the cache →
+    calling it twice yields an identical roster (the reproducibility proof). Applies each company's cached
+    hardened reset, then scores via `score_checkpoint_row`."""
+    roster = []
+    for _, srow in df.iterrows():
+        row = dict(srow)
+        c = cache[se._norm_company(row.get("company"))]
+        roster.append(se.score_checkpoint_row(
+            _r1_apply_reset(row, c["reset_events"]),
+            classifier_read=c["classifier"], growth_read=c["growth_read"], background_fit=c["background_fit"]))
+    return roster
+
+
+def run_r1(df, *, client, model=DEFAULT_MODEL, cache=None, refresh=None, progress=None):
+    """§B7 v1.22 CACHING R1 re-validation over a raw checkpoint DataFrame. Takes each company's four scoring
+    reads ONCE (or reuses ``cache``), persists them, and scores OFF the cache — reproducible BY CONSTRUCTION
+    (a re-score reads the same frozen values → identical tiers; no model-level determinism needed). Returns
+    the `structured_evidence.tally_r1` report + ``reset_reads`` (hardened emit per company) + ``cache`` (pass
+    it back to re-score without re-calling; ``refresh=[company]`` re-takes named companies' reads)."""
+    cache = take_r1_reads(df, client=client, model=model, cache=cache, refresh=refresh, progress=progress)
+    roster = score_r1_from_cache(df, cache)
+    report = se.tally_r1(roster)
+    report["reset_reads"] = {
+        co: {"events": c["reset_events"], "fires": se.derive_reset_signal({"reset_events": c["reset_events"]})}
+        for co, c in cache.items()
+    }
+    report["cache"] = cache
+    if progress:
+        progress(f"R1 scored off cache: tally={report['tally']} | review_set={report['review_set_size']}")
+    return report
