@@ -20,9 +20,15 @@ Design decisions locked with Katelynd (2026-07-02, see MASTER_REDESIGN_SPEC §4 
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from . import storage
 
 PRIORITY_TIERS = ("P0", "P1", "P2", "P3")
 PRIORITY_RANK = {tier: i for i, tier in enumerate(PRIORITY_TIERS)}
@@ -278,3 +284,119 @@ def final_priority_rank(entry: dict):
     """Sort key = FINAL score (finer than the 4-bucket tier). Absent FINAL sorts last via the tier rank."""
     score = _num(entry.get("scoring", {}).get("final_score"))
     return score if score is not None else -PRIORITY_RANK.get(final_priority(entry), 99)
+
+
+# ---------------------------------------------------------------------------
+# PERSISTENCE (Commit C) — the durable ledger.jsonl master, written transactionally.
+#
+# One JSON entry per line (JSONL): git-diffable, append-friendly, clean for the nested scoring/decision/
+# history/flags. The write mirrors the master_update transactional discipline (Rule 4/5): back up the
+# existing ledger, write, REOPEN + PARSE + validate it equals what we intended, roll back on any mismatch.
+# "Wrote the file" is not "done" — "reopened the file and confirmed its contents" is.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LedgerWriteResult:
+    path: str
+    entries_written: int
+    readback_ok: bool
+    backup_path: str = ""
+    rollback_performed: bool = False
+
+
+def _entry_company(entry: dict) -> str:
+    return _txt(entry.get("company"))
+
+
+def _validate_unique_companies(entries: list[dict]) -> None:
+    """The ledger is keyed by company — a duplicate is a merge/append bug, refuse before writing."""
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for entry in entries:
+        key = _entry_company(entry).lower()
+        if key in seen:
+            dupes.add(_entry_company(entry))
+        seen.add(key)
+    if dupes:
+        raise LedgerError(f"Duplicate company entries in ledger: {sorted(dupes)}")
+
+
+def _canonical(entries: list[dict]) -> list[dict]:
+    """JSON round-trip so the comparison matches what a read-back yields (tuples->lists, key order, etc.)."""
+    return [json.loads(json.dumps(entry, ensure_ascii=False)) for entry in entries]
+
+
+def write_ledger(path: str | Path, entries: list[dict]) -> Path:
+    """Atomically write `entries` as JSONL (one entry per line). Not transactional on its own — use
+    `execute_ledger_write` for the backup + read-back + rollback discipline."""
+    text = "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries)
+    return storage.atomic_write_text(path, text)
+
+
+def read_ledger(path: str | Path) -> list[dict]:
+    """Parse a ledger.jsonl back into a list of entry dicts. A missing file -> [] (an empty ledger).
+    A malformed / non-object line RAISES `LedgerError` (a corrupt ledger must be loud, never silently
+    dropped — Rule 5)."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    entries: list[dict] = []
+    for lineno, raw in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError as exc:
+            raise LedgerError(f"{p} line {lineno}: invalid JSON ({exc})") from exc
+        if not isinstance(obj, dict):
+            raise LedgerError(f"{p} line {lineno}: entry is not a JSON object")
+        entries.append(obj)
+    return entries
+
+
+def _validate_readback(written: list[dict], readback: list[dict]) -> None:
+    if len(written) != len(readback):
+        raise LedgerError(f"Ledger read-back count mismatch: wrote {len(written)}, read {len(readback)}")
+    canonical = _canonical(written)
+    if canonical != readback:
+        for i, (a, b) in enumerate(zip(canonical, readback)):
+            if a != b:
+                raise LedgerError(f"Ledger read-back mismatch at entry {i} ({a.get('company')!r})")
+        raise LedgerError("Ledger read-back mismatch")
+
+
+def execute_ledger_write(path: str | Path, entries: list[dict], *,
+                         artifacts_dir: str | Path | None = None) -> LedgerWriteResult:
+    """Transactionally write the ledger (Rule 4/5): validate unique keys -> back up any existing ledger ->
+    write -> REOPEN + parse + validate it equals what we intended -> roll back to the backup on ANY failure.
+    Returns a `LedgerWriteResult`; raises `LedgerError` (after rolling back) if the write can't be verified."""
+    path = Path(path)
+    _validate_unique_companies(entries)
+
+    backup_path = ""
+    if path.exists():
+        adir = Path(artifacts_dir) if artifacts_dir else path.parent
+        adir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup_path = str(adir / f"{path.stem}_backup_{stamp}{path.suffix or '.jsonl'}")
+        shutil.copy2(path, backup_path)
+
+    try:
+        write_ledger(path, entries)
+        readback = read_ledger(path)
+        _validate_readback(entries, readback)
+    except Exception as exc:
+        rollback_performed = False
+        if backup_path:
+            try:
+                shutil.copy2(backup_path, path)
+                rollback_performed = True
+            except Exception as rollback_exc:
+                raise LedgerError(
+                    f"Ledger write failed AND rollback failed: {exc}; rollback: {rollback_exc}"
+                ) from exc
+        raise LedgerError(f"Ledger write failed (rolled_back={rollback_performed}): {exc}") from exc
+
+    return LedgerWriteResult(path=str(path), entries_written=len(entries), readback_ok=True,
+                             backup_path=backup_path, rollback_performed=False)
