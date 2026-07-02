@@ -1,7 +1,7 @@
 """Candidate Priority engine — deterministic forward-looking recommendation.
 
-Built from specs/candidate_priority_reference_spec.md (design) and
-specs/cell159_producer_source.md (authoritative formulas). This is the package
+Built from archive/specs/candidate_priority_reference_spec.md (design) and
+archive/specs/cell159_producer_source.md (authoritative formulas). This is the package
 home for candidate-priority logic that previously existed only as a one-time
 notebook audit snapshot.
 
