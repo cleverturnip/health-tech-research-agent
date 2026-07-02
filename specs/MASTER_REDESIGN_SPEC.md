@@ -180,7 +180,9 @@ score or a research fact in the ledger is forbidden; editing a priority/taxonomy
 
 ### 3.5 Flag controlled vocabulary (emitted by the pipeline, from the project's work)
 `override_candidate` · `fence_leak` · `under_extract` · `data_gap` · `evidence_thin` · `leak_discounted`
-· `b2b_floor` · `agency_floor` · `stage_low_confidence`. Each: `{ type, severity (info|warn), note }`.
+· `b2b_floor` · `agency_floor` · `stage_low_confidence` · `low_score_floor` · `tier_review`. Each:
+`{ type, severity (info|warn), note }`. (`low_score_floor` + `tier_review` added 2026-07-02 — the two
+triggered-rule signals surfaced on the card that had no vocab term; see §4 render design.)
 
 ## 4. The GATE-2 review packet (what the front end hands Katelynd)
 
@@ -203,21 +205,21 @@ scored or stored — do NOT carry the spike's "floor-before-scoring → em-dash 
 into the ledger (components may be computed lazily for cost, but the persisted entry holds the full scored
 entry for every company). The **review packet** is a render-time VIEW over those entries, differentiated by
 altitude (cards are never hand-built):
-- **Cards** — the deliberate accept-or-override surface. Eligibility is a render-time predicate:
-  **`card ⟺ model_tier ∈ {P0, P1, P2} OR override_candidate == true`** — NOT "all floor-eligible companies"
-  (a floor-PASS company that lands at model-tier P3 gets no card; an **override candidate always gets a card
-  even at model-tier P3** — e.g. Function Health, P3-by-rule but a P1-override candidate). Each card carries
-  the scores + per-component rationale, flags (with severity, §3.5), the recommended tier and where it
-  diverges from the rule, and `[accept] / [override → ___]` controls.
-- **Summary table (top)** — every company, scannable: company · model · stage · tier · FINAL · key flag.
-- **Gate-floored → one-line floor reason in the summary table, NO card.** (e.g. "medically home — B2B floor,
-  enablement platform"; "hinge — agency floor, public.") Katelynd's **chance to catch a wrong floor** —
-  glance-and-confirm, reverse if incorrect. The floor is reviewable, not a black hole.
+- **Cards — EVERY company gets a card (LOCKED 2026-07-02, supersedes the earlier eligibility predicate).**
+  Katelynd's chosen review flow: every company — P0 through P3, floored or not — gets a full card; she
+  glosses over the ones that look right and digs into the ones that don't (the `recommended_action` label
+  triages which is which). The old predicate `card ⟺ model_tier ∈ {P0,P1,P2} OR override_candidate` is
+  **retired** — `override_candidate` no longer gates card eligibility (it now only drives routing + a flag).
+  Each card carries the scores + per-component rationale + research summary, flags (with severity, §3.5), the
+  floors block, and the priority decision control (see the render-design subsection).
+- **Summary table (top)** — every company, scannable: company · model · stage · tier · FINAL · key flag. It
+  is the quick scan; clicking any row opens that company's card.
 
-### Review routing (`recommended_action`) makes a big batch reviewable in one sitting
-- `accept` — clear tier (strong P0, clear P3-floor) → bulk-approvable.
-- `review_override` — override candidates + borderline → Katelynd's real attention.
-- `normal` — confirm.
+### Review routing (`recommended_action`) makes a big batch reviewable in one sitting (rules LOCKED 2026-07-02)
+- `review_override` — a human override exists, OR `override_candidate` is true, OR `tier_review` (FINAL is
+  boundary-adjacent), OR any `warn`-severity flag → Katelynd's real attention.
+- `accept` — a clean gate-floor (bulk-confirm the floor), OR a clear `P0` with nothing flagged → wave through.
+- `normal` — everything else → a quick confirm.
 
 ### Override reason
 **Strongly prompted, not blocked.** The front end nudges for a reason but saves without one (Katelynd's own
@@ -237,7 +239,7 @@ JSON entry per company (§3.4 schema), scores write-once, `decision` block the o
 | View | Contents | Human edits it? |
 |---|---|---|
 | `summary_table.csv` | Scan — every company: company · model · stage · tier · FINAL · key flag (+ floor one-liner on floored rows) | No (read-only) |
-| `cards.csv` | The decision surface — one rich row per **carded** company; carries the accept/override/reason + taxonomy-override columns | **Yes** — read back + merged into `ledger.jsonl` with a `history` append (Rule 6/8 protected) |
+| `cards.csv` | The decision surface — one rich row per company (**every** company, 2026-07-02); carries the **priority** accept/override/reason columns | **Yes** — read back + merged into `ledger.jsonl` with a `history` append (Rule 6/8 protected) |
 | `master_full_export.csv` | Reference — **every ledger field PLUS all research findings** joined, one row per company | No (read-only) |
 
 `cards.csv` is the **single decision-writing surface**; `summary_table.csv` and `master_full_export.csv` are
@@ -271,19 +273,39 @@ NOT rename them). This is a presentation-layer mapping, not a schema change.
      distinctly from a genuine low score.
 5. **Why these scores** — one box per component: **Background Fit · ARR · Growth · Strain**, each with the
    score + a short *why* + a **research summary** (the joined research finding for that component).
-6. **Your decision** — `[Accept <tier>] / [Override → ___]` + reason (strongly prompted, not blocked), with
-   the **Recommendation shown BESIDE it** (`recommended_action` + where the model diverges from the rule) so
-   it is visible while deciding.
+6. **Your decision — PRIORITY ONLY (LOCKED 2026-07-02).** The one action on every card is
+   `[Accept <model tier>] / [Override → pick a tier]` + reason (strongly prompted, not blocked), with the
+   **Recommendation shown BESIDE it** (`recommended_action` + where the model diverges from the rule) so it is
+   visible while deciding. Katelynd **never edits a score or a floor** (Rule 8) and does **not** re-classify
+   taxonomy as a routine action: if she thinks a company was floored wrongly, she does NOT un-floor it — she
+   **bumps its priority** to where it belongs, and the model's floor + scores stay on the record exactly as
+   produced. Both are then visible: "model said P3 because X" + "human set P1 because Y" (Function Health is
+   the canonical case). The `taxonomy_override` field remains in the decision block (locked Rule 6) but is
+   **not** surfaced as a routine card control — a wrong B2B/B2C label is handled by a priority bump + treated
+   as upstream calibration (Rule 8), per Katelynd's priority-only workflow (2026-07-02).
 
-**Gate-floored companies** get **no card in the summary** — a one-line floor reason in `summary_table.csv`
-and, if opened, a floor-forward panel: the Floors block + evidence + confirm/overturn, **followed by the
-per-component sections** (Background Fit · ARR · Growth · Strain, each with score + why + research summary),
-so the floor can be reviewed against the scoring behind it (Katelynd, 2026-07-02) — not just the floor verdict.
-The headline score-tile row and FINAL are omitted (a gate-floored FINAL is moot — the tier is P3 by floor,
-not by threshold), and **Background Fit reads "n/a" when it doesn't apply** (a `who_uses=professional` B2B
-floor has no consumer end-user to score — this is the floored-vs-low legibility distinction, not a low score).
-The ledger still **stores a full uniform entry** for every company (§4 uniform-ledger rule) — floor status
-changes only HOW a company is surfaced, never WHETHER it is scored/stored.
+**Gate-floored companies get a card too (2026-07-02)** — the same as everyone else, with the **same
+priority Accept/Override control** (no separate "overturn the floor" action; disagreement is a priority
+bump, see step 6). The card leads with the **Floors block + evidence** (so the floor is reviewable before
+deciding), **followed by the per-component sections** (Background Fit · ARR · Growth · Strain, each with
+score + why + research summary), so the floor can be judged against the scoring behind it — not just the
+verdict. The headline score-tile row and FINAL are omitted for a gate-floored company (a gate-floored FINAL
+is moot — the tier is P3 by floor, not by threshold), and **Background Fit reads "n/a" when it doesn't
+apply** (a `who_uses=professional` B2B floor has no consumer end-user to score — the floored-vs-low
+legibility distinction, not a low score). The ledger stores a full uniform entry for every company (§4
+uniform-ledger rule) — floor status changes only HOW a company is surfaced, never WHETHER it is scored/stored.
+
+**Routing + `override_candidate` (LOCKED 2026-07-02).** `override_candidate` = the company is in the documented
+priority-override list (e.g. Function Health) OR is `floored_on_bg` (floored solely on a low/uncertain bg
+read — a possible real prospect frozen low, the `grow` case). It no longer gates card eligibility (every
+company is carded); it drives `recommended_action → review_override` and emits an `override_candidate` flag,
+so a probably-mis-floored company is surfaced for a look instead of sitting quietly in P3.
+
+**Flags mapping (scorer signal → §3.5 flag, LOCKED 2026-07-02).** PATH Test A B2B floor → `b2b_floor`;
+AGENCY floor → `agency_floor`; floor-rule fail (not gate-floored) → `low_score_floor`; growth fence fired
+(basis `counts-scale`/`none` forced UNKNOWN) → `data_gap`; `funding_stage_needs_review` → `stage_low_confidence`;
+documented override OR `floored_on_bg` → `override_candidate`; boundary-adjacent FINAL → `tier_review`.
+`fence_leak` · `under_extract` · `evidence_thin` · `leak_discounted` stay reserved for future extractor signals.
 
 ## 5. §B scoring supersedes the candidate_priority V4.2 engine (as the master's priority source)
 

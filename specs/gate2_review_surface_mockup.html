@@ -45,7 +45,7 @@ select,textarea{font:inherit;font-size:13px;border:0.5px solid var(--border-stro
 <body>
 <div class="wrap">
 <div class="doc-note"><b>GATE-2 review surface — locked mockup (2026-07-02).</b> Reference for <code>MASTER_REDESIGN_SPEC.md §4</code>.
-Click any company row to open its review card. Display labels are spelled out ("Background Fit", "Product Market Fit"); ARR stays short. The three CSV views (summary / cards / master_full_export) and the JSONL master are described in the spec.</div>
+Every company gets a card — click any row to open it. Your only decision is <b>priority</b> (accept the model's tier or override to another); you never edit a score or a floor. Display labels are spelled out ("Background Fit", "Product Market Fit"); ARR stays short. The three CSV views (summary / cards / master_full_export) and the JSONL master are described in the spec.</div>
 
 <div class="g2">
 <div style="display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;margin:0 0 10px">
@@ -197,9 +197,7 @@ function renderCard(i){
    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:5px"><i class="ti ti-sparkles" aria-hidden="true"></i> Recommendation</div>
    <div style="font-size:13px">${esc(c.div)}</div>
    ${!c.floored?`<div style="font-size:11px;color:var(--text-muted);margin-top:6px">recommended action: ${c.rec.replace("_"," / ")}</div>`:''}</div>`;
- const controls=c.floored
-  ? `<div style="flex:1 1 260px"><div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Catch a wrong floor</div><div style="display:flex;gap:8px"><button>Confirm floor</button><button>Overturn → score it</button></div></div>`
-  : `<div style="flex:1 1 260px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button style="border-color:var(--border-success);color:var(--text-success)"><i class="ti ti-check" aria-hidden="true"></i> Accept ${c.tier}</button><span style="color:var(--text-muted);font-size:12px">or override →</span><select style="width:auto"><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></div><textarea placeholder="Why are you overriding? (encouraged, not required)" style="width:100%;margin-top:8px;min-height:48px"></textarea></div>`;
+ const controls=`<div style="flex:1 1 260px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button style="border-color:var(--border-success);color:var(--text-success)"><i class="ti ti-check" aria-hidden="true"></i> Accept ${c.tier}</button><span style="color:var(--text-muted);font-size:12px">or override priority →</span><select style="width:auto"><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></div><textarea placeholder="Why are you changing the priority? (encouraged, not required)" style="width:100%;margin-top:8px;min-height:48px"></textarea></div>`;
  const decision=`<div class="sec">Your decision</div><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">${controls}${recBox}</div>`;
 
  el.innerHTML=`<div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:16px 18px">${head}${scores}${flags}${floors}${why}${decision}</div>`;
