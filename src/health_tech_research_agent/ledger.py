@@ -20,6 +20,7 @@ Design decisions locked with Katelynd (2026-07-02, see MASTER_REDESIGN_SPEC §4 
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import shutil
@@ -27,6 +28,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import pandas as pd
 
 from . import storage
 
@@ -400,3 +403,104 @@ def execute_ledger_write(path: str | Path, entries: list[dict], *,
 
     return LedgerWriteResult(path=str(path), entries_written=len(entries), readback_ok=True,
                              backup_path=backup_path, rollback_performed=False)
+
+
+# ---------------------------------------------------------------------------
+# DECISION ROUND-TRIP (Commit D) — render cards.csv -> Katelynd edits priority -> merge back into the ledger.
+#
+# cards.csv is the single decision-writing surface (Rule 3). Katelynd edits PRIORITY ONLY (2026-07-02): the
+# `human_override` (a tier, or blank = accept the model) + an `override_reason`. `apply_decisions` merges her
+# edits into the `decision` block ONLY — scores/gates/model_priority are NEVER touched (Rule 8) — appending
+# each change to the append-only `history`; the human override then WINS on read (Rule 6, via final_priority).
+# ---------------------------------------------------------------------------
+
+# Read-only context columns (so a decision has its facts beside it) + the two editable priority columns.
+CARDS_CONTEXT_COLUMNS = ["company", "model", "stage", "one_liner", "model_priority",
+                         "recommended_action", "final_score", "key_flags"]
+CARDS_DECISION_COLUMNS = ["human_override", "override_reason"]
+
+
+def render_cards_csv(entries: list[dict]) -> pd.DataFrame:
+    """Render the decision surface (one row per company): read-only context + the editable priority columns
+    (`human_override` / `override_reason`), pre-filled from the entry's current decision so the CSV round-trips."""
+    rows = []
+    for entry in entries:
+        decision = entry.get("decision", {})
+        rows.append({
+            "company": _txt(entry.get("company")),
+            "model": _txt(entry.get("model")),
+            "stage": _txt(entry.get("stage")),
+            "one_liner": _txt(entry.get("one_liner")),
+            "model_priority": _txt(entry.get("model_priority")),
+            "recommended_action": _txt(entry.get("recommended_action")),
+            "final_score": entry.get("scoring", {}).get("final_score"),
+            "key_flags": "; ".join(_txt(f.get("type")) for f in entry.get("flags", [])),
+            "human_override": _txt(decision.get("human_override")),
+            "override_reason": _txt(decision.get("override_reason")),
+        })
+    return pd.DataFrame(rows, columns=CARDS_CONTEXT_COLUMNS + CARDS_DECISION_COLUMNS)
+
+
+def write_cards_csv(path: str | Path, entries: list[dict]) -> Path:
+    return storage.atomic_write_csv(path, render_cards_csv(entries))
+
+
+def read_cards_csv(path: str | Path) -> list[dict]:
+    """Read an edited cards.csv back into per-company decision dicts (blank cells -> '')."""
+    df = storage.load_csv(path).fillna("")
+    return [{key: _txt(value) for key, value in record.items()} for record in df.to_dict("records")]
+
+
+def _norm_override(value: Any):
+    """A priority override is a tier (P0–P3) or blank (= accept the model, clears any prior override)."""
+    text = _txt(value).upper()
+    if text == "":
+        return None
+    if text not in PRIORITY_RANK:
+        raise LedgerError(f"Invalid priority override {value!r} (expected one of {list(PRIORITY_TIERS)} or blank)")
+    return text
+
+
+def _append_history(decision: dict, field: str, frm, to, date: str, reason) -> None:
+    decision.setdefault("history", []).append(
+        {"date": date, "field": field, "from": frm, "to": to, "reason": reason})
+
+
+def apply_decisions(entries: list[dict], decisions: list[dict], *,
+                    decided_date: str, decided_at_gate: str) -> list[dict]:
+    """Merge Katelynd's cards.csv edits into a COPY of the ledger entries. PRIORITY ONLY: sets/changes/clears
+    `decision.human_override` + `override_reason`, appends the change to `decision.history`, and stamps
+    `decided_date`/`decided_at_gate`. Idempotent — re-applying an unchanged CSV is a no-op (no history churn).
+    Scores/gates/model_priority are NEVER modified (Rule 8); a decision for a company not in the ledger RAISES
+    (Rule 5 — no silent mismatch)."""
+    result = [copy.deepcopy(entry) for entry in entries]
+    index = {_txt(entry.get("company")).lower(): entry for entry in result}
+
+    for row in decisions:
+        company = _txt(row.get("company"))
+        if not company:
+            continue
+        entry = index.get(company.lower())
+        if entry is None:
+            raise LedgerError(f"Decision for a company not in the ledger: {company!r}")
+
+        decision = entry.setdefault("decision", {})
+        old_override = _norm_override(decision.get("human_override"))
+        old_reason = _txt(decision.get("override_reason")) or None
+        new_override = _norm_override(row.get("human_override"))
+        new_reason = _txt(row.get("override_reason")) or None
+
+        if new_override != old_override:
+            _append_history(decision, "human_override", old_override, new_override, decided_date, new_reason)
+            decision["human_override"] = new_override
+            decision["override_reason"] = new_reason
+            decision["decided_date"] = decided_date
+            decision["decided_at_gate"] = decided_at_gate
+        elif new_reason != old_reason:
+            _append_history(decision, "override_reason", old_reason, new_reason, decided_date, new_reason)
+            decision["override_reason"] = new_reason
+            decision["decided_date"] = decided_date
+            decision["decided_at_gate"] = decided_at_gate
+        # else: nothing changed for this company — no-op (idempotent).
+
+    return result
