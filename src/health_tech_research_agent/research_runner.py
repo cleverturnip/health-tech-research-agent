@@ -2212,6 +2212,7 @@ def run_r1(df, *, client, model=DEFAULT_MODEL, cache=None, refresh=None, progres
         for co, c in cache.items()
     }
     report["cache"] = cache
+    report["roster"] = roster   # the full per-company score records (with rationale passthrough) — the ledger's input
     if progress:
         progress(f"R1 scored off cache: tally={report['tally']} | review_set={report['review_set_size']}")
     return report

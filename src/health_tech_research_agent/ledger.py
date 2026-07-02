@@ -659,3 +659,72 @@ def write_summary_table(path: str | Path, entries: list[dict]) -> Path:
 
 def write_master_full_export(path: str | Path, entries: list[dict], research: Any = None) -> Path:
     return storage.atomic_write_csv(path, render_master_full_export(entries, research))
+
+
+# ---------------------------------------------------------------------------
+# ORCHESTRATION (Commit F) — one call: scored roster -> ledger.jsonl + the three CSV views.
+#
+# The Colab GATE-2 cell calls THIS (new production behavior is an importable function, not cell logic).
+# Takes the scored roster (research_runner.score_r1_from_cache / run_r1()['roster']) + the research
+# DataFrame; builds every entry, writes the durable ledger transactionally, and renders the three views
+# FROM THE REOPENED ledger (Rule 5 — views are built off the verified durable data, not the in-memory list).
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Gate2BuildResult:
+    ledger_path: str
+    summary_path: str
+    cards_path: str
+    export_path: str
+    entries: int
+    tally: dict
+    readback_ok: bool
+    backup_path: str = ""
+
+
+def _context_rows(research: Any) -> dict:
+    """Index research rows by normalized company for build_entry's context (one_liner / stage_basis)."""
+    if research is None:
+        return {}
+    records = research.fillna("").to_dict("records") if isinstance(research, pd.DataFrame) else list(research)
+    return {_txt(rec.get("company")).lower(): rec for rec in records}
+
+
+def build_gate2_artifacts(roster: list[dict], research: Any = None, *, batch_id: str, date_scored: str,
+                          out_dir: str | Path, framework_version: str | None = None) -> Gate2BuildResult:
+    """Build the full GATE-2 packet from a scored roster: one ledger entry per company -> transactional
+    `ledger.jsonl` write (backup + read-back + rollback) -> the three CSV views rendered from the REOPENED
+    ledger. `research` (the research DataFrame) supplies build_entry's context + the master-export evidence
+    join; `fit_brief_json` is dropped from the export (machine JSON, not human-checkable in a spreadsheet —
+    its data is already decomposed into the ledger + the finding columns). Returns the paths + tally."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    context = _context_rows(research)
+
+    entries = [
+        build_entry(rec, context.get(_txt(rec.get("company")).lower(), {}),
+                    batch_id=batch_id, date_scored=date_scored, framework_version=framework_version)
+        for rec in roster
+    ]
+
+    ledger_path = out / "ledger.jsonl"
+    write_result = execute_ledger_write(ledger_path, entries)
+    reopened = read_ledger(ledger_path)   # Rule 5 — render views off the verified durable data
+
+    export_research = research
+    if isinstance(research, pd.DataFrame) and "fit_brief_json" in research.columns:
+        export_research = research.drop(columns=["fit_brief_json"])
+
+    summary_path = write_summary_table(out / "summary_table.csv", reopened)
+    cards_path = write_cards_csv(out / "cards.csv", reopened)
+    export_path = write_master_full_export(out / "master_full_export.csv", reopened, research=export_research)
+
+    tally: dict = {}
+    for entry in reopened:
+        tier = final_priority(entry)
+        tally[tier] = tally.get(tier, 0) + 1
+
+    return Gate2BuildResult(
+        ledger_path=str(ledger_path), summary_path=str(summary_path), cards_path=str(cards_path),
+        export_path=str(export_path), entries=len(reopened), tally=tally,
+        readback_ok=write_result.readback_ok, backup_path=write_result.backup_path)
