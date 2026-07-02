@@ -240,7 +240,7 @@ rigor). The field is present regardless; `history` still appends the change.
   no wide master to land into).
 - `dashboard.py` — **rebuild** to read the ledger (`final_priority` + flags); built LAST; enforce the gate
   invariant (only gate-2-reviewed entries).
-- `candidate_priority.py` (+ `candidate_priority_reference_spec.md`) — **retire or recast** as Gate-1 discovery.
+- `candidate_priority.py` (+ `archive/specs/candidate_priority_reference_spec.md`) — **retire or recast** as Gate-1 discovery.
 - `decisions.py` — **reconcile** the APPROVE/HOLD/REJECT decision flow into the ledger decision-block writes.
 - `review.py` — **extend** to cards + summary + routing (§4), emitting CSV artifacts; **`google_sheets.py` retires** (Sheets superseded; Rule 3 → CSV).
 - `colab_workflow.py` — the STEP-12 / 12B master-build loops, the summary→master parse, and the dashboard/
