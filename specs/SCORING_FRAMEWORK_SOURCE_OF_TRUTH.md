@@ -505,7 +505,7 @@ pmf     = round_even_bands(pmf_raw)                       # 8.4->8, 8.5->9
     NEVER absent (no signal → UNKNOWN=4), so the cap could never fire — it was dead code and `PMF_MISSING_CAP`
     is DELETED from the package. (It was always inert anyway: with the growth half held at 4, `pmf_raw ≤
     0.4·10 + 0.6·4 = 6.4 → val ≤ 6 < 7`.) See the "MISSING-DATA CAP — SUPERSEDED + REMOVED (v1.24)" bullet in
-    §B6 above and `PHASE3_PROCESS_HISTORY.md` Arc 3.
+    §B6 above and `archive/specs/PHASE3_PROCESS_HISTORY.md` Arc 3.
 - **UNKNOWN-STAGE PMF POLICY (v1.12) — (a) RATIFY for R1; (b) improvement DEFERRED post-R1.**
   - **(a) RATIFIED (the port reproduces this):** an `unknown` / undeterminable `funding_stage` scores PMF on
     the **series-b** row of BOTH scales (`structured_evidence._arr_stage` / `_growth_stage` fall back to
@@ -708,7 +708,7 @@ multi-source points legitimately sketch a fast trajectory). `derive_growth_from_
 ALIASES`, and the report-figures schema are DELETED from the package. What SURVIVES from this lineage: the
 **§B6.1 revenue-only FENCE** (counts are scale, not growth), now HARD-ENFORCED in code (a `counts-scale`
 basis is forced to UNKNOWN). Full reasoning arc (why the gate was built, why it was the wrong tool, the
-`pomelo`/`equip` cases): `PHASE3_PROCESS_HISTORY.md` Arc 3–4.
+`pomelo`/`equip` cases): `archive/specs/PHASE3_PROCESS_HISTORY.md` Arc 3–4.
 
 ## B7. STRAIN + FLOOR + FINAL ASSEMBLY (Item #7) — LOCKED
 ```
@@ -761,7 +761,7 @@ final_score = background_fit + pmf + strain        # strain: 0..+2 (max LOCKED +
     excluded). A bare `"AGENCY-fail"` is useless for review; the events + why-none-fired make it reviewable.
   - **BUILD (Commit 7):** the `floor_reason` is emitted + stored AS A COLUMN when the floor decision is made
     (part of assembly, not bolted on later). **SURFACE (Phase-4):** the Gate-2 review surface renders it on
-    the summary-table floor one-liner (`MASTER_REDESIGN_SPEC.md` §4 / `PHASE3_HARDENING_PLAN.md` Section 5) —
+    the summary-table floor one-liner (`MASTER_REDESIGN_SPEC.md` §4) —
     v1.15 ADDS the requirement that the one-liner carry review-grade detail, not a bare floor type.
 - **REPRODUCIBLE SCORING via PERSISTED READS (caching) + `tier_review` proximity flag (v1.22 — SUPERSEDES
   the v1.20/v1.21 N=5 stability mechanism).** The reproducibility GOAL is a reproducible PIPELINE, not a
@@ -882,7 +882,7 @@ calibrates. Calibration on pre-regen data is BARRED (^c10).
 > real data, never guessed). A framework revision discovered there is a **doc-first FRAMEWORK_VERSION bump
 > (v1.2 → v1.3)** — the SOT changes first, then code. The §C markings were never permanent ambiguity;
 > Phase 2 is when they close. Calibration-on-pre-regen-data stays BARRED. Cross-ref:
-> `PRE_REGEN_READINESS.md` §5 (the regen's three-phase tail). The STABLE items remain safe to build now.
+> `archive/specs/PRE_REGEN_READINESS.md` §5 (the regen's three-phase tail). The STABLE items remain safe to build now.
 
 **STABLE — locked as reference; safe to build against:**
 - Gated-then-ranked architecture (3 stages; fact-enters-once). [A1/B0]

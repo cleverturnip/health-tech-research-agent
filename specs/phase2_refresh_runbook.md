@@ -1,6 +1,6 @@
 # Phase 2 — Operational notes / pre-refresh runbook
 
-Operational reminders that don't belong in the roadmap (`PROJECT_TRACKER.md`) but must not be
+Operational reminders that don't belong in the roadmap (`COLLABORATION_CONTEXT.md` § Status & roadmap) but must not be
 lost. **Read this before running any full research refresh.**
 
 > **Execution script:** the cell-by-cell Colab runsheet for the run-once clean-slate regeneration
@@ -244,7 +244,7 @@ built" is no longer the gate. The real remaining gate is the explicit checklist 
 
 Regenerating before the gate is clear would bake gaps into the "trusted" data and force a second
 expensive full refresh. Regenerate **once**, only when every checklist item above is green.
-(Tracked as a held item under Phase 3 → Candidate Priority Engine in `PROJECT_TRACKER.md`.)
+(Tracked as a held item under Phase 3 → Candidate Priority Engine in `archive/PROJECT_TRACKER.md`.)
 
 ## Field-landing remediation (post-regen, DONE — PR #41)
 
