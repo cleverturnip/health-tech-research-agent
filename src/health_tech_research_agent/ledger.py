@@ -504,3 +504,158 @@ def apply_decisions(entries: list[dict], decisions: list[dict], *,
         # else: nothing changed for this company — no-op (idempotent).
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# RENDERED VIEWS (Commit E) — summary_table.csv (scan) + master_full_export.csv (all fields + all research).
+#
+# Read-only views over the ledger (Rule 3). Display-label convention (2026-07-02): human-facing CSV headers
+# spell out "Background Fit" / "Product Market Fit"; the JSONL keys stay bg_fit / pmf. master_full_export
+# JOINS the raw research findings at render time (the ledger stores no raw research — Option 2 holds).
+# ---------------------------------------------------------------------------
+
+SUMMARY_COLUMNS = ["Company", "Model", "Stage", "Tier", "FINAL", "Key flag", "Recommendation", "Floor reason"]
+
+
+def floor_summary(entry: dict) -> str:
+    """A one-line floor reason for the summary scan (blank for a passing company). Reads the floor SOURCE off
+    the entry so a gate floor (Path/Agency) is legibly distinct from a Low-Score floor (floored-vs-low)."""
+    gates = entry.get("gates", {})
+    path = gates.get("path", {})
+    agency = gates.get("agency", {})
+    floor_rule = entry.get("scoring", {}).get("floor_rule", {})
+    if not path.get("passed", True):
+        kind = "B2B floor" if gates.get("b2b_floor") else "Path floor"
+        return f"{kind}: {_txt(path.get('detail'))}".rstrip(": ").strip()
+    if not agency.get("passed", True):
+        return f"Agency floor: {_txt(agency.get('detail'))}".rstrip(": ").strip()
+    if not floor_rule.get("passed", True):
+        return f"Low score: {_txt(floor_rule.get('reason'))}".rstrip(": ").strip()
+    return ""
+
+
+def _key_flag(entry: dict) -> str:
+    """The single most salient flag for the summary (a warn beats an info; else the first flag; else '')."""
+    flags = entry.get("flags", [])
+    warns = [f for f in flags if _txt(f.get("severity")) == "warn"]
+    chosen = warns[0] if warns else (flags[0] if flags else None)
+    return _txt(chosen.get("type")) if chosen else ""
+
+
+def render_summary_table(entries: list[dict]) -> pd.DataFrame:
+    """The lean scan: Company · Model · Stage · Tier (final priority) · FINAL · Key flag · Recommendation ·
+    Floor reason. Read-only."""
+    rows = [{
+        "Company": _txt(entry.get("company")),
+        "Model": _txt(entry.get("model")),
+        "Stage": _txt(entry.get("stage")),
+        "Tier": final_priority_code(entry),
+        "FINAL": entry.get("scoring", {}).get("final_score"),
+        "Key flag": _key_flag(entry),
+        "Recommendation": _txt(entry.get("recommended_action")),
+        "Floor reason": floor_summary(entry),
+    } for entry in entries]
+    return pd.DataFrame(rows, columns=SUMMARY_COLUMNS)
+
+
+def flatten_entry(entry: dict) -> dict:
+    """Flatten a ledger entry into readable, human-facing columns (display labels for the score fields).
+    Nested lists (flags / history) serialize to JSON strings; derived fields are computed on read (§3.1)."""
+    scoring = entry.get("scoring", {})
+    bg = scoring.get("bg_fit", {})
+    pmf = scoring.get("pmf", {})
+    arr = pmf.get("arr_level", {})
+    growth = pmf.get("growth", {})
+    strain = scoring.get("strain", {})
+    floor_rule = scoring.get("floor_rule", {})
+    gates = entry.get("gates", {})
+    path = gates.get("path", {})
+    agency = gates.get("agency", {})
+    decision = entry.get("decision", {})
+    return {
+        "Company": _txt(entry.get("company")),
+        "Batch": _txt(entry.get("batch_id")),
+        "Framework version": _txt(entry.get("framework_version")),
+        "Date scored": _txt(entry.get("date_scored")),
+        "Model": _txt(entry.get("model")),
+        "Stage": _txt(entry.get("stage")),
+        "Stage basis": _txt(entry.get("stage_basis")),
+        "One-liner": _txt(entry.get("one_liner")),
+        "Background Fit": bg.get("score"),
+        "Background Fit loop": bg.get("loop"),
+        "Background Fit rationale": _txt(bg.get("rationale")),
+        "Product Market Fit": pmf.get("score"),
+        "ARR": arr.get("score"),
+        "ARR basis": _txt(arr.get("basis")),
+        "Growth": growth.get("score"),
+        "Growth basis": _txt(growth.get("basis")),
+        "Product Market Fit rationale": _txt(pmf.get("rationale")),
+        "Strain": strain.get("score"),
+        "Strain strength": _txt(strain.get("strength")),
+        "Strain rationale": _txt(strain.get("rationale")),
+        "FINAL": scoring.get("final_score"),
+        "Floor rule passed": floor_rule.get("passed"),
+        "Floor rule reason": _txt(floor_rule.get("reason")),
+        "Path passed": path.get("passed"),
+        "Path detail": _txt(path.get("detail")),
+        "Agency passed": agency.get("passed"),
+        "Agency detail": _txt(agency.get("detail")),
+        "Agency reset": _txt(agency.get("reset")),
+        "B2B floor": gates.get("b2b_floor"),
+        "Model priority": _txt(entry.get("model_priority")),
+        "Recommended action": _txt(entry.get("recommended_action")),
+        "Override candidate": entry.get("override_candidate"),
+        "Flags": json.dumps(entry.get("flags", []), ensure_ascii=False),
+        "Final priority": final_priority(entry),
+        "Provenance": provenance(entry),
+        "Final priority code": final_priority_code(entry),
+        "Final priority rank": final_priority_rank(entry),
+        "Human override": _txt(decision.get("human_override")),
+        "Override reason": _txt(decision.get("override_reason")),
+        "Taxonomy override": _txt(decision.get("taxonomy_override")),
+        "Taxonomy override reason": _txt(decision.get("taxonomy_override_reason")),
+        "Decided date": _txt(decision.get("decided_date")),
+        "Decided at gate": _txt(decision.get("decided_at_gate")),
+        "Decision history": json.dumps(decision.get("history", []), ensure_ascii=False),
+    }
+
+
+def _research_index(research: Any) -> dict:
+    """Index research rows by normalized company -> {finding columns} (drops the duplicate 'company' key).
+    Accepts a pandas DataFrame or a list of dicts; None -> {} (export ledger fields only)."""
+    if research is None:
+        return {}
+    records = research.fillna("").to_dict("records") if isinstance(research, pd.DataFrame) else list(research)
+    index: dict[str, dict] = {}
+    for record in records:
+        company = _txt(record.get("company"))
+        if company:
+            index[company.lower()] = {k: v for k, v in record.items() if k != "company"}
+    return index
+
+
+def render_master_full_export(entries: list[dict], research: Any = None) -> pd.DataFrame:
+    """Every ledger field PLUS all research findings joined in (by company) — the check-everything file.
+    A company with no matching research row simply gets blank research columns."""
+    ledger_columns = list(flatten_entry(entries[0]).keys()) if entries else []
+    index = _research_index(research)
+    research_columns: list[str] = []
+    rows = []
+    for entry in entries:
+        flat = flatten_entry(entry)
+        for key, value in index.get(_txt(entry.get("company")).lower(), {}).items():
+            flat[key] = value
+            if key not in research_columns:
+                research_columns.append(key)
+        rows.append(flat)
+    if not rows:
+        return pd.DataFrame(columns=ledger_columns)
+    return pd.DataFrame(rows).reindex(columns=ledger_columns + research_columns)
+
+
+def write_summary_table(path: str | Path, entries: list[dict]) -> Path:
+    return storage.atomic_write_csv(path, render_summary_table(entries))
+
+
+def write_master_full_export(path: str | Path, entries: list[dict], research: Any = None) -> Path:
+    return storage.atomic_write_csv(path, render_master_full_export(entries, research))
