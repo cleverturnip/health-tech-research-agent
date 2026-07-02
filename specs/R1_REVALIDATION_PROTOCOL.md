@@ -82,17 +82,32 @@ cells. Everything scoring-side is committed package code; the notebook only sets
 function.
 
 **Cell 1 — install the package from the branch + load the checkpoint:**
-> ⚠️ **v1.24 re-run gotcha:** the branch ref (`@phase3-commit8-r1`) is unchanged, so plain `pip install` sees
-> the package "already satisfied" and KEEPS the old v1.23 wheel — you would run the OLD code. Force it with
-> `--force-reinstall --no-deps` (below), OR **Runtime → Restart runtime** first. Confirm the version by
-> printing the head commit after import (it must be `730df7e` / v1.24).
+> ⚠️ **RE-RUN GOTCHA (cost us a whole R1 run — 2026-07-01):** the branch ref (`@phase3-commit8-r1`) is unchanged
+> across versions, so pip sees the package "already satisfied" and KEEPS the old wheel that is already on the
+> Colab VM disk. **`Runtime → Restart runtime` does NOT fix this** — it restarts the kernel but leaves the
+> installed package on disk, so the plain install still skips the upgrade and you silently run the OLD code.
+> Two reliable fixes:
+> - **BEST — `Runtime → Disconnect and delete runtime`** (a FRESH VM: nothing installed, no wheel cache), then
+>   run this cell as-is. A fresh VM always fetches the branch HEAD.
+> - **OR — force it in place:** run the `--force-reinstall --no-deps --no-cache-dir` line below, THEN
+>   `Runtime → Restart runtime` (to drop the already-imported OLD module from memory), then continue.
+> **Then ALWAYS run the Cell 1b version guard before trusting any output.**
 ```python
-!pip -q install --force-reinstall --no-deps "git+https://github.com/cleverturnip/health-tech-research-agent.git@phase3-commit8-r1"
+!pip -q install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/cleverturnip/health-tech-research-agent.git@phase3-commit8-r1"
 import hashlib, pandas as pd
 CKPT = "/content/drive/MyDrive/.../v42_full_regen_clean_slate_20260622_full56_checkpoint_FINAL.csv"  # your path
 print("sha256:", hashlib.sha256(open(CKPT, "rb").read()).hexdigest())   # (optional) record the fingerprint
 df = pd.read_csv(CKPT).fillna("")
 print(len(df), "rows;", len(df.columns), "cols")
+```
+
+**Cell 1b — VERSION GUARD (MANDATORY — run before Cell 3; a wrong version silently re-runs the old code):**
+```python
+from health_tech_research_agent import structured_evidence as se
+assert hasattr(se, "GROWTH_BAND_SCORE"), "STILL OLD CODE — growth band scorer missing; reinstall (delete runtime)"
+assert hasattr(se, "floored_on_bg"), "STILL OLD CODE — floored_on_bg missing; reinstall (delete runtime)"
+assert not hasattr(se, "derive_growth_from_figures"), "STILL OLD CODE — derive subsystem present; reinstall"
+print("v1.24 OK — bands:", se.GROWTH_BAND_SCORE)     # -> {'high': 9, 'solid': 6, 'slow': 3, 'unknown': 4}
 ```
 
 **Cell 2 — OpenAI client (your existing Step-2 setup):**
