@@ -178,6 +178,29 @@ discipline rules: doc-first, byte-level sign-off, test-then-ratify.)
 
 ## Immediate next action (update this line each time I start a new chat)
 
+> **PHASE-3 HARDENING COMPLETE + MERGED TO MAIN (2026-07-02).** The §B scorer is committed package code at
+> framework **v1.25**, R1 re-validated by name (tag `v1.25-phase3-complete`; SOT v1.25 +
+> `PHASE3_PROCESS_HISTORY.md` on `main`; spike deleted). **NEXT = the Phase-4 scoring-review LEDGER / Gate-2
+> review surface — DOC-FIRST, in a fresh chat.** Design it against `MASTER_REDESIGN_SPEC.md` §4 + §3.1 (the
+> ledger columns) and `PHASE3_HARDENING_PLAN.md` **Section 5** (the Gate-2 review-surface scoping: uniform
+> ledger, differentiated review packet, floor governs the review SURFACE not whether a company is scored). Do
+> NOT scaffold by guess — spec it first, byte-level sign-off, then build.
+>
+> **OWNED FIRST TASKS for that chat (not just gaps):**
+> 1. **Write a "how it works" entry-point doc.** There is NO single narrative that walks a fresh reader through
+>    the scoring pipeline end-to-end — classifier → PATH → AGENCY → bg (N=4 avg) → growth-BAND → PMF blend →
+>    strain → floor → override → threshold → flags — plus how to run R1. Write it (a top-level overview / README
+>    or a `§0` in the SOT) so the system is legible without any chat history. Division of labor: the SOT holds
+>    the *rules*, `PHASE3_PROCESS_HISTORY.md` holds the *why*, this new doc holds the *walkthrough*.
+> 2. **Make FLOORED-vs-LOW-SCORE legible in the ledger.** `bg=None` currently CONFLATES "correctly gated
+>    B2B/non-consumer → FLOORED (gated)" with "consumer-but-weak-habit → LOW bg score (3–4, capped not gated)."
+>    The ledger must expose this distinction per company (Katelynd's explicit, carried requirement).
+>
+> **WATCH-ITEM (document in the ledger review, NOT a scoring fix):** several HIGH bands rest on GetLatka
+> `$0→$N` single-source series where "$0 in year one" may reflect the estimator having no early-year data
+> rather than a genuine zero — a data-credibility item (`fay`/`foodsmart`/`nourish`/`berry street`/`summer`/
+> `visana`). See `PHASE3_PROCESS_HISTORY.md` "Known watch-items."
+
 > **MASTER REDESIGN RECONCILED + COMMITTED (2026-06-30).** `MASTER_REDESIGN_SPEC.md` (RECONCILED v1) is the
 > committed target: the master becomes the **GATE-2 scoring-review ledger** (Option 2), with a clean
 > from-scratch priority model (`model_priority`/`human_override`/`final_priority`/override-only `provenance`/

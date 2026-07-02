@@ -199,6 +199,17 @@ This is the invariant A1 describes, made concrete. Each must hold in the build:
     NOT a classifier change. The classifier still runs on all companies and still emits B2B via the mapper
     when it reads `who_uses=professional`; the locked list is an OVERRIDE that guarantees these 6 are B2B
     even if the classifier reads them consumer.
+- **DOCUMENTED BUSINESS-MODEL OVERRIDES — human-locked classifier corrections (authoritative over the mapper;
+  the §B2 twin of the B2B floor).** `DOCUMENTED_BUSINESS_MODEL_OVERRIDES` (`structured_evidence.py`) forces
+  the FINAL `business_model` label for two companies the classifier mis-reads; the raw who_uses/who_pays read
+  is still persisted so the mis-read stays visible + testable:
+  - **`noom med → B2C`** — a minor-channel `who_pays` OVER-read (live raw consumer/mixed → B2B2C). noom is a
+    consumer subscription; the mixed channel over-credits an institutional path that isn't the business.
+  - **`counsel health → B2B2C`** — an evidence-thin UNDER-read (Rule 8): live raw consumer/consumer → B2C on
+    thin evidence, but counsel has a real institutional channel → B2B2C.
+  - **`signos` RETIRED (2026-06-30):** the v1.13 evidence-only prompt reads it correctly, so the override was
+    inert and would only MASK a future regression — signos rides the mapper (correctness visible/testable).
+  Maintenance: a doc-first edit to this list (human judgment), same as the B2B floor.
 - `who_pays == mixed` with consumer user → B2B2C (a real institutional channel exists; cash-pay strength
   surfaces later in PMF, not here).
 - **EVIDENCE-ONLY who_pays rule (v1.13 — the who_pays twin of the frequency firewall; Rule 7 + Rule 8).**
@@ -329,6 +340,16 @@ Seed / pre-seed       -> too-early    -> FAIL (no reset rescue)
     Pass-2 audit's "3 stage corrections" resolve as **2 human-locked overrides + 1 deterministic-correct**
     (a cleaner, more honest accounting). **MAINTENANCE:** adding/removing a stage override is a doc-first
     edit to THIS list (human judgment), not a code change.
+  - **DOCUMENTED FUNDING PATCHES (v1.23) — a DATA refresh, NOT a hand-set stage.** `DOCUMENTED_FUNDING_PATCHES`
+    (`structured_evidence.py`, applied in `flatten_checkpoint_row`) appends real funding rounds the research
+    MISSED to a company's maturity evidence BEFORE stage derivation, so the stage RE-DERIVES from complete
+    data (it does not hand-set a tier). The one entry: **`equip health`** — the checkpoint stopped at
+    `series-b` (2021); appending the real Series C (2024-04) + the UNDESIGNATED $54M venture round (2025-07)
+    re-derives to `series-c` (the $54M does NOT advance to series-d — v1.10 discriminator; `stage_confidence`
+    low). This differs from a stage OVERRIDE: the override asserts the stage directly (the judgment isn't in
+    the data); a funding patch supplies the missing DATA and lets the deterministic mapper re-derive.
+    MAINTENANCE: a human-maintained data patch for a company scored on stale funding data — doc-first edit to
+    THIS list.
   - **HUMAN-LOCKED RESET OVERRIDE (v1.21) — the reset analogue of the stage override; AUTHORITATIVE over the
     emitter's `creates_high_agency_opening` read.** `DOCUMENTED_RESET_OVERRIDES = {"hinge health": "no-fire",
     "noom med": "no-fire"}`, each carrying a reason. **Why:** the R1 live run showed the §B4 v1.16 substance
@@ -473,25 +494,22 @@ Evidence:
 pmf_raw = 0.4 * arr_level_score + 0.6 * growth_score     # 40/60 split is an OPEN DIAL
 pmf     = round_even_bands(pmf_raw)                       # 8.4->8, 8.5->9
 ```
-- **SINGLE-ABSENT-HALF NEUTRAL = 4 (LOCKED v1.12 — RATIFIED from the spike, `spike_scoring_spine.py:172–182`).**
-  When exactly ONE PMF half is absent (only `arr_level_score` present, or only `growth_score` present), the
-  ABSENT half is filled with the NEUTRAL value **4** before the 0.4/0.6 blend
-  (spine:178: `al_e, g_e = (al if al is not None else 4), (g_final if g_final is not None else 4)`). This
-  **ratifies the behavior the §B7 thresholds were calibrated against — it is not a new value.**
-  - **Interaction with the missing-data cap@7 — stated explicitly so it need not be reverse-engineered (it
-    does NOT double-penalize the same absence).** The cap keys off GROWTH absence ONLY —
-    `cap = (g_final is None)` (spine:177) — applied as `if cap: val = min(val, 7)` (spine:181). When growth
-    is absent, the growth half (60% weight) is filled with 4, so at the locked 40/60 split
-    `pmf_raw ≤ 0.4·10 + 0.6·4 = 6.4 → val ≤ 6`; therefore **the cap@7 NEVER binds in the growth-absent path**
-    (`min(≤6, 7)` is a no-op). The neutral-4 fill and the cap@7 are thus NOT a second deduction stacked on the
-    first — the fill already bounds pmf below 7, and the cap is **redundant-but-harmless** given the fill (it
-    is a stable mechanism + dial that would only bite if the 40/60 split were re-weighted hard toward level).
-  - **Absent ARR half:** filled with 4, and `cap` is FALSE (it keys off growth, not ARR) → **no cap**
-    (spine:177). Both halves absent → both filled 4 → `pmf_raw = 4.0 → val = 4` (cap True but inert).
+- **ABSENT-ARR-HALF NEUTRAL = 4 (LOCKED v1.12; RE-SCOPED v1.24 to the ARR half only).** If the ARR half
+  (`arr_level_score`) is absent (no $ figure), it is filled with the NEUTRAL value **4** before the 0.4/0.6
+  blend — `PMF_NEUTRAL_HALF = 4` (`structured_evidence.pmf_score`). This ratifies the behavior the §B7
+  thresholds were calibrated against; it is not a new value. **v1.24: the growth half is ALWAYS a band value
+  (never None), so only the ARR half can be absent-and-filled** (the neutral-4 fill no longer applies to
+  growth).
+  - **MISSING-DATA CAP@7 — RETIRED + REMOVED (v1.24). Audit-trail only; NOT a current rule.** The framework
+    once capped `pmf` at 7 when growth was ABSENT (`growth_score is None`). Under the band read growth is
+    NEVER absent (no signal → UNKNOWN=4), so the cap could never fire — it was dead code and `PMF_MISSING_CAP`
+    is DELETED from the package. (It was always inert anyway: with the growth half held at 4, `pmf_raw ≤
+    0.4·10 + 0.6·4 = 6.4 → val ≤ 6 < 7`.) See the "MISSING-DATA CAP — SUPERSEDED + REMOVED (v1.24)" bullet in
+    §B6 above and `PHASE3_PROCESS_HISTORY.md` Arc 3.
 - **UNKNOWN-STAGE PMF POLICY (v1.12) — (a) RATIFY for R1; (b) improvement DEFERRED post-R1.**
   - **(a) RATIFIED (the port reproduces this):** an `unknown` / undeterminable `funding_stage` scores PMF on
-    the **series-b** row of BOTH scales (spike `spike_scoring_spine.py:119,122` — `_arr_stage` and
-    `_growth_stage` fall back to `series-b`). On the 54 this path NEVER fires (every company has a clean
+    the **series-b** row of BOTH scales (`structured_evidence._arr_stage` / `_growth_stage` fall back to
+    `series-b`). On the 54 this path NEVER fires (every company has a clean
     stage), so ratifying it is **parity-safe** and the hardened scorer reproduces it for R1.
   - **(b) DEFERRED IMPROVEMENT (NOT part of the R1 port — a post-R1 decision, decided with eyes open):**
     once the §B4 v1.10 stage mapper can emit `unknown` + `stage_confidence=low` (the hardened
@@ -625,9 +643,8 @@ pmf     = round_even_bands(pmf_raw)                       # 8.4->8, 8.5->9
   download / MAU / partner-count / funding growth AND non-$ COUNTS (covered-lives / patient / member counts)
   are SCALE, not growth, and must NOT feed growth_score. This is the extraction-layer twin of the
   Collaboration doc's web-search EXECUTION-VARIANCE root cause (absence ≠ measurement, one layer down — the
-  growth data exists and was captured; the spike's parser under-extracted it). The spike's regex extractor
-  is spike-grade (residual leaks/misses recorded in `spike_pass1_notes.md`); the permanent extractor is a
-  hardening-phase job.
+  growth data exists and was captured; the spike's parser under-extracted it). The permanent extractor is the
+  §B6 v1.25 BAND read (built); the spike's regex extractor is retired.
 - **40/60 LEVEL:GROWTH split is an OPEN DIAL** — tune toward growth (35/65, 30/70) if big-but-slowing
   companies rank too high; toward level (45/55) if small-base spikes. Worked anchors: Function 10/10;
   Nutrisense 7→6 for decelerating; an "$80M-but-flat" hypothetical 6→5.
@@ -680,48 +697,18 @@ misfiling into this field cannot reach revenue presence or growth_score without 
 to a consumer. A future change cannot quietly wire `sponsored_user_scale` into the score; it would have to
 change what a consumer reads, which is a reviewable edit.
 
-**SAME-SOURCE DERIVE GATE — a derived revenue rate needs ONE consistent series (v1.18; HARD gate, not a
-caveat).** The growth extractor (Commit 5b) MAY derive a revenue-growth % from two dated revenue figures —
-but a derive is VALID only when ALL THREE hold; if ANY fails there is NO usable rate (route to qualitative /
-absent, never a derived rate):
-1. **SAME MEASURE** — both annual revenue, or both ARR (NOT funding-amount vs revenue; NOT run-rate vs
-   trailing/annual).
-2. **SAME SOURCE** — both from the SAME company report OR the SAME single estimator's own dated series.
-   **Two DIFFERENT estimators' single figures are independent guesses (they often conflict, and can point
-   opposite directions) — they do NOT form a series; never derive across them.**
-3. **CORRECT TIME ORDER** — baseline = the earlier-dated figure, endpoint = the later-dated figure.
-A text hedge ("a rate could not be computed") does NOT block a derive that passes all three (a real
-same-source series is usable even when the synthesis hedged).
-- **Why a HARD gate, not a caveat (the audit trail — recording the WHY so a future editor does not soften
-  it back):** this rule first shipped in Commit 5b as a soft sub-caveat under the "derive even if hedged"
-  instruction, and the model IGNORED it — it computed a bogus **102.5%** for `pomelo` by deriving across two
-  DIFFERENT estimators (Latka $127.6M + Growjo $63M) **and inverted the chronology** ($127.6M is 2025, $63M
-  is 2026 — chronologically a DECREASE). A junk rate from conflicting estimates is the extractor being
-  broken regardless of whether the resulting tier survives. So the rule is promoted to a HARD all-three-or-
-  nothing gate.
-- **Worked example (proves the gate cuts along the right line):** `pomelo` — Latka $127.6M + Growjo $63M =
-  TWO estimators → SAME-SOURCE fails → NO derive → `qualitative "growing"` (revenue-implies-growth statement
-  present). `season` — Latka's OWN dated series $8.0M (2022) → $12.3M (2023) = ONE estimator's series →
-  all three hold → derive ≈ **53.7%**. Same gate, opposite outcomes, along the same-source line.
-- **CANONICAL GROWTH-EXTRACTOR EVIDENCE (recorded so Commit-7 assembly wires it):** the growth extractor
-  reads **`growth_signal` + `revenue_or_arr` (the synthesized commercial_evidence fields) + `growth_finding`
-  (the raw search)** — NOT the raw `commercial_scale_finding`. (Run-1 of the 5b validation fed the wrong
-  fields and the missing revenue-direction statement flipped `pomelo` to a wrong `absent`.) Commit 7 MUST
-  wire exactly these fields or it silently reintroduces the absent-vs-qualitative bug.
-- **NOW ENFORCED IN CODE, not asked-for in the prompt (v1.23 — the gate is deterministic; the prompt gate is
-  advisory).** The prompt gate FAILED TWICE (pomelo Run-1; then `equip` at R1, where the live extractor again
-  derived a cross-estimator rate — Latka-2021 $4.5M + CB-Insights-2023 $35M → a bogus 7.8x that put equip at
-  P1). Caching FREEZES a wrong read, so a twice-failed prompt-trust is exactly what we cannot afford. So the
-  DERIVE moves to code (same philosophy as the §B2 floor / §B4 stage & reset overrides — a mechanically-
-  checkable rule the LLM can't reliably hold goes in code): the extractor's job becomes **REPORT the
-  figures** (each `{value_usd_m, year, source, measure}`, source = the NAMED publisher) — it does NOT derive.
-  `structured_evidence.derive_growth_from_figures` computes the rate ONLY from two figures that pass all three
-  conditions IN CODE, with a CONSERVATIVE source normalization (`GROWTH_SOURCE_ALIASES`: "CB Insights" ==
-  "CB Insights financials" but ≠ "Latka"; an UNKNOWN/ambiguous source keeps its own slug → treated as
-  DISTINCT → derive REFUSED). Same-source = same NAMED publisher; when unsure, DIFFERENT wins (refuse) — a
-  wrongly-derived rate inflates into P0/P1, so err toward refusing. `equip`: cross-source → refused →
-  qualitative → pmf 4 → **P2**. The prompt still carries the FENCE + the report-figures instruction (signed);
-  the same-source gate itself is now the code's call.
+**SAME-SOURCE DERIVE GATE (v1.18–v1.23) — RETIRED + REMOVED (v1.24/v1.25). Audit-trail only; NOT a current
+rule.** The framework once derived a precise revenue-growth % from two dated figures under a hard
+SAME-MEASURE + SAME-SOURCE + CORRECT-TIME-ORDER gate (enforced in code as `derive_growth_from_figures` +
+`GROWTH_SOURCE_ALIASES`, off a REPORT-figures extractor schema). **All of that is GONE.** The growth read is
+now a **BAND CLASSIFICATION on trajectory magnitude** (§B6, "GROWTH READ — BAND CLASSIFICATION"): the band
+reads which side of the stage cutpoint the growth magnitude lands on, NOT a precise rate, so the same-source
+precision gate became the wrong tool (it would wrongly refuse `equip`/`bicycle`, whose complementary
+multi-source points legitimately sketch a fast trajectory). `derive_growth_from_figures`, `GROWTH_SOURCE_
+ALIASES`, and the report-figures schema are DELETED from the package. What SURVIVES from this lineage: the
+**§B6.1 revenue-only FENCE** (counts are scale, not growth), now HARD-ENFORCED in code (a `counts-scale`
+basis is forced to UNKNOWN). Full reasoning arc (why the gate was built, why it was the wrong tool, the
+`pomelo`/`equip` cases): `PHASE3_PROCESS_HISTORY.md` Arc 3–4.
 
 ## B7. STRAIN + FLOOR + FINAL ASSEMBLY (Item #7) — LOCKED
 ```
@@ -746,9 +733,10 @@ final_score = background_fit + pmf + strain        # strain: 0..+2 (max LOCKED +
   - **Angle + Oula → P3 (confirmed intended).** Both FINAL=14 (equal to the six P2 companies) but floor-FAIL
     (bg_fit=4: insurance-admin / episodic maternity). The floor rule deliberately separates EPISODIC from
     HABITUAL even at equal FINAL — this split is intended, not an artifact.
-- **CALIBRATION CAVEAT (R1):** these thresholds + dials are calibrated against the SPIKE distribution and carry
-  the R1 hardening caveat (`spike_pass1_notes.md`): if the hardened Phase-3 scorer's extraction/gate logic
-  drifts from the spike's, the thresholds MUST be re-validated. SPIKE-PROVISIONAL until re-validated.
+- **CALIBRATION CAVEAT (R1):** these thresholds + dials were calibrated against the SPIKE distribution and
+  carried an R1 hardening caveat: if the hardened Phase-3 scorer's extraction/gate logic drifted from the
+  spike's, the thresholds would be re-validated. **RESOLVED (v1.25):** the hardened scorer WAS re-validated at
+  R1 by name (the distribution is an output, not forced); the thresholds stand as ratified.
 - **STRAIN is a GLOBAL-RANK modifier** — cannot move a company across a tier alone. Cousin of reset
   (reset acts on the GATE, strain on the RANK) — separated so the same event can't double-count (B1).
 - **STRAIN evidence split (WORDING-LOCKED):** B1-structural vs B2-reported, with a STRICT bar on B2
