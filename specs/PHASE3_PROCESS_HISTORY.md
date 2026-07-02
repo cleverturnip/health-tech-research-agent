@@ -191,3 +191,36 @@ ratified by name.
 | v1.23 | Built DOCUMENTED_RESET_OVERRIDES; review_set/floor_audit split; floored_bg_near_threshold | signed-but-unbuilt gap; honest autonomy metric; trustworthy floor |
 | v1.24 | Growth BAND redesign; bg N=4-average; floored_on_bg widened; cap@7 removed | precise-thesis-on-ragged-data yo-yo; bg noise; dead code |
 | v1.25 | Trajectory-magnitude banding (complementary-multi allowed); HARD fence in code | same-source gate wrong tool for banding; pomelo counts-scale leak |
+
+---
+
+## Inspecting retired / thrown-away code (where the archive lives)
+
+If a future session hits a "this looks like it was built and thrown away — let's look at the old code"
+moment, the retired states are preserved in THREE independent places. You do NOT need to remember any branch
+name — enumerate the refs and search history:
+
+- **Tags (pinned, clearly labeled, on `origin`):**
+  - `v1.25-phase3-complete` — the ratified handoff state (the merge on `main`).
+  - `archive/phase3-commit8-r1` — the final v1.25 **code** branch head.
+  - `archive/docs-scoring-sot` — the final v1.25 **docs/SOT** branch head.
+  - `archive/phase3-scoping` — the Phase-3 scoping record (the one never-merged branch).
+- **Remote branches (kept on `origin`, prefixed `archived/`):** `archived/phase3-commit1-classifier` …
+  `archived/phase3-commit8-r1` (the commit-by-commit build lineage), `archived/docs-scoring-sot`,
+  `archived/reland-field-landing`, `archived/research-search-recovery`. (These were renamed from their
+  original names on 2026-07-02 — the `archived/` prefix is cosmetic; the commits are unchanged.)
+- **`main`'s own history:** every retired mechanism was merged into `main` before removal, so it is reachable
+  from the trunk regardless of any branch/tag.
+
+**How to find a specific retired mechanism (name-independent):**
+```
+git tag -l 'archive/*' ; git tag -l 'v1.25*'          # list the archive/ratified tags
+git ls-remote --heads origin 'refs/heads/archived/*'  # list the archived remote branches
+git log --all -S'<symbol>' --oneline                  # find where a symbol was ADDED and REMOVED
+git checkout archive/phase3-commit8-r1                 # inspect a full archived state (detached HEAD)
+```
+Retired symbols worth knowing by name (all findable via `git log --all -S`): `derive_growth_from_figures`,
+`GROWTH_SOURCE_ALIASES`, the report-figures growth schema (v1.18–v1.23 same-source derive), `PMF_MISSING_CAP`
+(the cap@7), the N=5 / `tier_stability` machinery (v1.20–v1.21), and `floored_bg_near_threshold` (v1.23,
+renamed `floored_on_bg` in v1.24). This document (Arcs 1–4) explains WHY each was retired, so start here
+before spelunking.
