@@ -1573,58 +1573,68 @@ def run_company_background_fit(
 
 
 # =============================================================================
-# Growth extractor (§B6 / §B6.1) — Commit 5b (the last LLM-facing prompt).
-# Replaces the spike's regex with an LLM REVENUE-growth-presence judgment that emits a STRUCTURED growth
-# read; the deterministic scorer (structured_evidence.score_growth) maps it (the LLM never scores). The
-# §B6.1 fence (revenue/$ only; counts are SCALE), the same-measure derive guard, and the determinate
-# qualitative-vs-absent rule are the signed-off wording (co-drafted + pinned vs the 3 R2 cases 2026-06-30:
-# pomelo/outcomes4me -> qualitative "growing"; season -> rate ≈ 53.7 derived). Pure builder so it is
-# asserted in tests without an API key.
+# Growth extractor (§B6 v1.24 — BAND CLASSIFICATION). The last LLM-facing growth prompt.
+# The extractor now CLASSIFIES a company's revenue growth into ONE of four bands (high/solid/slow/unknown),
+# given the STAGE's Scale-B cutpoints — it does NOT report figures and NEVER derives a rate (the v1.23
+# report-figures / same-source derive machinery is SUPERSEDED + REMOVED). The deterministic scorer
+# (structured_evidence.score_growth) maps the band -> a fixed score. The §B6.1 fence (revenue/$ only; counts
+# are SCALE) is preserved. Pure builder so it is asserted in tests without an API key.
 # =============================================================================
 
-GROWTH_EXTRACTOR_PROMPT_TEMPLATE = """You extract the REVENUE-GROWTH signal for a health company, for a downstream stage-relative growth score. Read the evidence and emit ONE structured growth read. The deterministic scorer maps it -- you do NOT score.
+GROWTH_BAND_EXTRACTOR_PROMPT_TEMPLATE = """You classify a health company's REVENUE-GROWTH into ONE band, for a downstream stage-relative growth score. Read the evidence and emit ONE growth read. You CLASSIFY into a band; you do NOT compute or combine numbers.
 
-Your job is to REPORT the dated revenue figures you find -- NOT to compute a growth rate. The deterministic scorer applies the same-source gate and derives the rate; deriving is not your job. Output ONE JSON object and nothing else:
-{{"figures": [{{"value_usd_m": <number: revenue/ARR in $M>, "year": <YYYY>, "source": "<the NAMED publisher: Latka | CB Insights | Growjo | Sacra | PitchBook | Crunchbase | Tracxn | company-reported | ...>", "measure": "revenue" | "arr"}}],
-  "zero_baseline_usd_m": <number: $M revenue reached from a $0 launch> or null,
-  "qualitative": "declining" | "flat" | "growing" or null,
-  "basis": "<one line: what you found>"}}
+Output ONE JSON object and nothing else:
+{{"growth_band": "high" | "solid" | "slow" | "unknown", "evidence": "<one line: the rate/trajectory + its source that you banded on; write 'declining' explicitly if revenue is shrinking>"}}
 
-HOW TO FILL IT:
-- figures -- EVERY dated revenue/ARR $ figure in the evidence, EACH tagged with its NAMED source (the exact publisher: "Latka", "CB Insights", "Growjo", "company-reported", etc.) and its measure (revenue vs arr). Report them ALL -- do NOT pick, combine, or compute across them. If a figure has no clear year or no clear source, still report it with year/source null (the scorer will discard it). Empty list if no $ revenue figure exists.
-- zero_baseline_usd_m -- ONLY for a launch-from-$0 revenue trajectory ($0 -> $N): the $M reached. Else null.
-- qualitative -- if the evidence AFFIRMATIVELY describes REVENUE direction (growing / flat / declining) but gives no usable figures, set it. Else null.
+THE BANDS -- phase-relative; the cutoffs below are for THIS company's stage ({stage}):
+- "high"  -- fast-growing FOR ITS STAGE: year-over-year REVENUE growth AT OR ABOVE {high_cut}%, OR "tripled / 3x / Nx", OR a clearly-high revenue run-rate reached fast for the stage.
+- "solid" -- real, credible growth: YoY REVENUE growth roughly {solid_lo}%-{high_cut}% for this stage, or clear revenue-scaling language.
+- "slow"  -- modest / decelerating / DECLINING: YoY REVENUE growth BELOW {solid_lo}% for this stage, flat, or shrinking. (If revenue is actually shrinking, still band "slow" AND write "declining" in evidence.)
+- "unknown" -- NO credible REVENUE-growth signal in the evidence. Do NOT guess; do NOT manufacture growth. This is a neutral, honestly-absent read.
 
-REVENUE / $ ONLY -- the FENCE (still the most important rule):
-- Report ONLY revenue / ARR / $ figures. NON-revenue COUNTS -- covered lives, patients, members, users, downloads, MAU, headcount, partners -- are SCALE, NOT revenue. NEVER put a count in figures, and NEVER set qualitative from a count. ("Covered lives rose 50%" / "patients grew 485%" is NOT revenue -- ignore it here.)
-- Do NOT manufacture revenue to avoid an empty list. No revenue $ figures and no affirmative revenue-direction statement -> figures: [], qualitative: null (the scorer reads that as absent).
+HOW TO BAND:
+- A growth rate STATED by the company OR by ONE analyst (Latka / CB Insights / Growjo / Sacra / ...) is a valid banding signal -- use it against the cutoffs above. NEVER combine two DIFFERENT sources into a rate; if the only figures are single points from different publishers and none states a growth rate, band on the trajectory language, or use "unknown".
+- A launch-from-$0 revenue trajectory ($0 -> $N): band by how large $N is FOR THE STAGE (a big run-rate reached fast is "high").
 
-DO NOT derive, combine, or reconcile figures -- report each as found with its own source. (Two figures from DIFFERENT publishers are independent guesses, not a series -- but that is the SCORER's call, not yours: your job is only to tag each figure's source honestly so the scorer can apply the gate.)
+REVENUE / $ ONLY -- the FENCE (the most important rule):
+- Band ONLY on revenue / ARR / $ growth. NON-revenue COUNTS -- covered lives, patients, members, users, downloads, MAU, headcount, partners -- are SCALE, NOT revenue. NEVER band on a count. ("Covered lives rose 50%" / "patients grew 485%" is NOT revenue growth -- if that is all you have, use "unknown".)
 
 Company: {company}
 Evidence:
 {evidence}"""
 
 
-def build_growth_extractor_prompt(company_name, evidence) -> str:
-    """Build the §B6/§B6.1 LLM growth-extractor prompt (signed-off wording). Pure function: no LLM call,
-    no I/O. The LLM emits ONLY a structured growth read; the deterministic
-    ``structured_evidence.score_growth`` maps it to a Scale-B / Scale-A score."""
-    return GROWTH_EXTRACTOR_PROMPT_TEMPLATE.format(company=company_name, evidence=evidence)
+def _fmt_cut(pct) -> str:
+    """Format a Scale-B cutpoint % for the prompt without a trailing '.0' (25.0 -> '25')."""
+    return f"{float(pct):g}"
+
+
+def build_growth_extractor_prompt(company_name, evidence, stage) -> str:
+    """Build the §B6 v1.24 BAND growth-extractor prompt. Pure function: no LLM call, no I/O. The stage's
+    Scale-B score-8 (HIGH cutpoint) and score-5 (SOLID floor) are injected so the LLM bands PHASE-RELATIVELY
+    against the LOCKED Scale B (the same cutoffs `structured_evidence.band_for_rate` uses). The LLM emits a
+    band + its evidence trail; the deterministic ``structured_evidence.score_growth`` maps band -> score."""
+    gstage = se._growth_stage(stage)
+    pts = se.GROWTH_SCALE[gstage]
+    return GROWTH_BAND_EXTRACTOR_PROMPT_TEMPLATE.format(
+        company=company_name, evidence=evidence, stage=gstage,
+        high_cut=_fmt_cut(pts[7]), solid_lo=_fmt_cut(pts[4]))
 
 
 def run_company_growth(
     company_name,
     evidence,
     *,
+    stage,
     client,
     model: str = DEFAULT_MODEL,
-    max_output_tokens: int = 280,
+    max_output_tokens: int = 200,
 ):
-    """Run the §B6 growth extraction for one company: build the prompt, call the model with web search
-    OFF, return the raw model text (expected to be one JSON growth read). Parsing + scoring run downstream
-    (``structured_evidence.flatten_growth_read`` / ``score_growth``). Reads STORED evidence (Rule 7)."""
-    prompt = build_growth_extractor_prompt(company_name, evidence)
+    """Run the §B6 v1.24 growth BAND classification for one company: build the stage-aware prompt, call the
+    model with web search OFF, return the raw model text (expected to be one JSON band read). Parsing +
+    scoring run downstream (``structured_evidence.flatten_growth_read`` / ``score_growth``). Reads STORED
+    evidence (Rule 7)."""
+    prompt = build_growth_extractor_prompt(company_name, evidence, stage)
     return call_openai(
         prompt,
         client=client,
@@ -2045,22 +2055,48 @@ def _r1_classifier_read(row, *, client, model):
 
 
 def _r1_growth_read(row, *, client, model):
-    """Live §B6 read -> flattened growth columns. Evidence = canonical_growth_evidence off the FLATTENED
-    row (growth_signal + revenue_or_arr + growth_finding, §B6.1 v1.18); the flat read is wrapped under
-    `growth_read` for flatten_growth_read (the extractor emits the read at top level, per signed cell 177)."""
+    """Live §B6 v1.24 BAND read -> flattened growth columns (growth_band + growth_evidence). Evidence =
+    canonical_growth_evidence off the FLATTENED row (growth_signal + revenue_or_arr + growth_finding, §B6.1
+    v1.18); the band prompt is STAGE-AWARE (the persisted funding_stage, with the DOCUMENTED_STAGE_OVERRIDE
+    applied — same stage the scorer uses) so the LLM bands phase-relatively. The read is wrapped under
+    `growth_read` for flatten_growth_read (the extractor emits the read at top level)."""
     flat = se.flatten_checkpoint_row(row)
+    stage = se._norm_stage(flat.get("funding_stage"))
+    key = se._norm_company(row.get("company"))
+    if key in se.DOCUMENTED_STAGE_OVERRIDES:
+        stage = se.DOCUMENTED_STAGE_OVERRIDES[key]
     d = _extract_json(run_company_growth(
-        row["company"], se.canonical_growth_evidence(flat), client=client, model=model))
+        row["company"], se.canonical_growth_evidence(flat), stage=stage, client=client, model=model))
     return se.flatten_growth_read({"growth_read": d})
 
 
-def _r1_background_fit_read(row, *, client, model):
-    """Live §B5 read -> background_fit int (flat JSON key, per signed cell 178). Evidence is the tested
-    background_fit_evidence blob (operating_characteristics_finding + commercial_scale_finding +
+# §B5 v1.24 — bg_fit is the ONE genuinely noisy continuous read (grow wobbled 4<->8; a single cached sample
+# froze it low). Take N reads at cache-population and cache the ROUNDED-HALF-UP MEAN (growth is now a stable
+# band, reset/classifier are categorical, so bg is the SOLE averaging target). N is a dial; the 4 passes run
+# ONCE at population (NOT per re-score) so caching stays the reproducibility mechanism.
+BG_FIT_N_READS = 4
+
+
+def _r1_background_fit_once(row, *, client, model):
+    """ONE §B5 bg_fit read -> the raw background_fit value (flat JSON key, per signed cell 178). Evidence is
+    the tested background_fit_evidence blob (operating_characteristics_finding + commercial_scale_finding +
     outcomes_finding)."""
     d = _extract_json(run_company_background_fit(
         row["company"], se.background_fit_evidence(row), client=client, model=model))
     return d.get("background_fit")
+
+
+def _r1_background_fit_read(row, *, client, model, n=BG_FIT_N_READS):
+    """Live §B5 v1.24 read -> the MEAN of N bg_fit reads, ROUNDED HALF-UP to an int (before caching, so the
+    floor check sees the rounded mean: mean 4.5 -> 5 PASSES bg > 4; 4.4 -> 4 FAILS). Each read parses via the
+    scorer's clamp (1-10 int); reads that fail to parse are dropped. ALL N reads failing -> None (READ-FAILED,
+    a DISTINCT flag from a low score). This runs ONCE at cache population — the cached value is byte-stable,
+    so caching remains the reproducibility mechanism."""
+    vals = [v for v in (se._bg_score_or_none(_r1_background_fit_once(row, client=client, model=model))
+                        for _ in range(n)) if v is not None]
+    if not vals:
+        return None
+    return se.round_half_up(sum(vals) / len(vals))
 
 
 def _r1_reset_read(row, *, client, model):

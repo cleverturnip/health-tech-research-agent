@@ -64,8 +64,8 @@ class _FakeResponses:
         elif "BACKGROUND FIT" in prompt:               # §B5 bg_fit — a STABLE read per company (temp-0-free)
             kind, val = "bg", (6 if company == "season health" else 8)
             text = json.dumps({"background_fit": val, "data_feedback_loop": "no", "basis": "x"})
-        else:                                          # §B6 growth
-            kind, text = "growth", json.dumps({"kind": "rate", "rate_pct": 60, "source": "company"})
+        else:                                          # §B6 v1.24 growth BAND classification
+            kind, text = "growth", json.dumps({"growth_band": "high", "evidence": "60% YoY (company)"})
         self.outer.calls.append((kind, company))
         return type("R", (), {"output_text": text})()
 
@@ -91,12 +91,14 @@ def test_run_r1_end_to_end_report_shape_and_floor():
 def test_run_r1_reads_taken_once_each_no_n_passes():
     client = _FakeClient()
     rr.run_r1(_df(), client=client)
-    # each read taken exactly ONCE per company (no N=5 loop): 3 reset + 3 classifier
+    # reset + classifier taken exactly ONCE per company (no re-score loop): 3 each.
     assert sum(1 for (k, _) in client.calls if k == "reset") == 3
     assert sum(1 for (k, _) in client.calls if k == "classifier") == 3
-    # eligible companies (acme, season) get ONE bg + ONE growth each; medforce (floored) gets none
-    assert sum(1 for (k, _) in client.calls if k == "bg") == 2
+    # eligible companies (acme, season) get ONE growth each; medforce (floored) gets none.
     assert sum(1 for (k, _) in client.calls if k == "growth") == 2
+    # §B5 v1.24: bg is taken N=4 times per ELIGIBLE company AT POPULATION (averaged, then cached) — this is
+    # noise reduction on the one noisy read, NOT the retired N=5 re-score loop. 2 eligible * 4 = 8.
+    assert sum(1 for (k, _) in client.calls if k == "bg") == 2 * rr.BG_FIT_N_READS
     assert [k for (k, co) in client.calls if co == "medforce"] == ["reset", "classifier"]
 
 
@@ -135,3 +137,39 @@ def test_run_r1_review_set_is_reported_with_size():
     rep = rr.run_r1(_df(), client=client)
     assert rep["review_set_size"] == len(rep["review_set"])
     assert isinstance(rep["review_set"], dict)
+
+
+# ---------------------------------------------------------------------------
+# §B5 v1.24 — bg_fit = ROUNDED-HALF-UP MEAN of N reads (noise reduction, taken once at population)
+# ---------------------------------------------------------------------------
+
+def _seq_bg(monkeypatch, values):
+    seq = iter(values)
+    monkeypatch.setattr(rr, "_r1_background_fit_once",
+                        lambda row, *, client, model: next(seq))
+
+
+def test_bg_fit_read_is_mean_of_n_reads(monkeypatch):
+    _seq_bg(monkeypatch, [4, 5, 5, 5])                      # mean 4.75 -> 5
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 5
+
+
+def test_bg_fit_read_ties_round_half_up(monkeypatch):
+    _seq_bg(monkeypatch, [4, 4, 5, 5])                      # mean 4.5 -> 5 (ties UP -> PASSES bg > 4)
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 5
+
+
+def test_bg_fit_read_below_half_rounds_down(monkeypatch):
+    _seq_bg(monkeypatch, [4, 4, 4, 5])                      # mean 4.25 -> 4 (FAILS bg > 4)
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 4
+
+
+def test_bg_fit_read_all_failed_is_none(monkeypatch):
+    monkeypatch.setattr(rr, "_r1_background_fit_once", lambda row, *, client, model: None)
+    # every read failed to parse -> None (READ-FAILED, a distinct flag), NOT a fabricated low score.
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") is None
+
+
+def test_bg_fit_read_drops_failed_reads_from_the_mean(monkeypatch):
+    _seq_bg(monkeypatch, [8, None, 8, None])               # two valid 8s -> mean 8
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 8

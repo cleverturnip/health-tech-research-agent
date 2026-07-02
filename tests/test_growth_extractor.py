@@ -1,11 +1,12 @@
-"""Commit 5b — deterministic tests for the §B6/§B6.1 LLM growth extractor (signed-off wording).
+"""§B6 v1.24 — deterministic tests for the BAND-CLASSIFICATION growth extractor (signed-off wording).
 
-The extractor is LLM-facing; its LIVE validation over the 3 R2 cases is the Colab run. Offline here:
-  1. PROMPT FIDELITY — the signed wording (the fence + the same-measure derive guard + the determinate
-     qualitative-vs-absent rule) is byte-faithful in the production prompt.
-  2. PARSE — normalize_growth_read / flatten_growth_read (kind normalization; malformed -> absent).
-  3. SCORE INTEGRATION — the PINNED R2 reads, scored via score_growth: pomelo/outcomes4me qualitative
-     "growing" -> 5; season rate 53.7 @ series-a -> 3 (the documented grw 5->3 under the R2 fix).
+The extractor is LLM-facing; its LIVE validation is the Colab R1 run. Offline here:
+  1. PROMPT FIDELITY — the band schema, the STAGE-AWARE Scale-B cutpoints, and the §B6.1 fence are
+     byte-faithful in the production prompt.
+  2. PARSE — normalize_growth_read / flatten_growth_read (band normalization; malformed -> unknown).
+  3. SCORE INTEGRATION — score_growth maps band -> score (HIGH=9 / SOLID=6 / SLOW=3 / UNKNOWN=4).
+  4. BAND-vs-SCALE-B ±2 VALIDATION — band_for_rate agrees with the retired Scale-B interpolation within ±2
+     on the named clean-rate anchors (the bands preserve the phase-relative intent).
 """
 
 import pytest
@@ -15,139 +16,108 @@ from health_tech_research_agent import structured_evidence as se
 
 
 # ---------------------------------------------------------------------------
-# 1. Prompt fidelity — the signed wording (both closed gaps) is in the production prompt.
+# 1. Prompt fidelity — band schema + stage-aware cutpoints + the fence.
 # ---------------------------------------------------------------------------
 
-def _prompt():
-    return rr.build_growth_extractor_prompt("ACME Health", "EVIDENCE")
+def _prompt(stage="series-a"):
+    return rr.build_growth_extractor_prompt("ACME Health", "EVIDENCE", stage)
 
 
 def test_prompt_builds_and_substitutes():
     p = _prompt()
     assert "Company: ACME Health" in p and "EVIDENCE" in p
-    assert '{"figures"' in p                       # v1.22 report-figures schema
+    assert '{"growth_band"' in p                      # v1.24 band schema
     assert "{{" not in p and "}}" not in p
 
 
-def test_prompt_reports_figures_does_not_derive():
-    # v1.22 (SIGNED): the extractor REPORTS figures with per-figure source; the code derives.
+def test_prompt_injects_stage_scale_b_cutpoints():
+    # series-a Scale B: score-8 = 200 (HIGH cutpoint), score-5 = 100 (SOLID floor).
+    p = _prompt("series-a")
+    assert "(series-a)" in p
+    assert "200%" in p and "100%" in p
+    # series-d-plus maps to the PUBLIC row: score-8 = 62, score-5 = 35.
+    pub = _prompt("series-d-plus")
+    assert "(public)" in pub and "62%" in pub and "35%" in pub
+
+
+def test_prompt_classifies_never_derives():
     p = _prompt()
-    assert "REPORT the dated revenue figures you find -- NOT to compute a growth rate" in p
-    assert "DO NOT derive, combine, or reconcile figures" in p
-    assert '"source": "<the NAMED publisher' in p   # per-figure source (what the backstop needs)
-    assert '"measure": "revenue" | "arr"' in p
+    assert "You CLASSIFY into a band; you do NOT compute or combine numbers" in p
+    assert "NEVER combine two DIFFERENT sources into a rate" in p
+    assert '"growth_band": "high" | "solid" | "slow" | "unknown"' in p
 
 
 def test_prompt_keeps_the_b6_1_fence():
     p = _prompt()
-    assert "NEVER put a count in figures" in p
-    assert "Do NOT manufacture revenue" in p
+    assert "NEVER band on a count" in p
+    assert "do NOT manufacture growth" in p
 
 
 # ---------------------------------------------------------------------------
-# 2. Parse / normalize
+# 2. Parse / normalize — the band read {growth_band, evidence}.
 # ---------------------------------------------------------------------------
 
-def test_normalize_folds_kind_and_parses_numbers():
-    read = se.normalize_growth_read({"kind": "zero_baseline", "magnitude_usd_m": "112", "source": "Derived"})
-    assert read["kind"] == "zero-baseline"        # '_' folded to '-'
-    assert read["magnitude_usd_m"] == 112.0
-    assert read["source"] == "derived"
+def test_normalize_folds_band_and_keeps_evidence():
+    read = se.normalize_growth_read({"growth_band": "HIGH", "evidence": "450% YoY (company-reported)"})
+    assert read["growth_band"] == "high"
+    assert read["evidence"] == "450% YoY (company-reported)"
 
 
-def test_unrecognized_kind_falls_to_absent():
-    assert se.normalize_growth_read({"kind": "vibes"})["kind"] == "absent"
-    assert se.normalize_growth_read({})["kind"] == "absent"
+def test_unrecognized_or_missing_band_falls_to_unknown():
+    assert se.normalize_growth_read({"growth_band": "vibes"})["growth_band"] == "unknown"
+    assert se.normalize_growth_read({})["growth_band"] == "unknown"
+    assert se.normalize_growth_read(None)["growth_band"] == "unknown"
 
 
 def test_flatten_growth_read_columns():
-    parsed = {"growth_read": {"kind": "rate", "rate_pct": 53.7, "source": "derived",
-                              "basis": "$8.0M 2022 -> $12.3M 2023"}}
+    parsed = {"growth_read": {"growth_band": "solid", "evidence": "35% YoY (Latka)"}}
     cols = se.flatten_growth_read(parsed)
-    assert cols["growth_kind"] == "rate"
-    assert cols["growth_rate_pct"] == 53.7
-    assert cols["growth_source"] == "derived"
-    assert cols["growth_basis"] == "$8.0M 2022 -> $12.3M 2023"
-    assert se.flatten_growth_read({"company": "x"})["growth_kind"] == "absent"
+    assert cols["growth_band"] == "solid"
+    assert cols["growth_evidence"] == "35% YoY (Latka)"
+    assert se.flatten_growth_read({"company": "x"})["growth_band"] == "unknown"
+    assert se.GROWTH_READ_FIELDS == ["growth_band", "growth_evidence"]
 
 
 # ---------------------------------------------------------------------------
-# 3. SCORE INTEGRATION — the PINNED R2 reads -> score_growth (extractor read -> deterministic score).
+# 3. SCORE INTEGRATION — band -> score (stage-independent; the phase-relativity is in the band).
 # ---------------------------------------------------------------------------
 
-def test_pomelo_pinned_read_scores_qualitative_5():
-    # pomelo: covered-lives fenced + Latka/Growjo derive blocked -> "growing" (affirmative revenue dir).
-    read = se.normalize_growth_read({"kind": "qualitative", "qualitative": "growing"})
+@pytest.mark.parametrize("band,expected", [("high", 9), ("solid", 6), ("slow", 3), ("unknown", 4)])
+def test_band_maps_to_fixed_score(band, expected):
+    read = se.normalize_growth_read({"growth_band": band, "evidence": "x"})
+    score, note = se.score_growth(read, "series-c")
+    assert score == expected
+    assert band in note
+
+
+def test_growth_is_never_none_now():
+    # the v1.23 'absent -> None -> cap' path is gone: any read yields a band score (UNKNOWN=4 at worst).
+    score, _ = se.score_growth(se.normalize_growth_read({}), "series-b")
+    assert score == 4
+
+
+def test_fenced_count_only_company_bands_unknown_not_a_leaked_rate():
+    # a count-only company that the extractor correctly fences -> unknown=4 (neutral), never a fabricated high.
+    read = se.normalize_growth_read({"growth_band": "unknown", "evidence": "only covered-lives growth (fenced)"})
     score, _ = se.score_growth(read, "series-c")
-    assert score == 5
-
-
-def test_outcomes4me_pinned_read_scores_qualitative_5():
-    read = se.normalize_growth_read({"kind": "qualitative", "qualitative": "growing"})
-    score, _ = se.score_growth(read, "series-b")
-    assert score == 5
-
-
-def test_season_pinned_read_scores_rate_3_at_series_a():
-    # season: the FOUND buried rate $8M->$12.3M = 53.7% at series-a -> Scale B -> 3.
-    # DOCUMENTED R2 effect: grw 5 (spike qualitative fallback) -> 3 (the real rate). R1 expects 3.
-    read = se.normalize_growth_read({"kind": "rate", "rate_pct": 53.7, "source": "derived"})
-    score, note = se.score_growth(read, "series-a")
-    assert score == 3
-    assert "53.7%@series-a" in note
-
-
-def test_a_fenced_count_read_as_absent_does_not_score_a_rate():
-    # if the extractor correctly fences a count-only company -> absent -> None (cap@7), never a leaked rate.
-    read = se.normalize_growth_read({"kind": "absent", "basis": "only covered-lives growth (fenced)"})
-    score, _ = se.score_growth(read, "series-c")
-    assert score is None
+    assert score == 4
 
 
 # ---------------------------------------------------------------------------
-# 4. Fix 2 (v1.22) — the DETERMINISTIC same-source derive backstop (extractor reports; code derives).
+# 4. BAND-vs-SCALE-B ±2 VALIDATION — the bands preserve the retired Scale-B interpolation's intent.
+#    Named anchors from SOT §B6 v1.24 (rate %, stage -> expected band).
 # ---------------------------------------------------------------------------
 
-def test_equip_cross_source_figures_refuse_derive_qualitative():
-    # equip: Latka 2021 + CB Insights 2023 = TWO publishers -> code REFUSES the cross-source derive -> the
-    # 7.8x can no longer be manufactured. (The exact frozen-wrong read that put equip at P1.)
-    read = se.normalize_growth_read({"figures": [
-        {"value_usd_m": 4.5, "year": 2021, "source": "Latka", "measure": "revenue"},
-        {"value_usd_m": 35, "year": 2023, "source": "CB Insights financials", "measure": "revenue"}]})
-    assert read["kind"] == "absent"          # no same-source series, no qualitative -> absent (not a rate)
-    assert read["rate_pct"] is None
-
-
-def test_same_source_series_derives_the_rate():
-    # one estimator's OWN dated series -> a valid derive (season-style $8M->$12.3M)
-    read = se.normalize_growth_read({"figures": [
-        {"value_usd_m": 8.0, "year": 2022, "source": "Latka", "measure": "revenue"},
-        {"value_usd_m": 12.3, "year": 2023, "source": "Latka", "measure": "revenue"}]})
-    assert read["kind"] == "rate"
-    assert round(read["rate_pct"], 1) == 53.8   # (12.3/8 - 1)*100
-
-
-def test_source_aliases_treated_same_publisher_variants_differ():
-    # "CB Insights" == "CB Insights financials" (same publisher, derive) ...
-    same = se.normalize_growth_read({"figures": [
-        {"value_usd_m": 10, "year": 2022, "source": "CB Insights", "measure": "revenue"},
-        {"value_usd_m": 20, "year": 2023, "source": "CB Insights financials page", "measure": "revenue"}]})
-    assert same["kind"] == "rate"
-    # ... but two DIFFERENT publishers do NOT derive
-    diff = se.normalize_growth_read({"figures": [
-        {"value_usd_m": 10, "year": 2022, "source": "Growjo", "measure": "revenue"},
-        {"value_usd_m": 20, "year": 2023, "source": "Sacra", "measure": "revenue"}], "qualitative": "growing"})
-    assert diff["kind"] == "qualitative"
-
-
-def test_figures_qualitative_and_zero_baseline_fallbacks():
-    assert se.normalize_growth_read({"figures": [], "qualitative": "growing"})["kind"] == "qualitative"
-    assert se.normalize_growth_read({"figures": []})["kind"] == "absent"
-    zb = se.normalize_growth_read({"figures": [], "zero_baseline_usd_m": 40})
-    assert zb["kind"] == "zero-baseline" and zb["magnitude_usd_m"] == 40.0
-
-
-def test_legacy_schema_still_normalizes():
-    # the checkpoint's stored reads (no 'figures') still parse via the legacy path
-    read = se.normalize_growth_read({"kind": "rate", "rate_pct": 53.7, "source": "derived"})
-    assert read["kind"] == "rate" and read["rate_pct"] == 53.7
+@pytest.mark.parametrize("name,rate,stage,expected_band", [
+    ("hinge", 51, "public", "solid"),
+    ("function", 450, "series-b", "high"),
+    ("rula", 100, "series-c", "high"),
+    ("maven", 26, "series-d-plus", "slow"),
+    ("transcarent", 35, "series-d-plus", "solid"),
+])
+def test_band_for_rate_matches_anchor_and_within_2_of_scale_b(name, rate, stage, expected_band):
+    band = se.band_for_rate(rate, stage)
+    assert band == expected_band, f"{name}: {rate}%@{stage} -> {band} (expected {expected_band})"
+    band_score = se.GROWTH_BAND_SCORE[band]
+    interp = se.scale_interp(rate, se.GROWTH_SCALE[se._growth_stage(stage)])
+    assert abs(band_score - interp) <= 2, f"{name}: band {band_score} vs Scale-B interp {interp} (>2 apart)"

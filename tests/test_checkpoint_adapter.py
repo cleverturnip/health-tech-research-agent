@@ -141,8 +141,7 @@ def test_score_checkpoint_row_end_to_end():
     out = se.score_checkpoint_row(
         _row(),
         classifier_read={"who_uses": "consumer", "who_pays": "mixed", "who_uses_confidence": "high"},
-        growth_read={"growth_kind": "rate", "growth_rate_pct": "50", "growth_magnitude_usd_m": "",
-                     "growth_qualitative": "", "growth_source": "estimate"},
+        growth_read={"growth_band": "solid", "growth_evidence": "50% YoY (estimate)"},
         background_fit=7,
     )
     assert out["business_model"] == "B2B2C"          # consumer + mixed -> B2B2C

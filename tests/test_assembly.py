@@ -237,25 +237,26 @@ def test_assemble_override_is_terminal_not_proximity_flagged():
 
 
 @pytest.mark.parametrize("gate_floored, bg, pmf, expect", [
-    (False, 4, 7, True),    # floored on bg=4, pmf clears -> possible frozen-low -> flag
-    (False, 3, 7, True),    # bg=3 within the ±2 band
-    (False, 8, 7, False),   # bg=8 could not have wobbled below 5 -> not near
-    (False, 2, 7, False),   # bg=2 too far below the line
+    (False, 4, 7, True),    # floored on bg=4, pmf clears -> floored-on-bg -> flag
+    (False, 3, 7, True),    # bg=3
+    (False, 2, 7, True),    # WIDENED v1.24: bg=2 fires too (ANY bg-solely-floored, no {3,4} window)
+    (False, 1, 7, True),    # even bg=1
+    (False, 8, 7, False),   # bg=8 > 4 -> floor-PASSES on bg -> not floored on bg at all
     (False, 4, 4, False),   # pmf also fails -> bg is NOT the one thing holding it down
     (True, 4, 7, False),    # gate-floored (maturity / B2B) is deterministic -> bg wouldn't change it
-    (False, None, 7, False),  # absent bg -> READ FAILURE flag, not this
+    (False, None, 7, False),  # absent bg -> READ FAILURE flag (distinct), not this
 ])
-def test_floored_bg_near_threshold(gate_floored, bg, pmf, expect):
-    assert se.floored_bg_near_threshold(gate_floored=gate_floored, background_fit=bg, pmf=pmf) is expect
+def test_floored_on_bg(gate_floored, bg, pmf, expect):
+    assert se.floored_on_bg(gate_floored=gate_floored, background_fit=bg, pmf=pmf) is expect
 
 
-def test_assemble_surfaces_floored_bg_near_threshold():
-    # grow-like: gates pass, pmf strong, but bg froze at 4 -> floored P3 AND flagged floored-but-close.
+def test_assemble_surfaces_floored_on_bg():
+    # grow-like: gates pass, pmf strong, but bg froze at 4 -> floored P3 AND flagged floored-on-bg.
     out = se.assemble_priority("growco", **_passing(background_fit=4, pmf=8, strain=2))
     assert out["layer"] == "floor" and out["model_priority"] == "P3"
-    assert out["floored_bg_near_threshold"] is True
+    assert out["floored_on_bg"] is True
     # a clean floor-PASS company is not flagged
-    assert se.assemble_priority("acme", **_passing())["floored_bg_near_threshold"] is False
+    assert se.assemble_priority("acme", **_passing())["floored_on_bg"] is False
 
 
 def test_assemble_exactly_one_layer():

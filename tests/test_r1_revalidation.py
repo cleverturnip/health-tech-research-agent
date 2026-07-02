@@ -24,8 +24,7 @@ def _row(**kw):
         "reset_events_json": "[]", "reset_event_types": "",
         "revenue_or_arr": "$60M ARR", "sponsored_user_scale": "", "paying_customer_count": "",
         "growth_signal": "growing", "payer_institutional_finding": "", "business_model_type": "",
-        "growth_kind": "rate", "growth_rate_pct": "100", "growth_magnitude_usd_m": "",
-        "growth_qualitative": "", "growth_source": "company",
+        "growth_band": "high", "growth_evidence": "100% YoY (company-reported)",
         "capability_a2_score": "60", "operating_characteristics_finding": "",
         "background_fit": "7",
     }
@@ -124,18 +123,18 @@ def test_tally_r1_review_set_bounded_and_floor_audit_split():
     assert rep["read_failures"] == ["readfail"]
 
 
-def test_tally_r1_floored_bg_near_threshold_in_bounded_review_set():
-    # a grow-like floored-but-close company is a MUST-look (possible frozen-low), so it joins review_set
+def test_tally_r1_floored_on_bg_in_bounded_review_set():
+    # a grow-like floored-on-bg company is a MUST-look (possible frozen-low), so it joins review_set
     # even though it's P3 — this is the piece that keeps a real prospect from hiding in the P3 pile.
     roster = [
         _rec("clean", "P0", final_score=20),
         {"company": "growco", "final_priority": "P3", "tier_review": False, "human_override": None,
-         "floor_reason": "floor-rule bg_fit=4 / pmf=8", "floored_bg_near_threshold": True, "layer": "floor",
+         "floor_reason": "floor-rule bg_fit=4 / pmf=8", "floored_on_bg": True, "layer": "floor",
          "final_score": 14, "background_fit": 4, "pmf": 8, "strain": 2},
     ]
     rep = se.tally_r1(roster, target={"P0": 1, "P3": 1})
     assert "growco" in rep["review_set"]
-    assert any("floored-bg-near-threshold" in r for r in rep["review_set"]["growco"])
+    assert any("floored-on-bg" in r for r in rep["review_set"]["growco"])
     assert "growco" in rep["floor_audit"]   # also in the floor audit
 
 
