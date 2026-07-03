@@ -102,7 +102,10 @@ that reads the GATE-2-reviewed ledger and builds Katelynd's working tracker. Enf
 > **Start here (for the dashboard chat):** the ledger is `src/health_tech_research_agent/ledger.py`. Read
 > entries with `ledger.read_ledger(path)`; per entry, `ledger.final_priority(e)` / `provenance(e)` /
 > `final_priority_code(e)` / `final_priority_rank(e)` are the derived read helpers, plus `e["flags"]`,
-> `e["scoring"]`, `e["decision"]`, `e["recommended_action"]`. The dashboard SCHEMA is deliberately OPEN /
+> `e["scoring"]`, `e["decision"]`, `e["recommended_action"]`. The EXACT entry shape in practice is
+> `tests/fixtures/sample_ledger.jsonl` (5 synthetic entries covering every case — clean P0, applied override,
+> B2B `n/a`, agency-pass-via-reset, low-score floor) + `MASTER_REDESIGN_SPEC.md §3.4`; the live ledger.jsonl
+> is Katelynd's private data on Drive (only needed for the final live-verification run). The dashboard SCHEMA is deliberately OPEN /
 > format-fluid (Katelynd iterates it) — scope it with her before building. `dashboard.py` is the one
 > remaining item on the §7 punch-list; the old `dashboard.py` predates the ledger and is a rebuild target.
 
