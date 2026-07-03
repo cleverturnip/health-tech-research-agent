@@ -27,6 +27,12 @@ import json
 import math
 import re
 
+# The scoring framework version this code implements. The SOT doc
+# (specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md) is the human source of truth; this constant is the SHIPPED
+# copy so a pip-installed package can stamp entries without the (unpackaged) doc. Keep it in lockstep with
+# the SOT header when the version bumps — `tests/test_framework_version.py` FAILS if the two ever drift.
+FRAMEWORK_VERSION = "v1.25"
+
 # ---------------------------------------------------------------------------
 # Vocabulary (single source of truth)
 # ---------------------------------------------------------------------------

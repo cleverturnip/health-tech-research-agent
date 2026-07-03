@@ -32,6 +32,7 @@ from typing import Any
 import pandas as pd
 
 from . import storage
+from . import structured_evidence as se
 
 PRIORITY_TIERS = ("P0", "P1", "P2", "P3")
 PRIORITY_RANK = {tier: i for i, tier in enumerate(PRIORITY_TIERS)}
@@ -60,17 +61,26 @@ def _default_sot_path() -> Path:
 
 
 def read_framework_version(sot_path: str | Path | None = None) -> str:
-    """Read `FRAMEWORK_VERSION` from the scoring SOT header (e.g. 'v1.25'). Raises `LedgerError` if the SOT
-    can't be read or carries no version — the stamp is load-bearing (an entry with no version is a silent
-    staleness hole), so we fail loudly rather than stamp a guess."""
-    path = Path(sot_path) if sot_path else _default_sot_path()
+    """Resolve the per-entry framework-version stamp.
+
+    In a repo checkout the SOT doc IS present, so we read it live (never stamp a stale guess). When the
+    package is pip-installed the SOT isn't shipped alongside it, so we fall back to the shipped
+    `structured_evidence.FRAMEWORK_VERSION` constant (kept in lockstep with the SOT header; a test enforces
+    it). An EXPLICIT `sot_path` is authoritative — a missing/invalid file there raises (Rule 5, no silent
+    guess) rather than falling back."""
+    explicit = sot_path is not None
+    path = Path(sot_path) if explicit else _default_sot_path()
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise LedgerError(f"Cannot read the scoring SOT to stamp framework_version: {path} ({exc})") from exc
+        if explicit:
+            raise LedgerError(f"Cannot read the scoring SOT to stamp framework_version: {path} ({exc})") from exc
+        return se.FRAMEWORK_VERSION          # pip-installed: SOT doc not packaged -> shipped constant
     match = _FRAMEWORK_VERSION_RE.search(text)
     if not match:
-        raise LedgerError(f"No FRAMEWORK_VERSION found in {path}")
+        if explicit:
+            raise LedgerError(f"No FRAMEWORK_VERSION found in {path}")
+        return se.FRAMEWORK_VERSION
     return match.group(1)
 
 
