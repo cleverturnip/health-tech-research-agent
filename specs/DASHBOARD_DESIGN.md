@@ -274,5 +274,54 @@ view rendered from the durable artifact.
   source of truth); she edits a Sheet/file → a step syncs it back → the refresh merges by company name (her
   columns preserved, ledger columns refreshed) → read-back validated. A true edit-in-the-page auto-save needs a
   backend (later).
-- [ ] **Legacy `dashboard.py`** — retire/re-point plan against this doc (build-time; the old file runs on the
-  retired priority model).
+- [~] **Legacy `dashboard.py`** — staged as `dashboard_legacy.py` (only `workflow.run_dashboard_refresh`, unused
+  in production, imports it). DELETE it + `run_dashboard_refresh` + `test_dashboard_rebuild` + the
+  `colab_workflow` old-dashboard cells in Phase 6 (after the live run).
+
+## 10. Build status & Colab run steps
+
+**BUILT (package-green, 2026-07-03) — pending the live Colab run.** New ledger-based engine, importable package
+functions (Rule 1), on branch `dashboard-design`:
+
+| Module / function | Role |
+|---|---|
+| `ledger.finalize_gate2_review` / `finalize_gate2_review_dir` / `is_reviewed` | §1a review stamp (Phase 1/4a) |
+| `dashboard.build_company_records` (+ `all_companies_view`, `segment_radar_view`, `research_payload`) | read engine, §1a enforced (Phase 2) |
+| `dashboard.merge_user_layer` (+ `pursuit_view`, `contacts_view`, `next_workspace_store`) | living layer / merge (Phase 3) |
+| `dashboard_html.render_dashboard_html` | interim HTML surface (Phase 5) |
+| `dashboard.build_dashboard` | orchestrator — the one Colab entry point (Phase 4) |
+
+~40 tests added; full suite green. The old module is `dashboard_legacy.py` (Phase-6 delete).
+
+**Colab run steps** (append AFTER the existing `render_views` cell; `OUT`/`df` are the current gate-2 vars):
+
+```python
+# 0. install the dashboard build (branch) — or merge dashboard-design to main first
+!pip -q install --force-reinstall --no-deps "git+https://github.com/cleverturnip/health-tech-research-agent.git@dashboard-design"
+
+# 1. FINALIZE the GATE-2 review — stamp every entry reviewed (run once, after apply_gate2_decisions)
+from health_tech_research_agent import ledger
+OUT = "/content/drive/MyDrive/gate2_batch_2026-07-02"
+print(ledger.finalize_gate2_review_dir(OUT, reviewed_date="2026-07-03", reviewed_at_gate="gate2_batch_regen2"))
+
+# 2. taxonomy for segment LABELS (pip wheel doesn't ship taxonomy/) — clone for the label join; optional
+!git clone -q https://github.com/cleverturnip/health-tech-research-agent.git /content/htra
+
+# 3. BUILD the dashboard (reads the finalized ledger + research df + your user-store workbook)
+from health_tech_research_agent import dashboard
+DASH_OUT = "/content/drive/MyDrive/dashboard_2026-07-02"
+res = dashboard.build_dashboard(f"{OUT}/ledger.jsonl", research=df, out_dir=DASH_OUT,
+                                taxonomy_dir="/content/htra/taxonomy")
+print("entries:", res.entries, "| tally:", res.tally, "| labels_resolved:", res.segment_labels_resolved)
+print("changed/orphaned:", res.report)
+print("open in a browser:", res.html_path)
+print("edit your notes (pursue / notes / contacts) in:", res.user_store_path)
+
+# 4. (optional) preview the HTML inline
+from IPython.display import HTML, display
+display(HTML(open(res.html_path).read()))
+```
+
+**Working loop:** edit `dashboard_user_store.xlsx` on Drive (Workspace tab: tick `pursue`, fill notes; Contacts
+tab: add contacts) → re-run step 3 → the read-only views + HTML refresh, your notes persist, and any priority/
+segment moves show as "changed since you last looked" banners.
