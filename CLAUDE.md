@@ -14,7 +14,7 @@ These are non-negotiable. If a requested change would break one of these, stop a
 
 1. New production behavior must be implemented as importable package functions, NOT new notebook cells, dynamic globals patches, or code that depends on cell execution order.
 2. Google Colab is the development and testing shell, not the production architecture. Do not add logic that only works inside Colab.
-3. CSV outputs are the current human-review surface — human decisions (approvals / edits / overrides at the gates) are made against those artifacts and read back from them. (Google Sheets was the prior surface and is superseded; a purpose-built front end is the eventual surface.) Do not route human decisions through a non-durable or unreviewed channel.
+3. CSV outputs are the current human-review surface — human decisions (approvals / edits / overrides at the gates) are made against those artifacts and read back from them. (Google Sheets was the prior surface and is superseded; a purpose-built front end is the eventual surface.) Do not route human decisions through a non-durable or unreviewed channel. **Scope:** this rule governs GATE decisions. The post-GATE **dashboard** is a separate, format-fluid working tracker (not a gate-decision channel); its editable store is a native Google Sheet, read INPUT-ONLY so the build never overwrites your edits (see `specs/DASHBOARD_DESIGN.md`).
 4. Every state transition must be persistent, validated, and resumable after a runtime loss. A disconnect at any point must resume from the last durable state without repeating completed work.
 5. No step may mark success before its durable artifacts are reopened and verified (read-back validation). "Wrote the file" is not "done"; "reopened the file and confirmed its contents" is "done."
 6. Human-reviewed priority and taxonomy overrides ALWAYS take precedence over model-generated values. Never overwrite a human override with an automated value.
@@ -60,7 +60,7 @@ Status lives in ONE place — `specs/COLLABORATION_CONTEXT.md`, the "Status & ro
 ## Repo layout (verify against the working tree)
 
 - `src/health_tech_research_agent/` — the package; new functions belong here
-- `specs/` — current specs and context. Key docs: `COLLABORATION_CONTEXT.md` (flow + status/roadmap), `SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (scoring), `MASTER_REDESIGN_SPEC.md` (ledger + cards design); also the active regen runbooks (`regen_execution_runsheet.md`, `phase2_refresh_runbook.md`)
+- `specs/` — current specs and context. Key docs: `COLLABORATION_CONTEXT.md` (flow + status/roadmap), `SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (scoring), `MASTER_REDESIGN_SPEC.md` (ledger + cards design), `DASHBOARD_DESIGN.md` (the built dashboard segment: design + Colab run steps; `dashboard_wireframe.html` is the visual reference); also the active regen runbooks (`regen_execution_runsheet.md`, `phase2_refresh_runbook.md`)
 - `taxonomy/` — taxonomy definitions
 - `tests/` — regression and failure-check tests
 - `maintenance/` — maintenance / rescore / repair flows only (not part of the normal batch run)

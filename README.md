@@ -13,7 +13,7 @@ The agent runs as a mostly-autonomous flow bounded by exactly two human-in-the-l
 2. An autonomous segment researches the approved companies, writes a raw-research batch,
    scores it into a **scoring ledger**, reviews its own output, and produces **review cards
    + a summary table** with a recommendation → **[GATE 2]** you review and approve/edit.
-3. A second autonomous segment builds the **dashboard**.
+3. A second autonomous segment builds the **dashboard** (built + live-verified 2026-07-03).
 
 Between the gates there is **zero user input** — each segment runs unattended, handling
 problems autonomously or surfacing them for review at the next gate.
@@ -27,7 +27,9 @@ The workflow currently runs in **Google Colab**. It is being migrated out of not
 into an importable Python package (`src/health_tech_research_agent/`) so the flow can run
 autonomously rather than through hand-run cells. **CSV artifacts are the human review surface**
 (the GATE-2 packet: `summary_table.csv` / `cards.csv` / `master_full_export.csv`, rendered from the
-durable `ledger.jsonl`); Google Sheets is retired.
+durable `ledger.jsonl`); Google Sheets is retired **as the gate-decision surface**. (The post-GATE
+dashboard is a separate, format-fluid workspace — its editable store is a native Google Sheet, which is
+not a gate-decision channel.)
 
 ## Core philosophy
 
@@ -42,5 +44,6 @@ calibration data that improves the decision logic — not fixed by manual spread
 | [`specs/COLLABORATION_CONTEXT.md`](specs/COLLABORATION_CONTEXT.md) | The North-Star flow, how we work, and current status/roadmap |
 | [`specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md`](specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md) | The locked scoring + priority framework (the one source of truth for scoring logic) |
 | [`specs/MASTER_REDESIGN_SPEC.md`](specs/MASTER_REDESIGN_SPEC.md) | Design for the scoring ledger + review cards + summary table (built + live-verified 2026-07-03) |
+| [`specs/DASHBOARD_DESIGN.md`](specs/DASHBOARD_DESIGN.md) | Design + build + Colab run steps for the dashboard segment (built + live-verified 2026-07-03) |
 | [`specs/SCORING_WALKTHROUGH.md`](specs/SCORING_WALKTHROUGH.md) | Plain end-to-end walkthrough of how a company gets scored |
 | [`CLAUDE.md`](CLAUDE.md) | Working rules and guardrails for making changes in this repo |

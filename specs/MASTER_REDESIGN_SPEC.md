@@ -353,10 +353,11 @@ documented override OR `floored_on_bg` → `override_candidate`; boundary-adjace
 > `apply_gate2_decisions` / `render_views` orchestrators. It is live-verified on a Colab run and merged to
 > `main`. Consequences for this list: the `priority.py` / `master_update.py` / `review.py` re-point items are
 > **SUPERSEDED** (those modules stay in the tree as legacy — the GATE-2 flow does not use them);
-> `google_sheets.py` is retired in spirit (CSV is the surface). **The ONE item below still to build is the
-> dashboard** — see the next line. The DASHBOARD (next milestone) reads `ledger.jsonl` via `ledger.py`
-> (`read_ledger` → `final_priority` + `flags` + `provenance`), enforcing the §1a GATE INVARIANT (only
-> GATE-2-reviewed entries reach the dashboard).
+> `google_sheets.py` is retired in spirit (CSV is the surface). **The dashboard is now BUILT + live-verified
+> (2026-07-03) and merged to `main`** — a NEW ledger-based `src/health_tech_research_agent/dashboard.py` (the old
+> module deleted in Phase 6), reading `ledger.jsonl` via `ledger.py` (`read_ledger` → `final_priority` + `flags`
+> + `provenance`) and enforcing the §1a GATE INVARIANT (only GATE-2-reviewed entries reach the dashboard).
+> Design + Colab run steps: `specs/DASHBOARD_DESIGN.md`. The NEXT milestone is the front end.
 
 - `priority.py` — **rewrite** to the clean model (§3.1); derive `final_priority`/`provenance`/code/rank on
   read; delete `determine_priority_source` (inference), `decision_priority`, `build_calibration_flag`.
@@ -364,8 +365,8 @@ documented override OR `floored_on_bg` → `override_candidate`; boundary-adjace
   transactional backup/read-back/rollback discipline; extend taxonomy-override protection into the decision block.
 - `reland.py` — **retire** (taxonomy + role/timing live in `fit_brief_json` / the ledger's context block;
   no wide master to land into).
-- `dashboard.py` — **rebuild** to read the ledger (`final_priority` + flags); built LAST; enforce the gate
-  invariant (only gate-2-reviewed entries).
+- `dashboard.py` — **DONE (2026-07-03):** rebuilt fresh against the ledger (§1a enforced); the old pre-ledger
+  module deleted in Phase 6. Design + run steps: `specs/DASHBOARD_DESIGN.md`.
 - `candidate_priority.py` (+ `archive/specs/candidate_priority_reference_spec.md`) — **retire or recast** as Gate-1 discovery.
 - `decisions.py` — **reconcile** the APPROVE/HOLD/REJECT decision flow into the ledger decision-block writes.
 - `review.py` — **extend** to cards + summary + routing (§4), emitting CSV artifacts; **`google_sheets.py` retires** (Sheets superseded; Rule 3 → CSV).

@@ -70,9 +70,12 @@ judgment to a gate instead of stalling or guessing.
 3. `specs/MASTER_REDESIGN_SPEC.md` — the scoring-ledger + cards + summary-table design (BUILT 2026-07-03;
    §4 is the render contract; visual ref `specs/gate2_review_surface_mockup.html`). The ledger IS
    `src/health_tech_research_agent/ledger.py` (durable `ledger.jsonl` + three CSV views).
-4. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
-5. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
-6. `CLAUDE.md` — Claude Code's working rules and repo map.
+4. `specs/DASHBOARD_DESIGN.md` — the dashboard segment design + build + Colab run steps (BUILT + live-verified
+   2026-07-03; visual ref `specs/dashboard_wireframe.html`). The dashboard IS
+   `src/health_tech_research_agent/dashboard.py` (+ `dashboard_html.py` / `dashboard_gsheet.py`).
+5. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
+6. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
+7. `CLAUDE.md` — Claude Code's working rules and repo map.
 
 Superseded/historical material (finished slices, the old `candidate_priority` engine, Phase-3 process
 history, audits, one-off probes) lives in `archive/` — reference only.

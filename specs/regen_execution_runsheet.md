@@ -19,7 +19,7 @@ rescore-from-archive); (3) clear ALL research checkpoints so nothing pre-item-8 
 clear checkpoints → batch config → ARCHIVE master → FRESH-INIT (empty master)
    → research (Step 7) → Step 10 → 10A → Step 10 (re-run) → 10B → 10C
    → STEP 12 dry-run → ◾HARD STOP #1 (verify) → flip DRY_RUN→False
-   → re-run STEP 12 (real) → read-back → (dashboard = separate milestone)
+   → re-run STEP 12 (real) → read-back → (dashboard = separate built segment, see DASHBOARD_DESIGN.md)
 ```
 
 The master is emptied **only after it is archived**, and stays empty until the single real write.
@@ -128,7 +128,7 @@ bug, so the mirror should adopt the same import.)
 | **12 - Add current batch to master** *(scroll up, re-run once)* | **RUN ONCE** | Same prints; `Active master saved to: <real Drive master path>` |
 | **[NEW] Verification cell** *(scroll down, re-run)* | **RUN** | **`✅ PASS`** — now reading the real master |
 | **Final Read Back** | **DON'T RUN — delete** (`REAL_MASTER_PATH` NameError; stale paths) | — |
-| **Old flow** (everything below) | **DON'T RUN** | Dashboard is a separate milestone |
+| **Old flow** (everything below) | **DON'T RUN** | Dashboard is a separate, already-built segment (see DASHBOARD_DESIGN.md) |
 
 **The 10 → 10A → 10 → 10B loop is real** — Step 10 runs twice on purpose. 10A rewrites the
 adjudicated priority into `fit_brief_json`; the second Step 10 re-parses it into `summary_df`.
@@ -509,7 +509,7 @@ Hardening to retry/repair the fit-brief JSON in-run is a deferred task — see
 
 ## Dashboard
 
-Stop after the post-write read-back (`✅`). Every dashboard cell lives in the post-`Old flow`
-region; per `CLAUDE.md` the dashboard rebuild is its **own active milestone** (package-level rebuild
-+ structural/field validation + completion read-back). Once the trusted master is verified, sequence
-the dashboard as a separate step with its own gate.
+Stop after the post-write read-back (`✅`) — this regen ends at the verified ledger. The dashboard is a
+**separate, already-built segment** (BUILT + live-verified 2026-07-03, merged to `main`): after the GATE-2
+review is finalized, run it per **`specs/DASHBOARD_DESIGN.md` §10** (finalize the review with
+`ledger.finalize_gate2_review_dir`, then `dashboard.build_dashboard`). It is not part of this runsheet.
