@@ -30,7 +30,8 @@ def test_render_cards_csv_prefills_decision_columns():
     df = ledger.render_cards_csv([_entry()])
     assert list(df.columns) == ledger.CARDS_CONTEXT_COLUMNS + ledger.CARDS_DECISION_COLUMNS
     row = df.iloc[0]
-    assert row["company"] == "function health" and row["model_priority"] == "P3"
+    assert row["company"] == "function health" and row["Model priority"] == "P3"
+    assert row["Background Fit rationale"] == "2x/yr"       # full card carries the rationale now
     assert row["human_override"] == "" and row["override_reason"] == ""     # decision starts empty
 
 

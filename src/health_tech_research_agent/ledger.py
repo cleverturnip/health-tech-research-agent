@@ -191,6 +191,28 @@ def _arr_basis(arr, revenue_text: str, stage: str) -> str:
     return f"{revenue_text} @ {stage} (Scale A)" if revenue_text else f"Scale A @ {stage}"
 
 
+def _parse_fit_brief_row(row) -> dict:
+    """Parse a research row's fit_brief_json (dict / JSON string / blank) to a dict, tolerant of malformed."""
+    raw = row.get("fit_brief_json") if hasattr(row, "get") else None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _stage_basis(row: dict, stage: str) -> str:
+    """The one-line stage basis from the row's gathered funding rounds (Rule 7 evidence), falling back to the
+    bare stage label when no dated designated round is present."""
+    maturity = _parse_fit_brief_row(row).get("maturity_evidence")
+    maturity = maturity if isinstance(maturity, dict) else {}
+    return se.stage_basis_text(maturity.get("funding_rounds"), maturity.get("ipo_event")) or se.stage_label(stage)
+
+
 def build_entry(score_record: dict, row: dict | None = None, *, batch_id: str, date_scored: str,
                 framework_version: str | None = None) -> dict:
     """Build ONE ledger entry (MASTER_REDESIGN_SPEC §3.4) from a `score_company` record + its research row.
@@ -204,12 +226,18 @@ def build_entry(score_record: dict, row: dict | None = None, *, batch_id: str, d
     fv = framework_version or read_framework_version()
 
     bm = _txt(rec.get("business_model"))
+    is_consumer = bm.upper() != "B2B"   # background fit is a CONSUMER measure — n/a for a B2B/professional co
     stage = _txt(rec.get("funding_stage"))
-    bf = _num(rec.get("background_fit"))
+    bf = _num(rec.get("background_fit")) if is_consumer else None
     pmf = _num(rec.get("pmf"))
     arr = _num(rec.get("arr_level"))
     growth = _num(rec.get("growth"))
     strain = _num(rec.get("strain")) or 0
+    # A B2B company has no consumer end-user, so bg is n/a and FINAL can't fully compute (it needs bg). The
+    # other components (ARR / Growth / Strain) still compute — floors cap PRIORITY, not scoring (§4).
+    bg_rationale = (_txt(rec.get("background_fit_basis")) if is_consumer
+                    else "n/a — no consumer end-user (background fit is a consumer measure)")
+    final_score = rec.get("final_score") if is_consumer else None
 
     path_passed = bool(rec.get("path_passed"))
     agency_passed = bool(rec.get("agency_passed"))
@@ -228,20 +256,20 @@ def build_entry(score_record: dict, row: dict | None = None, *, batch_id: str, d
         # CONTEXT (re-derivable from research; for judging, not authored here)
         "model": bm,
         "stage": stage,
-        "stage_basis": _txt(row.get("stage_basis") or row.get("maturity_basis")),
-        "one_liner": _txt(row.get("one_liner") or row.get("description") or row.get("company_one_liner")),
+        "stage_basis": _stage_basis(row, stage),
+        "one_liner": "",   # no clean product/service source in the research output (2026-07-02) — skipped
 
         # SCORING (write-once, never hand-edited — Rule 8)
         "scoring": {
-            "bg_fit": {"score": bf, "loop": _loop(rec.get("data_feedback_loop")),
-                       "rationale": _txt(rec.get("background_fit_basis"))},
+            "bg_fit": {"score": bf, "loop": _loop(rec.get("data_feedback_loop")) if is_consumer else None,
+                       "rationale": bg_rationale},
             "pmf": {"score": pmf,
                     "arr_level": {"score": arr, "basis": _arr_basis(arr, revenue_text, stage)},
                     "growth": {"score": growth, "basis": _txt(rec.get("growth_note") or rec.get("growth_evidence"))},
                     "rationale": f"0.4·ARR + 0.6·Growth (ARR {arr}, Growth {growth})"},
             "strain": {"score": strain, "strength": _txt(rec.get("strain_strength")),
                        "rationale": _txt(rec.get("strain_rationale"))},
-            "final_score": rec.get("final_score"),
+            "final_score": final_score,
             "floor_rule": {"passed": floor_ok, "reason": _floor_rule_reason(bf, pmf, floor_ok)},
         },
 
@@ -425,26 +453,47 @@ def execute_ledger_write(path: str | Path, entries: list[dict], *,
 # ---------------------------------------------------------------------------
 
 # Read-only context columns (so a decision has its facts beside it) + the two editable priority columns.
-CARDS_CONTEXT_COLUMNS = ["company", "model", "stage", "one_liner", "model_priority",
-                         "recommended_action", "final_score", "key_flags"]
+CARDS_CONTEXT_COLUMNS = ["company", "Model", "Stage", "Stage basis", "Model priority", "Recommended action",
+                         "Final priority", "Background Fit", "Background Fit rationale", "Product Market Fit",
+                         "ARR", "ARR basis", "Growth", "Growth basis", "Strain", "Strain rationale", "FINAL",
+                         "Floor reason", "Key flags"]
 CARDS_DECISION_COLUMNS = ["human_override", "override_reason"]
 
 
 def render_cards_csv(entries: list[dict]) -> pd.DataFrame:
-    """Render the decision surface (one row per company): read-only context + the editable priority columns
-    (`human_override` / `override_reason`), pre-filled from the entry's current decision so the CSV round-trips."""
+    """The review-and-decide card, one row per company (2026-07-02): the full drafted card as read-only
+    columns (scores + rationales + floor reason + flags) plus the two editable PRIORITY columns
+    (`human_override` / `override_reason`), pre-filled from the current decision so the CSV round-trips.
+    `company` + the two decision columns keep machine names for `apply_decisions`; the rest use display labels."""
     rows = []
     for entry in entries:
+        scoring = entry.get("scoring", {})
+        pmf = scoring.get("pmf", {})
+        arr = pmf.get("arr_level", {})
+        growth = pmf.get("growth", {})
+        strain = scoring.get("strain", {})
+        bg = scoring.get("bg_fit", {})
         decision = entry.get("decision", {})
         rows.append({
             "company": _txt(entry.get("company")),
-            "model": _txt(entry.get("model")),
-            "stage": _txt(entry.get("stage")),
-            "one_liner": _txt(entry.get("one_liner")),
-            "model_priority": _txt(entry.get("model_priority")),
-            "recommended_action": _txt(entry.get("recommended_action")),
-            "final_score": entry.get("scoring", {}).get("final_score"),
-            "key_flags": "; ".join(_txt(f.get("type")) for f in entry.get("flags", [])),
+            "Model": _txt(entry.get("model")),
+            "Stage": _txt(entry.get("stage")),
+            "Stage basis": _txt(entry.get("stage_basis")),
+            "Model priority": _txt(entry.get("model_priority")),
+            "Recommended action": _txt(entry.get("recommended_action")),
+            "Final priority": final_priority(entry),
+            "Background Fit": _bg_display(entry),
+            "Background Fit rationale": _txt(bg.get("rationale")),
+            "Product Market Fit": pmf.get("score"),
+            "ARR": arr.get("score"),
+            "ARR basis": _txt(arr.get("basis")),
+            "Growth": growth.get("score"),
+            "Growth basis": _txt(growth.get("basis")),
+            "Strain": strain.get("score"),
+            "Strain rationale": _txt(strain.get("rationale")),
+            "FINAL": _final_display(entry),
+            "Floor reason": floor_summary(entry),
+            "Key flags": "; ".join(_txt(f.get("type")) for f in entry.get("flags", [])),
             "human_override": _txt(decision.get("human_override")),
             "override_reason": _txt(decision.get("override_reason")),
         })
@@ -552,6 +601,23 @@ def _key_flag(entry: dict) -> str:
     return _txt(chosen.get("type")) if chosen else ""
 
 
+def _bg_display(entry: dict):
+    """Background Fit for a human view: the score; or 'n/a (no consumer end-user)' for a B2B company (bg is a
+    consumer measure, undefined without a consumer); or '' for a genuine consumer read-gap."""
+    score = _num(entry.get("scoring", {}).get("bg_fit", {}).get("score"))
+    if score is not None:
+        return score
+    return "n/a (no consumer end-user)" if _txt(entry.get("model")).upper() == "B2B" else ""
+
+
+def _final_display(entry: dict):
+    """FINAL for a human view: the score; or 'n/a' for a B2B company (FINAL needs background fit); or ''."""
+    final = _num(entry.get("scoring", {}).get("final_score"))
+    if final is not None:
+        return final
+    return "n/a" if _txt(entry.get("model")).upper() == "B2B" else ""
+
+
 def render_summary_table(entries: list[dict]) -> pd.DataFrame:
     """The lean scan: Company · Model · Stage · Tier (final priority) · FINAL · Key flag · Recommendation ·
     Floor reason. Read-only."""
@@ -560,7 +626,7 @@ def render_summary_table(entries: list[dict]) -> pd.DataFrame:
         "Model": _txt(entry.get("model")),
         "Stage": _txt(entry.get("stage")),
         "Tier": final_priority_code(entry),
-        "FINAL": entry.get("scoring", {}).get("final_score"),
+        "FINAL": _final_display(entry),
         "Key flag": _key_flag(entry),
         "Recommendation": _txt(entry.get("recommended_action")),
         "Floor reason": floor_summary(entry),
@@ -590,8 +656,7 @@ def flatten_entry(entry: dict) -> dict:
         "Model": _txt(entry.get("model")),
         "Stage": _txt(entry.get("stage")),
         "Stage basis": _txt(entry.get("stage_basis")),
-        "One-liner": _txt(entry.get("one_liner")),
-        "Background Fit": bg.get("score"),
+        "Background Fit": _bg_display(entry),
         "Background Fit loop": bg.get("loop"),
         "Background Fit rationale": _txt(bg.get("rationale")),
         "Product Market Fit": pmf.get("score"),
@@ -603,7 +668,7 @@ def flatten_entry(entry: dict) -> dict:
         "Strain": strain.get("score"),
         "Strain strength": _txt(strain.get("strength")),
         "Strain rationale": _txt(strain.get("rationale")),
-        "FINAL": scoring.get("final_score"),
+        "FINAL": _final_display(entry),
         "Floor rule passed": floor_rule.get("passed"),
         "Floor rule reason": _txt(floor_rule.get("reason")),
         "Path passed": path.get("passed"),

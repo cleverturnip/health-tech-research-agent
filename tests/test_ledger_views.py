@@ -103,3 +103,24 @@ def test_write_views_round_trip_to_csv(tmp_path):
 def test_empty_entries_render_empty_frames():
     assert list(ledger.render_summary_table([]).columns) == ledger.SUMMARY_COLUMNS
     assert ledger.render_master_full_export([]).empty
+
+
+def test_stage_basis_text_picks_latest_designated_round():
+    from health_tech_research_agent import structured_evidence as se
+    rounds = [{"series_designation": "series-a", "type": "series-a", "date": "2022-01", "is_priced_equity": True},
+              {"series_designation": "series-b", "type": "series-b", "date": "2024-06", "is_priced_equity": True,
+               "amount_usd_m": "50"}]
+    assert se.stage_basis_text(rounds) == "Series B, $50, 2024-06"
+    assert se.stage_basis_text([]) == ""                       # no dated round -> caller falls back to the label
+
+
+def test_stage_basis_derived_from_fit_brief_rounds():
+    import json
+    rec = {"company": "grow", "business_model": "B2C", "funding_stage": "series-b", "background_fit": 8,
+           "pmf": 10, "arr_level": 10, "growth": 9, "strain": 2, "final_score": 20, "path_passed": True,
+           "agency_passed": True, "gate_floored": False, "floor_ok": True, "model_priority": "P0"}
+    row = {"company": "grow", "fit_brief_json": json.dumps({"maturity_evidence": {"funding_rounds": [
+        {"series_designation": "series-b", "type": "series-b", "date": "2025-11", "is_priced_equity": True,
+         "amount_usd_m": "298"}], "ipo_event": {}}})}
+    entry = ledger.build_entry(rec, row, batch_id="b", date_scored="2026-07-02", framework_version="v1.25")
+    assert "Series B" in entry["stage_basis"] and "2025-11" in entry["stage_basis"]

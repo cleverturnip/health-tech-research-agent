@@ -95,12 +95,14 @@ def test_run_r1_reads_taken_once_each_no_n_passes():
     # reset + classifier taken exactly ONCE per company (no re-score loop): 3 each.
     assert sum(1 for (k, _) in client.calls if k == "reset") == 3
     assert sum(1 for (k, _) in client.calls if k == "classifier") == 3
-    # eligible companies (acme, season) get ONE growth each; medforce (floored) gets none.
-    assert sum(1 for (k, _) in client.calls if k == "growth") == 2
-    # §B5 v1.24: bg is taken N=4 times per ELIGIBLE company AT POPULATION (averaged, then cached) — this is
-    # noise reduction on the one noisy read, NOT the retired N=5 re-score loop. 2 eligible * 4 = 8.
+    # UNIFORM SCORING (2026-07-02): growth is read for ALL companies (medforce included) — floors cap
+    # priority, not scoring.
+    assert sum(1 for (k, _) in client.calls if k == "growth") == 3
+    # §B5 v1.24: bg is taken N=4 times per CONSUMER company AT POPULATION (averaged, then cached). bg is a
+    # consumer measure, so the professional company (medforce) gets NO bg read. 2 consumers * 4 = 8.
     assert sum(1 for (k, _) in client.calls if k == "bg") == 2 * rr.BG_FIT_N_READS
-    assert [k for (k, co) in client.calls if co == "medforce"] == ["reset", "classifier"]
+    # medforce (B2B/professional): reset + classifier + growth, but NO bg (n/a — no consumer end-user).
+    assert [k for (k, co) in client.calls if co == "medforce"] == ["reset", "classifier", "growth"]
 
 
 def test_run_r1_reproducible_off_cache_no_recall():
@@ -147,30 +149,38 @@ def test_run_r1_review_set_is_reported_with_size():
 def _seq_bg(monkeypatch, values):
     seq = iter(values)
     monkeypatch.setattr(rr, "_r1_background_fit_once",
-                        lambda row, *, client, model: next(seq))
+                        lambda row, *, client, model: {"background_fit": next(seq),
+                                                       "data_feedback_loop": "no", "basis": "x"})
 
 
 def test_bg_fit_read_is_mean_of_n_reads(monkeypatch):
     _seq_bg(monkeypatch, [4, 5, 5, 5])                      # mean 4.75 -> 5
-    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 5
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m")["score"] == 5
 
 
 def test_bg_fit_read_ties_round_half_up(monkeypatch):
     _seq_bg(monkeypatch, [4, 4, 5, 5])                      # mean 4.5 -> 5 (ties UP -> PASSES bg > 4)
-    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 5
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m")["score"] == 5
 
 
 def test_bg_fit_read_below_half_rounds_down(monkeypatch):
     _seq_bg(monkeypatch, [4, 4, 4, 5])                      # mean 4.25 -> 4 (FAILS bg > 4)
-    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 4
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m")["score"] == 4
 
 
 def test_bg_fit_read_all_failed_is_none(monkeypatch):
-    monkeypatch.setattr(rr, "_r1_background_fit_once", lambda row, *, client, model: None)
-    # every read failed to parse -> None (READ-FAILED, a distinct flag), NOT a fabricated low score.
-    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") is None
+    monkeypatch.setattr(rr, "_r1_background_fit_once", lambda row, *, client, model: {})
+    # every read failed to parse -> None score (READ-FAILED, a distinct flag), NOT a fabricated low score.
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m")["score"] is None
+
+
+def test_bg_fit_read_captures_basis_and_loop(monkeypatch):
+    monkeypatch.setattr(rr, "_r1_background_fit_once", lambda row, *, client, model:
+                        {"background_fit": 7, "data_feedback_loop": "yes", "basis": "daily tracking loop"})
+    read = rr._r1_background_fit_read({"company": "x"}, client=None, model="m")
+    assert read == {"score": 7, "basis": "daily tracking loop", "loop": "yes"}   # reasoning captured for the ledger
 
 
 def test_bg_fit_read_drops_failed_reads_from_the_mean(monkeypatch):
     _seq_bg(monkeypatch, [8, None, 8, None])               # two valid 8s -> mean 8
-    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m") == 8
+    assert rr._r1_background_fit_read({"company": "x"}, client=None, model="m")["score"] == 8

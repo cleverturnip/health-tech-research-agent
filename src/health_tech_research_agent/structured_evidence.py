@@ -267,6 +267,44 @@ def funding_stage_from_rounds(funding_rounds, ipo_event) -> str:
     return _round_series(latest) or "unknown"
 
 
+_STAGE_LABELS = {"pre-seed": "Pre-seed", "seed": "Seed", "series-a": "Series A", "series-b": "Series B",
+                 "series-c": "Series C", "series-d-plus": "Series D+", "public": "Public"}
+
+
+def _round_amount_text(r) -> str:
+    """Best-effort $ amount from a round/ipo dict (schema varies) — '' when no recognizable amount field."""
+    if not isinstance(r, dict):
+        return ""
+    for key in ("amount_usd_m", "amount_m", "amount_usd", "amount", "size", "raise_usd", "round_size"):
+        val = r.get(key)
+        if val not in (None, "", 0):
+            text = _safe_text(val)
+            return text if text.startswith("$") else f"${text}"
+    return ""
+
+
+def stage_label(stage) -> str:
+    """A human label for a normalized stage ('series-b' -> 'Series B')."""
+    s = _norm_stage(stage)
+    return _STAGE_LABELS.get(s, _safe_text(stage))
+
+
+def stage_basis_text(funding_rounds, ipo_event=None) -> str:
+    """A one-line human STAGE BASIS from the gathered rounds (Rule 7 evidence, for the ledger's context): the
+    latest DESIGNATED round's series + amount (if present) + date — e.g. 'Series B, $298M, 2025-11'. Public ->
+    the IPO basis. '' when no dated designated round (the caller falls back to the bare stage label)."""
+    ipo = ipo_event if isinstance(ipo_event, dict) else {}
+    if _is_true(ipo.get("occurred")) and _has_date(ipo.get("date")):
+        parts = ["Public", _round_amount_text(ipo), _safe_text(ipo.get("date"))]
+        return ", ".join(p for p in parts if p)
+    designated = _designated_rounds(funding_rounds)
+    if not designated:
+        return ""
+    latest = max(designated, key=lambda r: (_parse_date(r.get("date")), _stage_order_index(_round_series(r))))
+    parts = [stage_label(_round_series(latest)), _round_amount_text(latest), _safe_text(latest.get("date"))]
+    return ", ".join(p for p in parts if p)
+
+
 def funding_stage_with_confidence(funding_rounds, ipo_event) -> tuple[str, str]:
     """``(stage, stage_confidence)`` — SOT §B4 v1.10. stage_confidence == 'low' when a PRICED, DATED round
     is dated AFTER the last designated round but is NOT a canonical designation (an undesignated later
@@ -1716,12 +1754,15 @@ def flatten_checkpoint_row(row) -> dict:
     return flat
 
 
-def score_checkpoint_row(row, *, classifier_read, growth_read=None, background_fit=None) -> dict:
+def score_checkpoint_row(row, *, classifier_read, growth_read=None, background_fit=None,
+                         background_fit_basis=None, data_feedback_loop=None) -> dict:
     """Score ONE raw checkpoint row end-to-end. `classifier_read` is the live §B2 LLM read
     (`{"who_uses", "who_pays", "who_uses_confidence"}`); `growth_read` is the live §B6 extractor's flattened
-    columns (`flatten_growth_read(...)`, or None -> genuine-absent); `background_fit` is the live §B5 read.
-    Flattens via `flatten_checkpoint_row`, merges the three live reads, and delegates to `score_company`.
-    Pure given its inputs — the LLM I/O lives in the (thin) R1 cell, so this stays unit-testable."""
+    columns (`flatten_growth_read(...)`, or None -> genuine-absent); `background_fit` is the live §B5 score.
+    `background_fit_basis` / `data_feedback_loop` are the §B5 read's REASONING (captured 2026-07-02 so the
+    ledger renders the bg rationale) — when given, they OVERRIDE the stale fit_brief values on the flat row.
+    Flattens via `flatten_checkpoint_row`, merges the live reads, and delegates to `score_company`. Pure
+    given its inputs — the LLM I/O lives in the (thin) R1 cell, so this stays unit-testable."""
     flat = flatten_checkpoint_row(row)
     if classifier_read:
         for key in ("who_uses", "who_pays", "who_uses_confidence"):
@@ -1729,4 +1770,8 @@ def score_checkpoint_row(row, *, classifier_read, growth_read=None, background_f
                 flat[key] = classifier_read[key]
     if growth_read:
         flat.update(growth_read)
+    if background_fit_basis is not None:
+        flat["background_fit_basis"] = background_fit_basis
+    if data_feedback_loop is not None:
+        flat["data_feedback_loop"] = data_feedback_loop
     return score_company(flat, background_fit=background_fit)

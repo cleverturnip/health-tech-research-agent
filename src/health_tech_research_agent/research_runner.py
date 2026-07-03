@@ -2085,25 +2085,27 @@ BG_FIT_N_READS = 4
 
 
 def _r1_background_fit_once(row, *, client, model):
-    """ONE §B5 bg_fit read -> the raw background_fit value (flat JSON key, per signed cell 178). Evidence is
-    the tested background_fit_evidence blob (operating_characteristics_finding + commercial_scale_finding +
-    outcomes_finding)."""
+    """ONE §B5 bg_fit read -> the full read dict `{background_fit, data_feedback_loop, basis}` (per signed
+    cell 178). Evidence is the tested background_fit_evidence blob (operating_characteristics_finding +
+    commercial_scale_finding + outcomes_finding). The scorer uses the number; the ledger uses basis + loop."""
     d = _extract_json(run_company_background_fit(
         row["company"], se.background_fit_evidence(row), client=client, model=model))
-    return d.get("background_fit")
+    return d if isinstance(d, dict) else {}
 
 
 def _r1_background_fit_read(row, *, client, model, n=BG_FIT_N_READS):
-    """Live §B5 v1.24 read -> the MEAN of N bg_fit reads, ROUNDED HALF-UP to an int (before caching, so the
-    floor check sees the rounded mean: mean 4.5 -> 5 PASSES bg > 4; 4.4 -> 4 FAILS). Each read parses via the
-    scorer's clamp (1-10 int); reads that fail to parse are dropped. ALL N reads failing -> None (READ-FAILED,
-    a DISTINCT flag from a low score). This runs ONCE at cache population — the cached value is byte-stable,
-    so caching remains the reproducibility mechanism."""
-    vals = [v for v in (se._bg_score_or_none(_r1_background_fit_once(row, client=client, model=model))
-                        for _ in range(n)) if v is not None]
-    if not vals:
-        return None
-    return se.round_half_up(sum(vals) / len(vals))
+    """Live §B5 v1.24 read -> `{"score", "basis", "loop"}`. The SCORE is the MEAN of N reads ROUNDED HALF-UP
+    to an int (before caching, so the floor check sees the rounded mean: 4.5 -> 5 PASSES bg > 4; 4.4 -> 4
+    FAILS); each read parses via the scorer's clamp (1-10), failures dropped, ALL N failing -> None score
+    (READ-FAILED, DISTINCT from a low score). A representative `basis` + `loop` are captured for the ledger's
+    bg rationale (2026-07-02) — the score math is UNCHANGED. Runs ONCE at cache population (byte-stable)."""
+    reads = [_r1_background_fit_once(row, client=client, model=model) for _ in range(n)]
+    vals = [v for v in (se._bg_score_or_none(d.get("background_fit")) for d in reads) if v is not None]
+    score = se.round_half_up(sum(vals) / len(vals)) if vals else None
+    basis = next((se._safe_text(d.get("basis")) for d in reads if se._safe_text(d.get("basis"))), "")
+    loop = next((se._norm_enum(d.get("data_feedback_loop")) for d in reads
+                 if se._norm_enum(d.get("data_feedback_loop")) in ("yes", "no")), "")
+    return {"score": score, "basis": basis, "loop": loop}
 
 
 def _r1_reset_read(row, *, client, model):
@@ -2170,12 +2172,24 @@ def take_r1_reads(df, *, client, model=DEFAULT_MODEL, cache=None, refresh=None, 
         reset_events = _r1_reset_read(row, client=client, model=model)
         classifier = _r1_classifier_read(row, client=client, model=model)
         eligible = _r1_floor_eligible(row, classifier, reset_events)
+        # 2026-07-02 UNIFORM SCORING (MASTER_REDESIGN_SPEC §4): score EVERY company — a floor caps PRIORITY,
+        # not scoring. Growth is read for ALL companies; background_fit is read for CONSUMER companies only
+        # (bg is a consumer measure — a B2B/professional company has no consumer end-user, so bg is n/a BY
+        # DEFINITION, not a cost skip). `eligible` (path+agency+consumer) is now only a reporting metric.
+        business_model, _ = se.business_model_for(
+            row.get("company"), classifier["who_uses"], classifier["who_pays"], classifier["who_uses_confidence"])
+        consumer = business_model in ("B2C", "B2B2C")
+        bg = (_r1_background_fit_read(row, client=client, model=model) if consumer
+              else {"score": None, "basis": "", "loop": ""})
         cache[co] = {
             "reset_events": reset_events,
             "classifier": classifier,
             "eligible": eligible,
-            "growth_read": _r1_growth_read(row, client=client, model=model) if eligible else None,
-            "background_fit": _r1_background_fit_read(row, client=client, model=model) if eligible else None,
+            "business_model": business_model,
+            "growth_read": _r1_growth_read(row, client=client, model=model),
+            "background_fit": bg["score"],
+            "background_fit_basis": bg["basis"],
+            "background_fit_loop": bg["loop"],
         }
         took += 1
     if progress:
@@ -2194,7 +2208,8 @@ def score_r1_from_cache(df, cache):
         c = cache[se._norm_company(row.get("company"))]
         roster.append(se.score_checkpoint_row(
             _r1_apply_reset(row, c["reset_events"]),
-            classifier_read=c["classifier"], growth_read=c["growth_read"], background_fit=c["background_fit"]))
+            classifier_read=c["classifier"], growth_read=c["growth_read"], background_fit=c["background_fit"],
+            background_fit_basis=c.get("background_fit_basis"), data_feedback_loop=c.get("background_fit_loop")))
     return roster
 
 

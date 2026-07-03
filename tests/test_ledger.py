@@ -166,6 +166,38 @@ def test_derived_final_priority_after_manual_override():
     assert ledger.provenance(entry) == "human-overridden"
 
 
+def test_b2b_background_fit_and_final_are_na_but_others_compute():
+    # A B2B company (no consumer end-user): bg + FINAL are n/a by definition; ARR/Growth/Strain still compute.
+    rec = _rec(company="medically home", business_model="B2B", funding_stage="series-c",
+               background_fit=None, pmf=6, arr_level=7, growth=5, strain=1, final_score=13,
+               path_passed=False, agency_passed=False, gate_floored=True, floor_ok=False, model_priority="P3")
+    entry = ledger.build_entry(rec, batch_id=BATCH, date_scored=DATE, framework_version="v1.25")
+    assert entry["scoring"]["bg_fit"]["score"] is None and "n/a" in entry["scoring"]["bg_fit"]["rationale"]
+    assert entry["scoring"]["final_score"] is None
+    assert entry["scoring"]["pmf"]["arr_level"]["score"] == 7 and entry["scoring"]["strain"]["score"] == 1
+    flat = ledger.flatten_entry(entry)
+    assert flat["Background Fit"] == "n/a (no consumer end-user)"
+    assert flat["FINAL"] == "n/a"
+    assert flat["ARR"] == 7 and flat["Growth"] == 5
+
+
+def test_score_checkpoint_row_threads_bg_reasoning():
+    import json
+    fb = {"maturity_evidence": {"funding_rounds": [{"series_designation": "series-b", "type": "series-b",
+                                                    "date": "2023-01", "is_priced_equity": True}], "ipo_event": {}},
+          "commercial_evidence": {"revenue_or_arr": "$20M"}, "capability_evidence": {"a2_score": 60},
+          "reset_evidence": {"reset_events": []}}
+    row = {"company": "x", "fit_brief_json": json.dumps(fb),
+           "operating_characteristics_finding": "daily", "commercial_scale_finding": "scaled", "outcomes_finding": "good"}
+    rec = se.score_checkpoint_row(
+        row, classifier_read={"who_uses": "consumer", "who_pays": "consumer", "who_uses_confidence": "high"},
+        growth_read={"growth_band": "solid", "growth_basis": "revenue-rate", "growth_evidence": "+60% YoY"},
+        background_fit=7, background_fit_basis="daily habit loop", data_feedback_loop="yes")
+    assert rec["background_fit"] == 7
+    assert rec["background_fit_basis"] == "daily habit loop"   # the live read's reasoning overrides stale fit_brief
+    assert rec["data_feedback_loop"] == "yes"
+
+
 def test_score_company_surfaces_rationale_passthrough():
     # B1: score_company now carries the per-component reasons/details the ledger renders.
     row = {"company": "x", "who_uses": "consumer", "who_pays": "consumer", "funding_stage": "series-b",
