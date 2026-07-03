@@ -36,6 +36,23 @@ def test_card_has_agency_column_showing_reset():
     assert "leadership-change" in row["Agency"]
 
 
+def test_card_agency_in_window_reset_is_not_shown_as_reopened():
+    # An in-window series-b that passes ON ITS OWN — a reset firing there is irrelevant and must NOT read
+    # "reopened by a reset" (the 2026-07-03 fix: key on the load-bearing '+reset' marker, not merely 'fired').
+    rec = _rec("zoe", funding_stage="series-b", agency_detail="series-b -> PASS",
+               reset_detail="reset events [leadership-change, strategic-pivot]; fired")
+    row = ledger.render_cards_csv([_entry(rec)]).iloc[0]
+    assert "reopened" not in row["Agency"].lower()
+    assert row["Agency"] == "Pass — series-b in-window"
+
+
+def test_render_views_rerenders_from_existing_ledger(tmp_path):
+    roster = [_rec("zoe", funding_stage="series-b", agency_detail="series-b -> PASS")]
+    ledger.build_gate2_artifacts(roster, None, batch_id="b03", date_scored="2026-07-03", out_dir=tmp_path)
+    out = ledger.render_views(tmp_path)
+    assert out["entries"] == 1 and storage.load_csv(out["cards"]).iloc[0]["Agency"] == "Pass — series-b in-window"
+
+
 def test_card_agency_shows_floored():
     rec = _rec("oura", funding_stage="series-d-plus", agency_passed=False, gate_floored=True, floor_ok=False,
                model_priority="P3", agency_detail="series-d-plus late-stage (no reset)",
