@@ -11,8 +11,8 @@ from health_tech_research_agent import ledger
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_ledger.jsonl"
 
 _TOP_LEVEL = {"company", "batch_id", "framework_version", "date_scored", "model", "stage", "stage_basis",
-              "one_liner", "scoring", "gates", "model_priority", "recommended_action", "override_candidate",
-              "flags", "decision"}
+              "one_liner", "taxonomy", "scoring", "gates", "model_priority", "recommended_action",
+              "override_candidate", "flags", "decision"}
 
 
 def test_sample_ledger_loads_and_matches_entry_shape():
@@ -35,3 +35,4 @@ def test_sample_ledger_loads_and_matches_entry_shape():
 
     assert "+reset" in by["delta health"]["gates"]["agency"]["detail"]   # agency passed via a reset
     assert ledger.provenance(by["alpha health"]) == "model-accepted"     # clean P0, no override
+    assert by["delta health"]["taxonomy"]["segment"] == "MENTAL_BEHAVIORAL_HEALTH"   # segment for dashboard grouping

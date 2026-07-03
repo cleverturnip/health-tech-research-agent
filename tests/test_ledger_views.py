@@ -167,3 +167,21 @@ def test_stage_basis_derived_from_fit_brief_rounds():
          "amount_usd_m": "298"}], "ipo_event": {}}})}
     entry = ledger.build_entry(rec, row, batch_id="b", date_scored="2026-07-02", framework_version="v1.25")
     assert "Series B" in entry["stage_basis"] and "2025-11" in entry["stage_basis"]
+
+
+def test_taxonomy_segment_extracted_and_rendered():
+    import json
+    from health_tech_research_agent import ledger
+    rec = {"company": "acme", "business_model": "B2C", "funding_stage": "series-b", "background_fit": 8,
+           "pmf": 9, "arr_level": 10, "growth": 9, "strain": 2, "final_score": 19, "path_passed": True,
+           "agency_passed": True, "gate_floored": False, "floor_ok": True, "model_priority": "P0"}
+    row = {"company": "acme", "fit_brief_json": json.dumps({"taxonomy_classification": {
+        "primary_market_segment": "WOMENS_FAMILY_HEALTH", "subsegment_tags": ["maternity"],
+        "product_model_tags": ["virtual_care"]}})}
+    entry = ledger.build_entry(rec, row, batch_id="b", date_scored="2026-07-03", framework_version="v1.25")
+    assert entry["taxonomy"]["segment"] == "WOMENS_FAMILY_HEALTH"
+    assert entry["taxonomy"]["subsegment_tags"] == ["maternity"]
+    assert ledger.render_summary_table([entry]).iloc[0]["Segment"] == "WOMENS_FAMILY_HEALTH"
+    assert ledger.render_cards_csv([entry]).iloc[0]["Segment"] == "WOMENS_FAMILY_HEALTH"
+    export = ledger.render_master_full_export([entry])
+    assert export.iloc[0]["Segment"] == "WOMENS_FAMILY_HEALTH" and export.iloc[0]["Subsegment tags"] == "maternity"

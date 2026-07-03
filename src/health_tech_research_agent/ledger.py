@@ -215,6 +215,29 @@ def _stage_basis(row: dict, stage: str, company: str = "") -> str:
         or se.stage_label(stage)
 
 
+def _taxonomy(row: dict) -> dict:
+    """The MODEL's taxonomy classification, carried as re-derivable CONTEXT (2026-07-03) so the dashboard can
+    group by market segment WITHOUT re-parsing the research at render time — same pattern as `model` / `stage`.
+    `segment` is the controlled CODE (e.g. WOMENS_FAMILY_HEALTH); the dashboard joins
+    `taxonomy/market_segments.csv` (segment_code -> segment_label) for display names. Not a scoring input; not
+    the human `decision.taxonomy_override` (that's the B2B/B2C model, Rule 6)."""
+    tax = _parse_fit_brief_row(row).get("taxonomy_classification")
+    tax = tax if isinstance(tax, dict) else {}
+
+    def _tags(key):
+        value = tax.get(key)
+        return [_txt(t) for t in value if _txt(t)] if isinstance(value, list) else []
+
+    return {
+        "segment": _txt(tax.get("primary_market_segment")),
+        "subsegment_tags": _tags("subsegment_tags"),
+        "product_model_tags": _tags("product_model_tags"),
+        "distribution_model_tags": _tags("distribution_model_tags"),
+        "data_input_tags": _tags("data_input_tags"),
+        "rationale": _txt(tax.get("classification_rationale")),
+    }
+
+
 def build_entry(score_record: dict, row: dict | None = None, *, batch_id: str, date_scored: str,
                 framework_version: str | None = None) -> dict:
     """Build ONE ledger entry (MASTER_REDESIGN_SPEC §3.4) from a `score_company` record + its research row.
@@ -260,6 +283,7 @@ def build_entry(score_record: dict, row: dict | None = None, *, batch_id: str, d
         "stage": stage,
         "stage_basis": _stage_basis(row, stage, _txt(rec.get("company"))),
         "one_liner": "",   # no clean product/service source in the research output (2026-07-02) — skipped
+        "taxonomy": _taxonomy(row),   # market segment (code) + nuance tags — for dashboard grouping (2026-07-03)
 
         # SCORING (write-once, never hand-edited — Rule 8)
         "scoring": {
@@ -455,10 +479,10 @@ def execute_ledger_write(path: str | Path, entries: list[dict], *,
 # ---------------------------------------------------------------------------
 
 # Read-only context columns (so a decision has its facts beside it) + the two editable priority columns.
-CARDS_CONTEXT_COLUMNS = ["company", "Model", "Stage", "Stage basis", "Model priority", "Recommended action",
-                         "Final priority", "Background Fit", "Background Fit rationale", "Product Market Fit",
-                         "ARR", "ARR basis", "Growth", "Growth basis", "Strain", "Strain rationale", "FINAL",
-                         "Floor reason", "Agency", "Key flags"]
+CARDS_CONTEXT_COLUMNS = ["company", "Segment", "Model", "Stage", "Stage basis", "Model priority",
+                         "Recommended action", "Final priority", "Background Fit", "Background Fit rationale",
+                         "Product Market Fit", "ARR", "ARR basis", "Growth", "Growth basis", "Strain",
+                         "Strain rationale", "FINAL", "Floor reason", "Agency", "Key flags"]
 CARDS_DECISION_COLUMNS = ["human_override", "override_reason"]
 
 
@@ -478,6 +502,7 @@ def render_cards_csv(entries: list[dict]) -> pd.DataFrame:
         decision = entry.get("decision", {})
         rows.append({
             "company": _txt(entry.get("company")),
+            "Segment": _txt(entry.get("taxonomy", {}).get("segment")),
             "Model": _txt(entry.get("model")),
             "Stage": _txt(entry.get("stage")),
             "Stage basis": _txt(entry.get("stage_basis")),
@@ -576,7 +601,8 @@ def apply_decisions(entries: list[dict], decisions: list[dict], *,
 # JOINS the raw research findings at render time (the ledger stores no raw research — Option 2 holds).
 # ---------------------------------------------------------------------------
 
-SUMMARY_COLUMNS = ["Company", "Model", "Stage", "Tier", "FINAL", "Key flag", "Recommendation", "Floor reason"]
+SUMMARY_COLUMNS = ["Company", "Segment", "Model", "Stage", "Tier", "FINAL", "Key flag", "Recommendation",
+                   "Floor reason"]
 
 
 def floor_summary(entry: dict) -> str:
@@ -660,6 +686,7 @@ def render_summary_table(entries: list[dict]) -> pd.DataFrame:
     Floor reason. Read-only."""
     rows = [{
         "Company": _txt(entry.get("company")),
+        "Segment": _txt(entry.get("taxonomy", {}).get("segment")),
         "Model": _txt(entry.get("model")),
         "Stage": _txt(entry.get("stage")),
         "Tier": final_priority_code(entry),
@@ -685,11 +712,17 @@ def flatten_entry(entry: dict) -> dict:
     path = gates.get("path", {})
     agency = gates.get("agency", {})
     decision = entry.get("decision", {})
+    taxonomy = entry.get("taxonomy", {})
     return {
         "Company": _txt(entry.get("company")),
         "Batch": _txt(entry.get("batch_id")),
         "Framework version": _txt(entry.get("framework_version")),
         "Date scored": _txt(entry.get("date_scored")),
+        "Segment": _txt(taxonomy.get("segment")),
+        "Subsegment tags": "; ".join(taxonomy.get("subsegment_tags", [])),
+        "Product model tags": "; ".join(taxonomy.get("product_model_tags", [])),
+        "Distribution model tags": "; ".join(taxonomy.get("distribution_model_tags", [])),
+        "Data input tags": "; ".join(taxonomy.get("data_input_tags", [])),
         "Model": _txt(entry.get("model")),
         "Stage": _txt(entry.get("stage")),
         "Stage basis": _txt(entry.get("stage_basis")),
