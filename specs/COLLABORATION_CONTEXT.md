@@ -96,30 +96,24 @@ history, audits, one-off probes) lives in `archive/` — reference only.
   met: floored-vs-low legibility (B2B → `n/a`; distinct from a low score) and the walkthrough doc
   (`SCORING_WALKTHROUGH.md`). Render design locked in `MASTER_REDESIGN_SPEC.md` §4 + `gate2_review_surface_mockup.html`.
 
-**Current milestone (NEXT): the DASHBOARD.** Build + verify the second autonomous segment (after GATE 2)
-that reads the GATE-2-reviewed ledger and builds Katelynd's working tracker. Enforce the gate invariant
-(`MASTER_REDESIGN_SPEC.md` §1a): only GATE-2-reviewed ledger entries reach the dashboard.
-> **Start here (for the dashboard chat):** the ledger is `src/health_tech_research_agent/ledger.py`. Read
-> entries with `ledger.read_ledger(path)`; per entry, `ledger.final_priority(e)` / `provenance(e)` /
-> `final_priority_code(e)` / `final_priority_rank(e)` are the derived read helpers, plus `e["flags"]`,
-> `e["scoring"]`, `e["decision"]`, `e["recommended_action"]`. The EXACT entry shape in practice is
-> `tests/fixtures/sample_ledger.jsonl` (5 synthetic entries covering every case — clean P0, applied override,
-> B2B `n/a`, agency-pass-via-reset, low-score floor) + `MASTER_REDESIGN_SPEC.md §3.4`; the live ledger.jsonl
-> is Katelynd's private data on Drive (only needed for the final live-verification run). **Market segment for
-> grouping** is `e["taxonomy"]["segment"]` (a controlled CODE, e.g. `WOMENS_FAMILY_HEALTH`; added to the ledger
-> 2026-07-03 so the dashboard need not re-parse research) — join `taxonomy/market_segments.csv`
-> (`segment_code → segment_label`) for display names; nuance tags are in `e["taxonomy"]` too. The dashboard
-> SCHEMA is deliberately OPEN / format-fluid (Katelynd iterates it) — scope it with her before building.
-> `dashboard.py` is the one remaining item on the §7 punch-list; the old `dashboard.py` predates the ledger
-> and is a rebuild target.
+- **Dashboard segment (2026-07-03) — BUILT + LIVE-VERIFIED, merged to `main`.** The second autonomous segment:
+  reads the GATE-2-reviewed ledger and builds Katelynd's career-search working tracker. New ledger-based
+  `dashboard.py` (the old one deleted): the per-company data model + grid projections (all companies · pursuit ·
+  contacts · segment radar) + the per-company detail view (scoring + 3-layer research evidence), the §1a review
+  stamp (`ledger.finalize_gate2_review*`), the living-layer merge (your notes preserved, "changed"/"orphaned"
+  safety signals), an HTML render, and the `build_dashboard` orchestrator. Editable store is a **native Google
+  Sheet** (input-only via `gspread` — the build never overwrites your edits). Design: `specs/DASHBOARD_DESIGN.md`
+  (+ `dashboard_wireframe.html`); ~40 tests; live-verified on the regen-2 Colab run (54 companies).
+
+**Current milestone (NEXT): the FRONT END** + the data system that houses the flow so it runs autonomously
+end-to-end instead of through Colab cells. The dashboard engine already emits the durable data artifact the
+front end will render (the HTML render + Google-Sheet store are the interim surface; the front end swaps the
+surface, reusing the engine unchanged — see `DASHBOARD_DESIGN.md` §7).
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
 > The regen-2 batch was reviewed 2026-07-03 (5 overrides applied). This is a USE of the built packet, not a
 > build milestone.
-
-**Last:** The **front end** + the data system that houses the flow so it runs autonomously end-to-end
-instead of through Colab cells. Front end: not started.
 
 *This section is the single status record (replaces the standalone PROJECT_TRACKER.md). Update it as
 milestones move; keep done/next honest.*
