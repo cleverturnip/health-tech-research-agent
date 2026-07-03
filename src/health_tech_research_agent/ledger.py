@@ -926,6 +926,20 @@ def apply_gate2_decisions(out_dir: str | Path, decisions: list[dict], *, decided
     return {"applied": len(list(decisions)), "tally": tally, "readback_ok": write_result.readback_ok}
 
 
+def finalize_gate2_review_dir(out_dir: str | Path, *, reviewed_date: str, reviewed_at_gate: str) -> dict:
+    """Finalize the GATE-2 review on the ledger in `out_dir` (§1a): read `ledger.jsonl`, stamp EVERY entry
+    reviewed (`finalize_gate2_review`), and write it back transactionally (backup + read-back + rollback). Run
+    this ONCE after the review is done (after any `apply_gate2_decisions`) — it is what lets the dashboard admit
+    these entries (an un-finalized ledger is REFUSED by the dashboard). Touches the decision block only (never
+    scores — Rule 8); the three CSV views are unaffected (they don't display review status), so they are not
+    re-rendered. Returns `{stamped, readback_ok, reviewed_date}`."""
+    ledger_path = Path(out_dir) / "ledger.jsonl"
+    stamped = finalize_gate2_review(read_ledger(ledger_path),
+                                    reviewed_date=reviewed_date, reviewed_at_gate=reviewed_at_gate)
+    write_result = execute_ledger_write(ledger_path, stamped)
+    return {"stamped": len(stamped), "readback_ok": write_result.readback_ok, "reviewed_date": reviewed_date}
+
+
 def render_views(out_dir: str | Path, research: Any = None) -> dict:
     """Re-render the three CSV views from the EXISTING `ledger.jsonl` — NO rebuild, NO decision change — so a
     render-only fix can be picked up while the ledger (and any applied decisions) stays exactly as-is."""

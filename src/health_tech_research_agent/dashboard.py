@@ -106,8 +106,14 @@ def _key_flag(entry: dict) -> str:
 
 def segment_label_map(taxonomy_dir: str | Path | None = None) -> dict:
     """`segment_code -> segment_label` from `taxonomy/market_segments.csv` (all 14 dashboard-visible segments,
-    incl. OTHER_REVIEW='Other', FINTECH, ENTERTAINMENT_TECH). Defaults to the repo taxonomy dir."""
-    code_to_label, _ = tax.code_label_maps(tax.load_taxonomy_tables(taxonomy_dir))
+    incl. OTHER_REVIEW='Other', FINTECH, ENTERTAINMENT_TECH). Defaults to the repo taxonomy dir. DEGRADES
+    GRACEFULLY: if the taxonomy files aren't reachable (e.g. a pip install that doesn't ship them), returns {}
+    so labels fall back to the segment CODE — the dashboard still builds, just with code-shaped segment names.
+    Pass `taxonomy_dir` (e.g. a repo clone or a Drive copy) to get the human labels."""
+    try:
+        code_to_label, _ = tax.code_label_maps(tax.load_taxonomy_tables(taxonomy_dir))
+    except (FileNotFoundError, OSError, ValueError):
+        return {}
     return code_to_label
 
 
@@ -491,3 +497,137 @@ def contacts_view(records: list[dict]) -> pd.DataFrame:
             rows.append({**{c: _txt(contact.get(c)) for c in CONTACTS_COLUMNS},
                          **{c: contact.get(c) for c in extra_cols}})
     return pd.DataFrame(rows, columns=CONTACTS_COLUMNS + extra_cols)
+
+
+# ---------------------------------------------------------------------------
+# ORCHESTRATION (Phase 4) — build_dashboard: ledger + research + user store -> durable artifacts + HTML.
+#
+# The one public entry point the Colab dashboard cell calls (importable function, not cell logic — Rule 1).
+# The user's editable layer is ONE workbook (two tabs: Workspace + Contacts, per Katelynd 2026-07-03); the
+# dashboard reads her edits, merges (her columns preserved), regenerates the read-only views + HTML, and writes
+# the workbook back with a refreshed change-detection snapshot — transactionally, read-back-verified (Rule 4/5).
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass  # noqa: E402  (kept local to the orchestration section)
+
+from . import storage  # noqa: E402
+
+WORKSPACE_SHEET = "Workspace"
+CONTACTS_SHEET = "Contacts"
+# Read-only reference columns written into the editable Workspace tab (so you see priority/segment while ticking
+# pursue). They are IGNORED on read-back — the merge only trusts the ledger for these (Rule 6), never the sheet.
+WORKSPACE_REFERENCE_COLUMNS = ["final_priority", "segment"]
+
+
+@dataclass
+class DashboardResult:
+    out_dir: str
+    html_path: str
+    view_paths: dict
+    user_store_path: str
+    entries: int
+    tally: dict
+    report: dict
+    readback_ok: bool
+    segment_labels_resolved: bool
+
+
+def _sheet_rows(sheets: dict, name: str) -> list[dict]:
+    """Rows of a workbook sheet by (case-insensitive) name -> list of dicts; missing sheet -> []."""
+    for key, frame in sheets.items():
+        if str(key).strip().lower() == name.lower():
+            return frame.fillna("").to_dict("records")
+    return []
+
+
+def read_user_store(path: str | Path | None) -> tuple[list[dict], list[dict]]:
+    """Read the editable user-store workbook -> (workspace_rows, contacts_rows). A missing/None file -> ([], [])
+    (first run — nothing pursued yet)."""
+    if not path or not Path(path).exists():
+        return [], []
+    sheets = storage.load_workbook_sheets(path)
+    return _sheet_rows(sheets, WORKSPACE_SHEET), _sheet_rows(sheets, CONTACTS_SHEET)
+
+
+def workspace_writeback(records: list[dict], existing_workspace: list[dict] | None = None) -> pd.DataFrame:
+    """The Workspace tab to write BACK: one row per CURRENT company (so you can tick pursue / add notes on any of
+    them), carrying pursue + your columns + read-only reference (priority, segment) + a refreshed last_seen
+    snapshot. Rows for companies that DROPPED from the ledger are preserved verbatim at the bottom (your notes
+    are never deleted — the orphan is surfaced as a banner for you to resolve)."""
+    extra_cols: list[str] = []
+    for r in records:
+        for k in (r.get("workspace") or {}):
+            if k not in WORKSPACE_USER_COLUMNS and k not in extra_cols:
+                extra_cols.append(k)
+    user_cols = WORKSPACE_USER_COLUMNS + extra_cols
+    columns = (["company", "pursue"] + WORKSPACE_REFERENCE_COLUMNS + user_cols
+               + ["last_seen_priority", "last_seen_segment"])
+
+    rows = []
+    current = {_norm_company(r.get("company")) for r in records}
+    for r in records:
+        ws = r.get("workspace") or {}
+        row = {"company": r["company"], "pursue": "TRUE" if r.get("pursue") else "",
+               "final_priority": r["final_priority"], "segment": r["segment_label"]}
+        for col in user_cols:
+            row[col] = ws.get(col, "")
+        row["last_seen_priority"] = r["final_priority"]
+        row["last_seen_segment"] = r["segment_label"]
+        rows.append(row)
+    # preserve orphaned rows (notes on a company no longer in the ledger) — never delete the user's data
+    for orig in (existing_workspace or []):
+        if _norm_company(orig.get("company")) and _norm_company(orig.get("company")) not in current:
+            rows.append({**{c: "" for c in columns}, **orig, "segment": _txt(orig.get("segment")) or "(not in ledger)"})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: str | Path,
+                    user_store_path: str | Path | None = None, taxonomy_dir: str | Path | None = None,
+                    title: str = "Health-tech career dashboard") -> DashboardResult:
+    """Build the whole dashboard from a FINALIZED ledger (run `ledger.finalize_gate2_review_dir` first). Reads the
+    reviewed ledger (ENFORCES §1a — an un-finalized ledger RAISES), the research CSV/DataFrame, and your editable
+    user-store workbook; merges your layer; writes the read-only views (4 CSVs) + the self-contained HTML + the
+    durable records JSON; and writes the user-store workbook back (refreshed snapshot, your edits preserved),
+    read-back-verified. Returns paths + the merge report (change/orphan signals to surface)."""
+    from . import dashboard_html  # local import avoids a module cycle (dashboard_html imports dashboard)
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if user_store_path is None:
+        user_store_path = out / "dashboard_user_store.xlsx"
+
+    entries = ledger.read_ledger(ledger_path)
+    if isinstance(research, (str, Path)):
+        research = storage.load_csv(research).fillna("")
+
+    label_map = segment_label_map(taxonomy_dir)
+    records = build_company_records(entries, research=research, taxonomy_dir=taxonomy_dir)  # enforces §1a
+    workspace_rows, contacts_rows = read_user_store(user_store_path)
+    records, report = merge_user_layer(records, workspace_rows, contacts_rows)
+
+    view_paths = {
+        "all_companies": str(storage.atomic_write_csv(out / "all_companies.csv", all_companies_view(records))),
+        "pursuit": str(storage.atomic_write_csv(out / "pursuit.csv", pursuit_view(records))),
+        "contacts": str(storage.atomic_write_csv(out / "contacts.csv", contacts_view(records))),
+        "segment_radar": str(storage.atomic_write_csv(out / "segment_radar.csv", segment_radar_view(records))),
+    }
+    html_path = str(dashboard_html.write_dashboard_html(out / "dashboard.html", records, report, title=title))
+    storage.atomic_write_json(out / "dashboard_records.json", {"records": records, "report": report})
+
+    # write the editable user store back (Workspace refreshed + Contacts passthrough) — transactional read-back.
+    store_sheets = {WORKSPACE_SHEET: workspace_writeback(records, workspace_rows),
+                    CONTACTS_SHEET: (contacts_view(records) if not contacts_rows
+                                     else pd.DataFrame(contacts_rows))}
+    storage.atomic_write_workbook(user_store_path, store_sheets)
+    reopened = storage.load_workbook_sheets(user_store_path)
+    readback_ok = (WORKSPACE_SHEET in reopened
+                   and len(reopened[WORKSPACE_SHEET]) == len(store_sheets[WORKSPACE_SHEET]))
+
+    tally: dict = {}
+    for r in records:
+        tally[r["final_priority"]] = tally.get(r["final_priority"], 0) + 1
+
+    return DashboardResult(
+        out_dir=str(out), html_path=html_path, view_paths=view_paths, user_store_path=str(user_store_path),
+        entries=len(records), tally=tally, report=report, readback_ok=readback_ok,
+        segment_labels_resolved=bool(label_map))
