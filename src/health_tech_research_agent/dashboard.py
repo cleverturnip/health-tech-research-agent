@@ -391,12 +391,17 @@ def _index_rows(rows: Any) -> dict:
     return out
 
 
-def merge_user_layer(records: list[dict], workspace: Any = None, contacts: Any = None) -> tuple[list[dict], dict]:
+def merge_user_layer(records: list[dict], workspace: Any = None, contacts: Any = None,
+                     snapshot: dict | None = None) -> tuple[list[dict], dict]:
     """Merge the durable user store into the (freshly rebuilt) records, by company. Sets `pursue`, attaches the
     preserved `workspace` dict (all your columns, including ones you added) and the `contacts` list, and computes
-    the `changed` signal from the stored snapshot. Returns `(records, report)` where report surfaces the two
-    safety signals: `orphaned_workspace` / `orphaned_contacts` (notes on a company no longer in the ledger) and
-    `changed` (a pursued company whose priority/segment moved). Never mutates the ledger side."""
+    the `changed` signal. Returns `(records, report)` where report surfaces the two safety signals:
+    `orphaned_workspace` / `orphaned_contacts` (notes on a company no longer in the ledger) and `changed` (a
+    company whose priority/segment moved since the last run). Never mutates the ledger side.
+
+    Change detection reads `snapshot` (company -> {"priority", "segment"}, the engine-owned snapshot from the
+    last run) when given — so the editable store carries NO engine columns and is never written by the build. If
+    `snapshot` is None it falls back to a `last_seen_*` column on the workspace row (the older in-store model)."""
     ws_index = _index_rows(workspace)
     ct_index = _index_rows(contacts)
     record_keys = {_norm_company(r.get("company")) for r in records}
@@ -411,17 +416,19 @@ def merge_user_layer(records: list[dict], workspace: Any = None, contacts: Any =
         record["contacts"] = ct_index.get(key, [])
 
         record["changed"] = None
-        if ws:
-            last_priority = _txt(ws.get("last_seen_priority"))
-            last_segment = _txt(ws.get("last_seen_segment"))
-            deltas = {}
-            if last_priority and last_priority != record["final_priority"]:
-                deltas["priority"] = {"from": last_priority, "to": record["final_priority"]}
-            if last_segment and last_segment != record["segment_label"]:
-                deltas["segment"] = {"from": last_segment, "to": record["segment_label"]}
-            if deltas:
-                record["changed"] = deltas
-                changed.append({"company": record["company"], **deltas})
+        if snapshot is not None:
+            snap = snapshot.get(record.get("company")) or snapshot.get(key) or {}
+            last_priority, last_segment = _txt(snap.get("priority")), _txt(snap.get("segment"))
+        else:
+            last_priority, last_segment = _txt(ws.get("last_seen_priority")), _txt(ws.get("last_seen_segment"))
+        deltas = {}
+        if last_priority and last_priority != record["final_priority"]:
+            deltas["priority"] = {"from": last_priority, "to": record["final_priority"]}
+        if last_segment and last_segment != record["segment_label"]:
+            deltas["segment"] = {"from": last_segment, "to": record["segment_label"]}
+        if deltas:
+            record["changed"] = deltas
+            changed.append({"company": record["company"], **deltas})
 
     orphaned_workspace = sorted(
         _txt(rows[0].get("company")) for key, rows in ws_index.items() if key not in record_keys)
@@ -530,6 +537,7 @@ class DashboardResult:
     report: dict
     readback_ok: bool
     segment_labels_resolved: bool
+    store_seeded: bool = False
 
 
 def _sheet_rows(sheets: dict, name: str) -> list[dict]:
@@ -549,35 +557,15 @@ def read_user_store(path: str | Path | None) -> tuple[list[dict], list[dict]]:
     return _sheet_rows(sheets, WORKSPACE_SHEET), _sheet_rows(sheets, CONTACTS_SHEET)
 
 
-def workspace_writeback(records: list[dict], existing_workspace: list[dict] | None = None) -> pd.DataFrame:
-    """The Workspace tab to write BACK: one row per CURRENT company (so you can tick pursue / add notes on any of
-    them), carrying pursue + your columns + read-only reference (priority, segment) + a refreshed last_seen
-    snapshot. Rows for companies that DROPPED from the ledger are preserved verbatim at the bottom (your notes
-    are never deleted — the orphan is surfaced as a banner for you to resolve)."""
-    extra_cols: list[str] = []
-    for r in records:
-        for k in (r.get("workspace") or {}):
-            if k not in WORKSPACE_USER_COLUMNS and k not in extra_cols:
-                extra_cols.append(k)
-    user_cols = WORKSPACE_USER_COLUMNS + extra_cols
-    columns = (["company", "pursue"] + WORKSPACE_REFERENCE_COLUMNS + user_cols
-               + ["last_seen_priority", "last_seen_segment"])
-
-    rows = []
-    current = {_norm_company(r.get("company")) for r in records}
-    for r in records:
-        ws = r.get("workspace") or {}
-        row = {"company": r["company"], "pursue": "TRUE" if r.get("pursue") else "",
-               "final_priority": r["final_priority"], "segment": r["segment_label"]}
-        for col in user_cols:
-            row[col] = ws.get(col, "")
-        row["last_seen_priority"] = r["final_priority"]
-        row["last_seen_segment"] = r["segment_label"]
-        rows.append(row)
-    # preserve orphaned rows (notes on a company no longer in the ledger) — never delete the user's data
-    for orig in (existing_workspace or []):
-        if _norm_company(orig.get("company")) and _norm_company(orig.get("company")) not in current:
-            rows.append({**{c: "" for c in columns}, **orig, "segment": _txt(orig.get("segment")) or "(not in ledger)"})
+def seed_workspace_sheet(records: list[dict]) -> pd.DataFrame:
+    """The STARTER Workspace tab, written ONCE if no store exists yet: one row per company (so you can tick
+    `pursue` and add notes on any of them) with read-only reference columns (priority, segment) and blank note
+    columns. It carries NO engine columns — change detection lives in a separate snapshot file — so once you own
+    this file the build never rewrites it and your edits are safe."""
+    columns = ["company", "pursue"] + WORKSPACE_REFERENCE_COLUMNS + WORKSPACE_USER_COLUMNS
+    rows = [{"company": r["company"], "pursue": "",
+             "final_priority": r["final_priority"], "segment": r["segment_label"],
+             **{c: "" for c in WORKSPACE_USER_COLUMNS}} for r in records]
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -602,8 +590,14 @@ def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: s
 
     label_map = segment_label_map(taxonomy_dir)
     records = build_company_records(entries, research=research, taxonomy_dir=taxonomy_dir)  # enforces §1a
+
+    # The user store is INPUT-ONLY — the build reads it and NEVER writes over it (your edits are never lost).
+    # Change detection uses an engine-owned snapshot file, not columns inside your store.
+    store_existed = bool(user_store_path) and Path(user_store_path).exists()
     workspace_rows, contacts_rows = read_user_store(user_store_path)
-    records, report = merge_user_layer(records, workspace_rows, contacts_rows)
+    snapshot_path = out / "_user_snapshot.json"
+    snapshot = storage.load_json(snapshot_path) if snapshot_path.exists() else {}
+    records, report = merge_user_layer(records, workspace_rows, contacts_rows, snapshot=snapshot)
 
     view_paths = {
         "all_companies": str(storage.atomic_write_csv(out / "all_companies.csv", all_companies_view(records))),
@@ -614,14 +608,20 @@ def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: s
     html_path = str(dashboard_html.write_dashboard_html(out / "dashboard.html", records, report, title=title))
     storage.atomic_write_json(out / "dashboard_records.json", {"records": records, "report": report})
 
-    # write the editable user store back (Workspace refreshed + Contacts passthrough) — transactional read-back.
-    store_sheets = {WORKSPACE_SHEET: workspace_writeback(records, workspace_rows),
-                    CONTACTS_SHEET: (contacts_view(records) if not contacts_rows
-                                     else pd.DataFrame(contacts_rows))}
-    storage.atomic_write_workbook(user_store_path, store_sheets)
-    reopened = storage.load_workbook_sheets(user_store_path)
-    readback_ok = (WORKSPACE_SHEET in reopened
-                   and len(reopened[WORKSPACE_SHEET]) == len(store_sheets[WORKSPACE_SHEET]))
+    # refresh the engine-owned change-detection snapshot (reopened to verify — Rule 5)
+    new_snapshot = {r["company"]: {"priority": r["final_priority"], "segment": r["segment_label"]}
+                    for r in records}
+    storage.atomic_write_json(snapshot_path, new_snapshot)
+    readback_ok = storage.load_json(snapshot_path) == new_snapshot
+
+    # SEED the editable store ONLY if it does not exist yet (first run). If it exists, the build NEVER touches
+    # it — your pursue ticks / notes / contacts are yours to keep.
+    store_seeded = False
+    if user_store_path and not store_existed:
+        storage.atomic_write_workbook(user_store_path, {
+            WORKSPACE_SHEET: seed_workspace_sheet(records),
+            CONTACTS_SHEET: pd.DataFrame(columns=CONTACTS_COLUMNS)})
+        store_seeded = True
 
     tally: dict = {}
     for r in records:
@@ -630,4 +630,4 @@ def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: s
     return DashboardResult(
         out_dir=str(out), html_path=html_path, view_paths=view_paths, user_store_path=str(user_store_path),
         entries=len(records), tally=tally, report=report, readback_ok=readback_ok,
-        segment_labels_resolved=bool(label_map))
+        segment_labels_resolved=bool(label_map), store_seeded=store_seeded)

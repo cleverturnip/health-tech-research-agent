@@ -61,6 +61,8 @@ def test_build_dashboard_writes_all_artifacts(tmp_path):
     assert result.tally.get("P0") == 1 and result.tally.get("P1") == 1
     assert result.report == {"orphaned_workspace": [], "orphaned_contacts": [], "changed": []}
     assert result.segment_labels_resolved is True     # repo taxonomy reachable in the test env
+    assert result.store_seeded is True                # first run seeds the editable store
+    assert (dash_out / "_user_snapshot.json").exists()
 
 
 def test_research_accepts_a_csv_path(tmp_path):
@@ -76,50 +78,60 @@ def test_research_accepts_a_csv_path(tmp_path):
 # --- user-store round-trip --------------------------------------------------
 
 def _seed_user_store(path):
+    """A store as if Katelynd already edited it — beta pursued with notes, plus a contact."""
     workspace = pd.DataFrame([
         {"company": "beta health", "pursue": "TRUE", "status": "Seeking warm intro", "next_step": "ask Dana",
-         "HQ": "NYC", "desirability_notes": "elite ARR", "deep_dive_notes": "", "last_updated": "",
-         "last_seen_priority": "P3", "last_seen_segment": "Metabolic, nutrition & weight health"},
+         "HQ": "NYC", "desirability_notes": "elite ARR", "deep_dive_notes": "", "last_updated": ""},
     ])
     contacts = pd.DataFrame([{"company": "beta health", "contact": "Dana Rivera", "title": "Head of Growth"}])
     storage.atomic_write_workbook(path, {"Workspace": workspace, "Contacts": contacts})
 
 
-def test_build_dashboard_merges_and_persists_user_layer(tmp_path):
+def test_build_dashboard_reads_store_without_overwriting_it(tmp_path):
+    """REGRESSION (live bug 2026-07-03): the build must READ the store and NEVER overwrite it — your edits
+    must survive every re-run."""
     out = _gate2_dir(tmp_path)
     dash_out = tmp_path / "dash"
     dash_out.mkdir()
     store = dash_out / "dashboard_user_store.xlsx"
     _seed_user_store(store)
+    before = store.read_bytes()
 
     result = dashboard.build_dashboard(out / "ledger.jsonl", research=_research(), out_dir=dash_out)
 
-    # pursuit view reflects the pursued company + the change ("was P3" -> now P1)
+    # my edits show up in the pursuit view
     pursuit = pd.read_csv(dash_out / "pursuit.csv").fillna("")
     beta = pursuit[pursuit["company"] == "beta health"].iloc[0]
     assert beta["status"] == "Seeking warm intro"
-    assert beta["changed"] == "priority P3→P1"
-    assert {"company": "beta health", "priority": {"from": "P3", "to": "P1"}} in result.report["changed"]
 
-    # the written-back workbook keeps her notes and refreshes the snapshot to the current tier
+    # THE FIX: the store file is byte-for-byte unchanged — the build never touched my edits
+    assert store.read_bytes() == before
+    assert result.store_seeded is False
     sheets = storage.load_workbook_sheets(store)
-    ws = sheets["Workspace"].fillna("")
-    beta_row = ws[ws["company"] == "beta health"].iloc[0]
-    assert dashboard._truthy(beta_row["pursue"])       # xlsx may coerce "TRUE"->True; merge reads it either way
-    assert beta_row["status"] == "Seeking warm intro"
-    assert str(beta_row["last_seen_priority"]) == "P1"        # snapshot moved forward -> no false "changed" next run
-    assert set(ws["company"]) == {"alpha health", "beta health", "gamma health", "delta health", "epsilon health"}
+    assert dashboard._truthy(sheets["Workspace"].fillna("").iloc[0]["pursue"])
 
 
-def test_second_run_is_stable_no_false_change(tmp_path):
-    """After a run refreshes the snapshot, an unchanged re-run reports no change (idempotent-ish)."""
+def test_changed_since_last_run_uses_engine_snapshot(tmp_path):
     out = _gate2_dir(tmp_path)
     dash_out = tmp_path / "dash"
     dash_out.mkdir()
     _seed_user_store(dash_out / "dashboard_user_store.xlsx")
-    dashboard.build_dashboard(out / "ledger.jsonl", research=_research(), out_dir=dash_out)   # refreshes snapshot
+    # a prior run saw beta at P3; the ledger now has it at P1 (an override) -> "changed since you last looked"
+    storage.atomic_write_json(dash_out / "_user_snapshot.json",
+                              {"beta health": {"priority": "P3", "segment": "Metabolic, nutrition & weight health"}})
+    result = dashboard.build_dashboard(out / "ledger.jsonl", research=_research(), out_dir=dash_out)
+    assert {"company": "beta health", "priority": {"from": "P3", "to": "P1"}} in result.report["changed"]
+
+
+def test_second_run_is_stable_no_false_change(tmp_path):
+    """After a run writes the snapshot, an unchanged re-run reports no change (no phantom 'changed')."""
+    out = _gate2_dir(tmp_path)
+    dash_out = tmp_path / "dash"
+    dash_out.mkdir()
+    _seed_user_store(dash_out / "dashboard_user_store.xlsx")
+    dashboard.build_dashboard(out / "ledger.jsonl", research=_research(), out_dir=dash_out)   # writes snapshot
     result2 = dashboard.build_dashboard(out / "ledger.jsonl", research=_research(), out_dir=dash_out)
-    assert result2.report["changed"] == []       # snapshot now matches -> no phantom change
+    assert result2.report["changed"] == []
 
 
 # --- segment-label degradation ----------------------------------------------
