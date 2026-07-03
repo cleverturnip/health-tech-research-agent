@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard wireframe — design reference (2026-07-03)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.17.0/dist/tabler-icons.min.css">
+<style>
+:root{
+ --surface-0:#faf9f5;--surface-1:#f1efe8;--surface-2:#ffffff;
+ --text-primary:#2C2C2A;--text-secondary:#5F5E5A;--text-muted:#888780;
+ --border:rgba(0,0,0,0.10);--border-strong:rgba(0,0,0,0.18);
+ --radius:8px;
+}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--text-primary);background:var(--surface-0);margin:0;padding:24px;line-height:1.5}
+.wrap{max-width:860px;margin:0 auto}
+.doc-note{font-size:13px;color:var(--text-secondary);background:var(--surface-1);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px}
+.topnav{display:flex;gap:8px;margin-bottom:16px}
+.topnav button{font:inherit;font-size:13px;background:transparent;border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:7px 13px;cursor:pointer;color:var(--text-secondary)}
+.topnav button.active{background:var(--text-primary);color:#fff;border-color:var(--text-primary)}
+.pill{font-size:11px;padding:2px 8px;border-radius:20px;display:inline-block}
+.p0{background:#EAF3DE;color:#27500A}.p1{background:#E6F1FB;color:#0C447C}.p2{background:#FAEEDA;color:#633806}.p3{background:#F1EFE8;color:#444441}
+.was{font-size:11px;color:var(--text-muted)}
+.tag{background:#E1F5EE;color:#085041;font-size:11px;padding:1px 7px;border-radius:20px}
+.status{background:var(--surface-1);border:0.5px solid var(--border);color:var(--text-secondary);font-size:11px;padding:2px 8px;border-radius:20px;display:inline-block}
+.cov-dir{background:#FAEEDA;color:#633806}.cov-sparse{background:#F1EFE8;color:#5F5E5A}
+.fwarn{background:#FCEBEB;color:#791F1F;font-size:11px;padding:2px 8px;border-radius:20px}
+.finfo{background:#F1EFE8;color:#5F5E5A;font-size:11px;padding:2px 8px;border-radius:20px}
+.cv-ver{background:#E1F5EE;color:#085041}.cv-inf{background:#E6F1FB;color:#0C447C}.cv-weak{background:#FAEEDA;color:#633806}
+.muted{color:var(--text-muted)}
+.src{color:var(--text-muted);font-size:11.5px}
+
+/* ---- grid views ---- */
+#view-grid .sheet{border:0.5px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface-2);font-size:13px}
+#view-grid .topbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:0.5px solid var(--border)}
+#view-grid .tabs{display:flex;gap:2px;padding:0 8px;border-bottom:0.5px solid var(--border);background:var(--surface-1)}
+#view-grid .tab{padding:9px 14px;font-size:13px;color:var(--text-secondary);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent}
+#view-grid .tab.active{color:var(--text-primary);border-bottom-color:var(--text-primary);font-weight:500}
+#view-grid .toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:0.5px solid var(--border);flex-wrap:wrap}
+#view-grid .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text-secondary);background:var(--surface-2)}
+#view-grid .chip.btn{cursor:pointer;color:var(--text-primary);border-color:var(--border-strong)}
+#view-grid .tablewrap{overflow-x:auto}
+#view-grid table.gtbl{border-collapse:collapse;width:100%;font-size:12.5px}
+#view-grid .gtbl th{text-align:left;font-weight:500;color:var(--text-secondary);padding:8px 10px;border-bottom:0.5px solid var(--border);white-space:nowrap}
+#view-grid .gtbl td{padding:7px 10px;border-bottom:0.5px solid var(--border);white-space:nowrap;color:var(--text-primary)}
+#view-grid .gtbl tr:hover td{background:var(--surface-1)}
+#view-grid .grouphdr th{font-size:11px;font-weight:500;padding:6px 10px}
+#view-grid .grp-ledger{background:var(--surface-1);color:var(--text-muted)}
+#view-grid .grp-detail{background:var(--surface-1);color:var(--text-muted)}
+#view-grid .grp-mine{background:#FAEEDA;color:#633806}
+#view-grid .mycol{border-left:2px solid #EF9F27}
+#view-grid .detail{display:none}
+#view-grid .sheet.show-detail .detail{display:table-cell}
+#view-grid .xbtn{border:0.5px solid var(--border-strong);background:var(--surface-2);border-radius:var(--radius);padding:2px 7px;cursor:pointer;color:var(--text-secondary);font-size:12px}
+#view-grid .wrapcell{white-space:normal;min-width:150px;max-width:210px;color:var(--text-secondary)}
+#view-grid .note{font-size:11px;color:var(--text-muted);padding:8px 14px;border-top:0.5px solid var(--border)}
+
+/* ---- detail view ---- */
+#view-detail .crumb{font-size:12px;color:var(--text-secondary);margin-bottom:10px}
+#view-detail .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+#view-detail .hd h3{font-size:19px;margin:0}
+#view-detail .sub{color:var(--text-secondary);font-size:12.5px;margin:4px 0 0}
+#view-detail .card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:14px}
+#view-detail .ct{font-size:11px;letter-spacing:.04em;color:var(--text-muted);margin:0 0 10px}
+#view-detail .scores{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px}
+#view-detail .sbox{background:var(--surface-1);border-radius:var(--radius);padding:7px 12px;min-width:74px}
+#view-detail .sbox .l{font-size:11px;color:var(--text-secondary)}
+#view-detail .sbox .v{font-size:17px;font-weight:500}
+#view-detail .why{font-size:12.5px;line-height:1.6}
+#view-detail .ov{font-size:12.5px;margin-top:8px;padding:9px 11px;border:0.5px solid #EF9F27;border-radius:var(--radius);background:#FAEEDA;color:#633806}
+#view-detail .glabel{font-size:11px;color:var(--text-muted);font-weight:500;margin:12px 0 5px}
+#view-detail .cgrid{display:grid;gap:10px}
+#view-detail .cg2{grid-template-columns:repeat(2,1fr)}
+#view-detail .cg3{grid-template-columns:repeat(3,1fr)}
+#view-detail .lc{background:var(--surface-1);border-radius:var(--radius);padding:10px 12px 11px}
+#view-detail .lch{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:7px;padding-bottom:6px;border-bottom:0.5px solid var(--border)}
+#view-detail .lct{font-size:11.5px;color:var(--text-primary);font-weight:500}
+#view-detail .ls{font-size:10px;background:#E1F5EE;color:#085041;padding:2px 7px;border-radius:20px;white-space:nowrap}
+#view-detail .r{display:flex;gap:7px;padding:3px 0;font-size:12px;align-items:flex-start}
+#view-detail .k{color:var(--text-muted);width:82px;flex-shrink:0}
+#view-detail .v{color:var(--text-secondary);line-height:1.45}
+#view-detail .v.s{color:var(--text-primary);font-weight:500}
+#view-detail .acc{border:0.5px solid var(--border);border-radius:var(--radius);margin-top:8px;background:var(--surface-1)}
+#view-detail .acc .acc{margin-top:6px;background:var(--surface-2)}
+#view-detail .ah{padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px}
+#view-detail .chev{display:inline-block;color:var(--text-muted)}
+#view-detail .ab{display:none;padding:0 12px 12px}
+#view-detail .acc.open > .ab{display:block}
+#view-detail .acc.open > .ah .chev{transform:rotate(90deg)}
+#view-detail .fact{font-size:12.5px;line-height:1.5;padding:8px 0;border-top:0.5px solid var(--border);display:flex;gap:9px;align-items:flex-start}
+#view-detail .fact:first-child{border-top:none}
+#view-detail .md{font-size:12px;line-height:1.55;color:var(--text-secondary);padding-top:8px}
+#view-detail .legend{font-size:11px;color:var(--text-muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="doc-note"><b>Dashboard wireframe — visual reference for <code>specs/DASHBOARD_DESIGN.md</code> (2026-07-03).</b>
+    Two views: the grid tabs (all companies · pursuit · contacts · segment radar) and the per-company detail view.
+    Illustrative sample data (the five fixture companies + Function Health from the research output). Amber = your
+    editable layer; grey = automated read-only from the ledger.</div>
+
+  <div class="topnav">
+    <button data-view="grid" class="active" onclick="showView('grid')">Grid views</button>
+    <button data-view="detail" onclick="showView('detail')">Company detail</button>
+  </div>
+
+  <div id="view-grid">
+    <div class="sheet" id="sheet">
+      <div class="topbar">
+        <i class="ti ti-layout-dashboard" style="font-size:18px"></i>
+        <span style="font-weight:500">Health-tech career dashboard</span>
+        <span class="muted" style="font-size:11px">· rebuilt from the reviewed ledger · your notes preserved</span>
+        <span style="margin-left:auto" class="chip"><i class="ti ti-refresh"></i> regenerate</span>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-p="all" onclick="gtab('all',this)">All companies</button>
+        <button class="tab" data-p="pursuit" onclick="gtab('pursuit',this)">Pursuit</button>
+        <button class="tab" data-p="contacts" onclick="gtab('contacts',this)">Contacts</button>
+        <button class="tab" data-p="radar" onclick="gtab('radar',this)">Segment radar</button>
+      </div>
+
+      <div id="p-all">
+        <div class="toolbar">
+          <span class="muted" style="font-size:11px">filters:</span>
+          <span class="chip"><i class="ti ti-filter"></i> priority</span>
+          <span class="chip"><i class="ti ti-filter"></i> segment</span>
+          <span class="chip"><i class="ti ti-filter"></i> pursue</span>
+          <span class="chip btn" style="margin-left:auto" onclick="document.getElementById('sheet').classList.toggle('show-detail')"><i class="ti ti-chevron-right"></i> show tags &amp; scores</span>
+        </div>
+        <div class="tablewrap">
+          <table class="gtbl">
+            <tr class="grouphdr">
+              <th class="grp-mine">yours</th>
+              <th class="grp-ledger" colspan="7">from the ledger — read-only</th>
+              <th class="grp-detail detail" colspan="9">tags &amp; scores — toggle</th>
+            </tr>
+            <tr>
+              <th class="mycol">pursue</th>
+              <th>company</th><th>priority</th><th>segment</th><th>model</th><th>stage</th><th>FINAL</th><th></th>
+              <th class="detail">subsegment</th><th class="detail">product</th><th class="detail">distribution</th><th class="detail">data input</th>
+              <th class="detail">bg</th><th class="detail">PMF</th><th class="detail">ARR</th><th class="detail">growth</th><th class="detail">strain</th>
+            </tr>
+            <tr>
+              <td class="mycol"><input type="checkbox" checked></td>
+              <td>alpha health</td><td><span class="pill p0">P0</span></td><td>Metabolic, nutrition &amp; weight</td><td>B2C</td><td>series-b</td><td>19</td>
+              <td><button class="xbtn" onclick="showView('detail')"><i class="ti ti-layout-sidebar-right-expand"></i></button></td>
+              <td class="detail"><span class="tag">diabetes</span></td><td class="detail"><span class="tag">virtual care</span></td><td class="detail"><span class="tag">employer</span></td><td class="detail"><span class="tag">labs</span></td>
+              <td class="detail">8</td><td class="detail">9</td><td class="detail">10</td><td class="detail">9</td><td class="detail">2</td>
+            </tr>
+            <tr>
+              <td class="mycol"><input type="checkbox" checked></td>
+              <td>beta health</td><td><span class="pill p1">P1</span> <span class="was">was P3</span></td><td>Metabolic, nutrition &amp; weight</td><td>B2C</td><td>series-b</td><td>15</td>
+              <td><button class="xbtn" onclick="showView('detail')"><i class="ti ti-layout-sidebar-right-expand"></i></button></td>
+              <td class="detail"><span class="tag">diagnostics</span></td><td class="detail"><span class="tag">virtual care</span></td><td class="detail"><span class="tag">employer</span></td><td class="detail"><span class="tag">labs</span></td>
+              <td class="detail">4</td><td class="detail">9</td><td class="detail">10</td><td class="detail">9</td><td class="detail">2</td>
+            </tr>
+            <tr>
+              <td class="mycol"><input type="checkbox"></td>
+              <td>delta health</td><td><span class="pill p3">P3</span> <span class="was">was P0</span></td><td>Mental &amp; behavioral</td><td>B2B2C</td><td>series-d+</td><td>18</td>
+              <td><button class="xbtn" onclick="showView('detail')"><i class="ti ti-layout-sidebar-right-expand"></i></button></td>
+              <td class="detail"><span class="tag">anxiety</span></td><td class="detail"><span class="tag">provider network</span></td><td class="detail"><span class="tag">payer</span></td><td class="detail"><span class="tag">claims</span></td>
+              <td class="detail">7</td><td class="detail">9</td><td class="detail">10</td><td class="detail">9</td><td class="detail">2</td>
+            </tr>
+            <tr>
+              <td class="mycol"><input type="checkbox"></td>
+              <td>gamma health</td><td><span class="pill p3">P3</span></td><td>Specialty condition care</td><td>B2B</td><td>series-c</td><td class="muted">n/a</td>
+              <td><button class="xbtn" onclick="showView('detail')"><i class="ti ti-layout-sidebar-right-expand"></i></button></td>
+              <td class="detail"><span class="tag">GI</span></td><td class="detail"><span class="tag">virtual care</span></td><td class="detail"><span class="tag">employer</span></td><td class="detail"><span class="tag">labs</span></td>
+              <td class="detail muted">n/a</td><td class="detail">6</td><td class="detail">7</td><td class="detail">5</td><td class="detail">2</td>
+            </tr>
+            <tr>
+              <td class="mycol"><input type="checkbox"></td>
+              <td>epsilon health</td><td><span class="pill p3">P3</span></td><td>Women's, reproductive &amp; family</td><td>B2B2C</td><td>series-b</td><td>7</td>
+              <td><button class="xbtn" onclick="showView('detail')"><i class="ti ti-layout-sidebar-right-expand"></i></button></td>
+              <td class="detail"><span class="tag">maternity</span></td><td class="detail"><span class="tag">navigation</span></td><td class="detail"><span class="tag">employer</span></td><td class="detail"><span class="tag">self-report</span></td>
+              <td class="detail">4</td><td class="detail">3</td><td class="detail">10</td><td class="detail">4</td><td class="detail">0</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <div id="p-pursuit" style="display:none">
+        <div class="toolbar"><span class="muted" style="font-size:11px">companies you ticked "pursue" · your columns carry forward every run · click a row's icon to open its detail</span></div>
+        <div class="tablewrap">
+          <table class="gtbl">
+            <tr class="grouphdr"><th class="grp-ledger" colspan="6">from the ledger — read-only</th><th class="grp-mine" colspan="5">your columns — persist across runs</th></tr>
+            <tr><th>company</th><th>priority</th><th>segment</th><th>stage</th><th>FINAL</th><th></th><th class="mycol">status</th><th>next step</th><th>HQ</th><th>desirability notes</th><th>deep-dive notes</th></tr>
+            <tr>
+              <td>alpha health</td><td><span class="pill p0">P0</span></td><td>Metabolic, nutrition &amp; weight</td><td>series-b</td><td>19</td>
+              <td><button class="xbtn" onclick="showView('detail')"><i class="ti ti-layout-sidebar-right-expand"></i></button></td>
+              <td class="mycol"><span class="status">Researching</span></td><td class="wrapcell">Find warm intro to VP Product</td><td>Boston, MA</td>
+              <td class="wrapcell">Daily-loop consumer metabolic — my wheelhouse</td><td class="wrapcell">Hiring a growth PM</td>
+            </tr>
+            <tr>
+              <td>beta health</td><td><span class="pill p1">P1</span> <span class="was">was P3</span></td><td>Metabolic, nutrition &amp; weight</td><td>series-b</td><td>15</td>
+              <td><button class="xbtn" onclick="showView('detail')"><i class="ti ti-layout-sidebar-right-expand"></i></button></td>
+              <td class="mycol"><span class="status">Seeking warm intro</span></td><td class="wrapcell">Ask Dana for intro to Head of Growth</td><td>New York, NY</td>
+              <td class="wrapcell">I bumped to P1 — elite ARR; low bg is the correct 2×/yr cadence</td><td class="wrapcell">Check product-org size</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <div id="p-contacts" style="display:none">
+        <div class="toolbar"><span class="muted" style="font-size:11px">one row per contact · keyed to a company · all yours</span></div>
+        <div class="tablewrap">
+          <table class="gtbl">
+            <tr class="grouphdr"><th class="grp-mine" colspan="7">your contacts — persist across runs</th></tr>
+            <tr><th>company</th><th>contact</th><th>title</th><th>relationship</th><th>warm-intro path</th><th>ask / status</th><th>notes</th></tr>
+            <tr><td>beta health</td><td>Dana Rivera</td><td>Head of Growth</td><td>former colleague</td><td>direct</td><td><span class="status">intro requested</span></td><td class="wrapcell">Worked together at Prior Co</td></tr>
+            <tr><td>alpha health</td><td>Sam Lee</td><td>VP Product</td><td>2nd-degree</td><td>via Priya M.</td><td><span class="status">not started</span></td><td class="wrapcell">Priya offered to intro</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div id="p-radar" style="display:none">
+        <div class="toolbar"><span class="muted" style="font-size:11px">where am I thin? · all gated companies by segment · read-only</span></div>
+        <div class="tablewrap">
+          <table class="gtbl">
+            <tr class="grouphdr"><th class="grp-ledger" colspan="8">from the ledger — read-only</th></tr>
+            <tr><th>segment</th><th>companies</th><th>P0</th><th>P1</th><th>P2</th><th>P3</th><th>desirable</th><th>coverage</th></tr>
+            <tr><td>Metabolic, nutrition &amp; weight</td><td>2</td><td>1</td><td>1</td><td>0</td><td>0</td><td>2</td><td><span class="pill cov-dir">directional</span></td></tr>
+            <tr><td>Mental &amp; behavioral</td><td>1</td><td>0</td><td>0</td><td>0</td><td>1</td><td>0</td><td><span class="pill cov-sparse">sparse</span></td></tr>
+            <tr><td>Specialty condition care</td><td>1</td><td>0</td><td>0</td><td>0</td><td>1</td><td>0</td><td><span class="pill cov-sparse">sparse</span></td></tr>
+            <tr><td>Women's, reproductive &amp; family</td><td>1</td><td>0</td><td>0</td><td>0</td><td>1</td><td>0</td><td><span class="pill cov-sparse">sparse</span></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="note"><span class="pill p0">P0</span> top target · <span class="pill p1">P1</span> · <span class="pill p2">P2</span> · <span class="pill p3">P3</span> watch · "was P3" = your override on record — coverage thresholds: Strong ≥3 companies &amp; ≥2 P0–P2 · Directional ≥2 &amp; ≥1 · else Sparse.</div>
+    </div>
+  </div>
+
+  <div id="view-detail" style="display:none">
+    <div class="crumb"><i class="ti ti-arrow-left"></i> all companies / <span style="color:var(--text-primary)">function health</span></div>
+    <div class="hd">
+      <h3>function health</h3>
+      <span class="pill p1">P1</span><span class="pill p3" style="opacity:.8">model: P3</span>
+      <span style="color:var(--text-secondary);font-size:12.5px">Consumer health optimization · B2C · series-b</span>
+    </div>
+    <p class="sub">D2C cash-pay membership for annual biomarker lab testing and longevity screening — no insurance.</p>
+
+    <div class="card">
+      <p class="ct">SCORING &amp; DECISION — from the ledger (write-once)</p>
+      <div class="scores">
+        <div class="sbox"><div class="l">background fit</div><div class="v">4</div></div>
+        <div class="sbox"><div class="l">PMF</div><div class="v">10</div></div>
+        <div class="sbox"><div class="l">ARR</div><div class="v">10</div></div>
+        <div class="sbox"><div class="l">growth</div><div class="v">10</div></div>
+        <div class="sbox"><div class="l">strain</div><div class="v">2</div></div>
+        <div class="sbox"><div class="l">FINAL</div><div class="v">16</div></div>
+      </div>
+      <div class="why">
+        <div><b>background fit 4</b> — 2×/yr lab cadence is episodic, not a daily loop. This floored it (bg 4 ≤ 4 → capped P3).</div>
+        <div><b>ARR 10</b> · <b>growth 10</b> · <b>strain 2 STRONG</b> (a2=72).</div>
+      </div>
+      <div class="ov"><b>Your override → P1:</b> elite revenue + growth; the low background fit is the correct 2×/yr cadence, not a weakness.</div>
+    </div>
+
+    <div class="card">
+      <p class="ct">RESEARCH EVIDENCE — at a glance (each card = a scoring lever)</p>
+
+      <div class="glabel">the gates — a fail here caps priority at P3</div>
+      <div class="cgrid cg2">
+        <div class="lc">
+          <div class="lch"><span class="lct">classification &amp; channel</span><span class="ls">drives PATH ✓</span></div>
+          <div class="r"><span class="k">who uses</span><span class="v">consumer end-user — individuals buy for themselves</span></div>
+          <div class="r"><span class="k">who pays</span><span class="v">consumer — cash-pay D2C, no insurance</span></div>
+          <div class="r"><span class="k">model → PATH</span><span class="v s">B2C · Test A pass · Test B pass (revenue + user-scale + growth)</span></div>
+          <div class="r"><span class="k">inst. channel</span><span class="v">none — B2C consumer-direct <span class="src">(B2B2C test; read from payer finding)</span></span></div>
+        </div>
+        <div class="lc">
+          <div class="lch"><span class="lct">funding &amp; maturity</span><span class="ls">drives agency ✓</span></div>
+          <div class="r"><span class="k">rounds → stage</span><span class="v s">A $53M (2024-06) · B $298M (2025-11) → series-b</span></div>
+          <div class="r"><span class="k">total raised</span><span class="v">~$351M disclosed</span></div>
+          <div class="r"><span class="k">resets</span><span class="v">SuppCo (2026-05, high-agency) · Ezra + Med Intelligence Lab (2025-11)</span></div>
+        </div>
+      </div>
+
+      <div class="glabel">the score — background fit + PMF + strain = FINAL</div>
+      <div class="cgrid cg3">
+        <div class="lc">
+          <div class="lch"><span class="lct">product market fit</span><span class="ls">ARR 10 · growth 10</span></div>
+          <div class="r"><span class="k">revenue / ARR</span><span class="v s">~$100M run-rate, Feb 2025 (Sacra); CB Insights $100M (2024)</span></div>
+          <div class="r"><span class="k">growth</span><span class="v s">~450% YoY · single third-party (Sacra) · <span style="color:#27500A">not fenced</span></span></div>
+          <div class="r"><span class="k">members</span><span class="v">~200k by May 2025 (from ~40k)</span></div>
+          <div class="r"><span class="k">pricing</span><span class="v">$365/yr (was $499) · consumer-subscription</span></div>
+          <div class="r"><span class="k">evidence</span><span class="v">credible-estimate <span class="src">— trust cue</span></span></div>
+        </div>
+        <div class="lc">
+          <div class="lch"><span class="lct">background fit</span><span class="ls">drives Background Fit 4</span></div>
+          <div class="r"><span class="k">cadence</span><span class="v s">2×/yr lab testing — episodic, not a daily-use loop</span></div>
+          <div class="r"><span class="k">feedback loop</span><span class="v">no</span></div>
+        </div>
+        <div class="lc">
+          <div class="lch"><span class="lct">operator needed</span><span class="ls">drives strain 2</span></div>
+          <div class="r"><span class="k">a2 complexity</span><span class="v s">72 → STRONG (+2)</span></div>
+          <div class="r"><span class="k">basis</span><span class="v">rapid growth + acquisitions → scaling / integration complexity</span></div>
+        </div>
+      </div>
+
+      <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> verified facts &amp; sources <span class="src">(10 facts · 3 inferences · 4 weak)</span></div>
+        <div class="ab">
+          <div class="fact"><span class="pill cv-ver">verified</span><div>Series B $298M announced 2025-11-19; $2.5B valuation, ~$351M total. <span class="src">prnewswire / techcrunch</span></div></div>
+          <div class="fact"><span class="pill cv-ver">verified</span><div>Sacra estimates $100M run-rate Feb 2025, ~450% YoY, ~200k members. <span class="src">sacra.com</span></div></div>
+          <div class="fact"><span class="pill cv-inf">inference</span><div>Scale comes primarily from recurring D2C membership, not payer/health-system distribution.</div></div>
+          <div class="fact"><span class="pill cv-weak">weak</span><div>No verified payer contracts or named employer distribution found. <span class="src">absence = upper bound, not a measured zero</span></div></div>
+        </div>
+      </div>
+
+      <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> full findings — raw research text <span class="src">(click a finding to open its text)</span></div>
+        <div class="ab">
+          <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> commercial scale &amp; growth</div>
+            <div class="ab"><div class="md">Credible evidence of meaningful paid-user scale and estimated run-rate, mainly from Sacra and a CB Insights listing; no company-issued ARR disclosure found. $100M run rate in Feb 2025, up ~450% YoY (Sacra). Over 200,000 members by May 2025 vs ~40,000 in May 2024. <span class="src">(excerpt — full text + links in the record)</span></div></div>
+          </div>
+          <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> funding &amp; maturity</div>
+            <div class="ab"><div class="md">Founding year 2023 per Fierce Healthcare. Series B $298M (2025-11) alongside a Medical Intelligence AI model; Series A $53M (2024-06) led by a16z Bio + Health; ~$351M total, $2.5B valuation. <span class="src">(excerpt)</span></div></div>
+          </div>
+          <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> payer / institutional</div>
+            <div class="ab"><div class="md">Primarily D2C / cash-pay, with limited public evidence of durable institutional distribution. Pricing pages emphasize "No insurance"; core offer is an individual membership for 160+ lab tests / annual biomarker monitoring. <span class="src">(excerpt — functionhealth.com)</span></div></div>
+          </div>
+          <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> outcomes</div>
+            <div class="ab"><div class="md">No strong public outcomes evidence found — no peer-reviewed studies, trials, or published real-world evidence of improved clinical outcomes, behavior change, or retention. Mostly product/marketing material on test breadth. <span class="src">(excerpt)</span></div></div>
+          </div>
+          <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> operating characteristics</div>
+            <div class="ab"><div class="md">Structurally an annual / semiannual testing membership, not a daily-use product — "160+ lab tests annually," "testing 2×/year and on-demand," billed upfront ($499 for 2 years or $365 for 1 year). <span class="src">(excerpt)</span></div></div>
+          </div>
+          <div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle('open')"><i class="ti ti-chevron-right chev"></i> paying / monetization · org events</div>
+            <div class="ab"><div class="md">Recurring membership ($365/yr, earlier $499) plus add-on imaging/tests; Sacra and TIME corroborate large paid-member scale. Org events: acquired SuppCo (2026-05) and Ezra (2025-11), launched a Medical Intelligence Lab. <span class="src">(excerpt)</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend"><span class="ls">drives …</span> each card is a genuine §B scoring lever · the LLM's preliminary guess, parallel timing read, and retired scores are not shown (Rule 7)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showView(v){
+  document.getElementById('view-grid').style.display = (v==='grid')?'':'none';
+  document.getElementById('view-detail').style.display = (v==='detail')?'':'none';
+  document.querySelectorAll('.topnav button').forEach(function(b){b.classList.toggle('active', b.dataset.view===v);});
+  window.scrollTo(0,0);
+}
+function gtab(p,el){
+  ['all','pursuit','contacts','radar'].forEach(function(k){document.getElementById('p-'+k).style.display=(k===p)?'':'none';});
+  document.querySelectorAll('#view-grid .tab').forEach(function(t){t.classList.toggle('active', t===el);});
+}
+</script>
+</body>
+</html>
