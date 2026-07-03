@@ -109,6 +109,14 @@ instead of through Colab cells. Front end: not started.
 milestones move; keep done/next honest.*
 
 ## Carry-forward engineering notes (open, not yet built)
+- **GATE-2 review data findings (regen-2 batch, 2026-07-03)** — surfaced during the live GATE-2 review; each
+  is an UPSTREAM/research fix (Rule 8 — do NOT hand-edit the ledger): (1) **`cylinder health` = `vivante health`**
+  are the SAME company (Cylinder is the rebrand of Vivante) — de-dup the candidate/research set (drop `vivante`).
+  (2) **`rula health` Series C date** reads `2026-02` but the real Series C closed **July 2024** — check the
+  round's designation/date in the research (a later same-series round may be mislabeled series-c). (3) **`pomelo
+  care` growth** came back UNKNOWN (fenced on covered-lives) — verify a real revenue-growth data point wasn't
+  missed in research. Katelynd's 5 priority overrides (function→P1, grow→P3, rula→P1, bicycle→P1, summer→P2)
+  live in the ledger's decision block with history (Rule 6), NOT here.
 - **Fit-brief JSON-retry hardening** — the research fit-brief occasionally fails with a `JSONDecodeError`
   (the `videahealth`-class failure; happens ~once per run and can drop a company). Retry/repair the fit
   brief on decode failure. Real, recurring; not yet built.
