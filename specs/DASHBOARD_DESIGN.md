@@ -311,8 +311,10 @@ from health_tech_research_agent import ledger
 OUT = "/content/drive/MyDrive/gate2_batch_2026-07-02"
 print(ledger.finalize_gate2_review_dir(OUT, reviewed_date="2026-07-03", reviewed_at_gate="gate2_batch_regen2"))
 
-# 2. taxonomy for segment LABELS (pip wheel doesn't ship taxonomy/) — clone for the label join
-!git clone -q https://github.com/cleverturnip/health-tech-research-agent.git /content/htra
+# 2. taxonomy for segment LABELS (pip wheel doesn't ship taxonomy/) — idempotent clone for the label join
+import os
+if not os.path.exists("/content/htra"):
+    !git clone -q https://github.com/cleverturnip/health-tech-research-agent.git /content/htra
 
 # 3. AUTHENTICATE + open/create your dashboard Google Sheet
 from google.colab import auth; auth.authenticate_user()
