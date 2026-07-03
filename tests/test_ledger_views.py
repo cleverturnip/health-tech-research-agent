@@ -131,6 +131,16 @@ def test_resolve_stage_basis_uses_funding_patch_for_equip():
     assert se.resolve_stage_basis("equip health", rounds, {}, "series-c").startswith("Series C")
 
 
+def test_resolve_stage_basis_shows_undisclosed_when_amount_missing():
+    from health_tech_research_agent import structured_evidence as se
+    # A placeholder amount ("unknown") and a missing amount field both render as "undisclosed $" (visible gap).
+    placeholder = [{"series_designation": "series-b", "type": "series-b", "date": "2024-07",
+                    "is_priced_equity": True, "amount": "unknown"}]
+    absent = [{"series_designation": "series-b", "type": "series-b", "date": "2024-07", "is_priced_equity": True}]
+    assert se.resolve_stage_basis("x", placeholder, {}, "series-b") == "Series B, undisclosed $, 2024-07"
+    assert se.resolve_stage_basis("x", absent, {}, "series-b") == "Series B, undisclosed $, 2024-07"
+
+
 def test_resolve_stage_basis_normal_company_matches_latest_round():
     from health_tech_research_agent import structured_evidence as se
     rounds = [{"series_designation": "series-b", "type": "series-b", "date": "2024-06",

@@ -271,14 +271,21 @@ _STAGE_LABELS = {"pre-seed": "Pre-seed", "seed": "Seed", "series-a": "Series A",
                  "series-c": "Series C", "series-d-plus": "Series D+", "public": "Public"}
 
 
+# Placeholder amount values the research writes when a raise size wasn't found — treated as NO amount (so a
+# round with amount 'unknown' does NOT render as '$unknown'; the round-display callers substitute 'undisclosed $').
+_AMOUNT_PLACEHOLDERS = frozenset({"unknown", "undisclosed", "undisclosed $", "n/a", "na", "none", "null",
+                                  "tbd", "unspecified", "not disclosed", "-"})
+
+
 def _round_amount_text(r) -> str:
-    """Best-effort $ amount from a round/ipo dict (schema varies) — '' when no recognizable amount field."""
+    """Best-effort $ amount from a round/ipo dict (schema varies) — '' when no REAL dollar figure is present
+    (a placeholder like 'unknown'/'undisclosed' or a missing field -> '', never '$unknown'). Round-display
+    callers substitute 'undisclosed $' to make a missing raise VISIBLE; the IPO line leaves it blank."""
     if not isinstance(r, dict):
         return ""
     for key in ("amount_usd_m", "amount_m", "amount_usd", "amount", "size", "raise_usd", "round_size"):
-        val = r.get(key)
-        if val not in (None, "", 0):
-            text = _safe_text(val)
+        text = _safe_text(r.get(key))
+        if text and text.lower() not in _AMOUNT_PLACEHOLDERS:
             return text if text.startswith("$") else f"${text}"
     return ""
 
@@ -301,7 +308,8 @@ def stage_basis_text(funding_rounds, ipo_event=None) -> str:
     if not designated:
         return ""
     latest = max(designated, key=lambda r: (_parse_date(r.get("date")), _stage_order_index(_round_series(r))))
-    parts = [stage_label(_round_series(latest)), _round_amount_text(latest), _safe_text(latest.get("date"))]
+    parts = [stage_label(_round_series(latest)), _round_amount_text(latest) or "undisclosed $",
+             _safe_text(latest.get("date"))]
     return ", ".join(p for p in parts if p)
 
 
@@ -322,7 +330,7 @@ def resolve_stage_basis(company, funding_rounds, ipo_event, resolved_stage) -> s
     matching = [r for r in _designated_rounds(rounds) if _round_series(r) == stage]
     if matching:
         latest = max(matching, key=lambda r: _parse_date(r.get("date")))
-        parts = [stage_label(stage), _round_amount_text(latest), _safe_text(latest.get("date"))]
+        parts = [stage_label(stage), _round_amount_text(latest) or "undisclosed $", _safe_text(latest.get("date"))]
         return ", ".join(p for p in parts if p)
     if stage in _STAGE_LABELS:
         return stage_label(stage)                 # a real stage, no matching round -> label only (never a wrong series)
