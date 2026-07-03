@@ -570,19 +570,21 @@ def seed_workspace_sheet(records: list[dict]) -> pd.DataFrame:
 
 
 def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: str | Path,
-                    user_store_path: str | Path | None = None, taxonomy_dir: str | Path | None = None,
+                    user_store_path: str | Path | None = None, gsheet: Any = None,
+                    taxonomy_dir: str | Path | None = None,
                     title: str = "Health-tech career dashboard") -> DashboardResult:
     """Build the whole dashboard from a FINALIZED ledger (run `ledger.finalize_gate2_review_dir` first). Reads the
     reviewed ledger (ENFORCES §1a — an un-finalized ledger RAISES), the research CSV/DataFrame, and your editable
-    user-store workbook; merges your layer; writes the read-only views (4 CSVs) + the self-contained HTML + the
-    durable records JSON; and writes the user-store workbook back (refreshed snapshot, your edits preserved),
-    read-back-verified. Returns paths + the merge report (change/orphan signals to surface)."""
+    user store; merges your layer; writes the read-only views (4 CSVs) + the self-contained HTML + the durable
+    records JSON; and refreshes the engine-owned change-detection snapshot. Returns paths + the merge report.
+
+    Your store is INPUT-ONLY — the build reads it and NEVER overwrites your edits; it only SEEDS a starter store
+    when none exists. Two store backends: pass `gsheet` (a live gspread Spreadsheet — the reliable Google-Sheet
+    surface) OR leave it and a local `.xlsx` at `user_store_path` is used."""
     from . import dashboard_html  # local import avoids a module cycle (dashboard_html imports dashboard)
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    if user_store_path is None:
-        user_store_path = out / "dashboard_user_store.xlsx"
 
     entries = ledger.read_ledger(ledger_path)
     if isinstance(research, (str, Path)):
@@ -593,8 +595,18 @@ def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: s
 
     # The user store is INPUT-ONLY — the build reads it and NEVER writes over it (your edits are never lost).
     # Change detection uses an engine-owned snapshot file, not columns inside your store.
-    store_existed = bool(user_store_path) and Path(user_store_path).exists()
-    workspace_rows, contacts_rows = read_user_store(user_store_path)
+    if gsheet is not None:
+        from . import dashboard_gsheet as gs
+        store_existed = gs.store_has_workspace(gsheet)
+        workspace_rows, contacts_rows = gs.read_gsheet_store(gsheet)
+        store_label = getattr(gsheet, "url", None) or getattr(gsheet, "title", "google-sheet")
+    else:
+        if user_store_path is None:
+            user_store_path = out / "dashboard_user_store.xlsx"
+        store_existed = bool(user_store_path) and Path(user_store_path).exists()
+        workspace_rows, contacts_rows = read_user_store(user_store_path)
+        store_label = str(user_store_path)
+
     snapshot_path = out / "_user_snapshot.json"
     snapshot = storage.load_json(snapshot_path) if snapshot_path.exists() else {}
     records, report = merge_user_layer(records, workspace_rows, contacts_rows, snapshot=snapshot)
@@ -617,17 +629,21 @@ def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: s
     # SEED the editable store ONLY if it does not exist yet (first run). If it exists, the build NEVER touches
     # it — your pursue ticks / notes / contacts are yours to keep.
     store_seeded = False
-    if user_store_path and not store_existed:
-        storage.atomic_write_workbook(user_store_path, {
-            WORKSPACE_SHEET: seed_workspace_sheet(records),
-            CONTACTS_SHEET: pd.DataFrame(columns=CONTACTS_COLUMNS)})
-        store_seeded = True
+    if not store_existed:
+        if gsheet is not None:
+            from . import dashboard_gsheet as gs
+            store_seeded = gs.seed_gsheet_store(gsheet, records)
+        elif user_store_path:
+            storage.atomic_write_workbook(user_store_path, {
+                WORKSPACE_SHEET: seed_workspace_sheet(records),
+                CONTACTS_SHEET: pd.DataFrame(columns=CONTACTS_COLUMNS)})
+            store_seeded = True
 
     tally: dict = {}
     for r in records:
         tally[r["final_priority"]] = tally.get(r["final_priority"], 0) + 1
 
     return DashboardResult(
-        out_dir=str(out), html_path=html_path, view_paths=view_paths, user_store_path=str(user_store_path),
+        out_dir=str(out), html_path=html_path, view_paths=view_paths, user_store_path=store_label,
         entries=len(records), tally=tally, report=report, readback_ok=readback_ok,
         segment_labels_resolved=bool(label_map), store_seeded=store_seeded)
