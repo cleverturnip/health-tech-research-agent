@@ -105,9 +105,13 @@ that reads the GATE-2-reviewed ledger and builds Katelynd's working tracker. Enf
 > `e["scoring"]`, `e["decision"]`, `e["recommended_action"]`. The EXACT entry shape in practice is
 > `tests/fixtures/sample_ledger.jsonl` (5 synthetic entries covering every case — clean P0, applied override,
 > B2B `n/a`, agency-pass-via-reset, low-score floor) + `MASTER_REDESIGN_SPEC.md §3.4`; the live ledger.jsonl
-> is Katelynd's private data on Drive (only needed for the final live-verification run). The dashboard SCHEMA is deliberately OPEN /
-> format-fluid (Katelynd iterates it) — scope it with her before building. `dashboard.py` is the one
-> remaining item on the §7 punch-list; the old `dashboard.py` predates the ledger and is a rebuild target.
+> is Katelynd's private data on Drive (only needed for the final live-verification run). **Market segment for
+> grouping** is `e["taxonomy"]["segment"]` (a controlled CODE, e.g. `WOMENS_FAMILY_HEALTH`; added to the ledger
+> 2026-07-03 so the dashboard need not re-parse research) — join `taxonomy/market_segments.csv`
+> (`segment_code → segment_label`) for display names; nuance tags are in `e["taxonomy"]` too. The dashboard
+> SCHEMA is deliberately OPEN / format-fluid (Katelynd iterates it) — scope it with her before building.
+> `dashboard.py` is the one remaining item on the §7 punch-list; the old `dashboard.py` predates the ledger
+> and is a rebuild target.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).

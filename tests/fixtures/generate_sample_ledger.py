@@ -32,35 +32,39 @@ def _rec(**over):
     return base
 
 
-def _row(rounds_date="2024-06", series="series-b", amount="50"):
+def _row(rounds_date="2024-06", series="series-b", amount="50",
+         segment="METABOLIC_NUTRITION_HEALTH", subsegs=("diabetes",), products=("virtual_care",)):
     fb = {"maturity_evidence": {"funding_rounds": [
         {"series_designation": series, "type": series, "date": rounds_date, "is_priced_equity": True,
-         "amount_usd_m": amount}], "ipo_event": {}}}
+         "amount_usd_m": amount}], "ipo_event": {}},
+        "taxonomy_classification": {"primary_market_segment": segment, "subsegment_tags": list(subsegs),
+                                    "product_model_tags": list(products), "distribution_model_tags": ["employer"],
+                                    "data_input_tags": ["labs"], "classification_rationale": "sample classification"}}
     return {"fit_brief_json": json.dumps(fb)}
 
 
 ROSTER = [
-    (_rec(company="alpha health"), _row()),                                       # 1. clean P0
+    (_rec(company="alpha health"), _row(segment="METABOLIC_NUTRITION_HEALTH")),   # 1. clean P0
     (_rec(company="beta health", background_fit=4, pmf=9, final_score=15,          # 2. low-score floor + override
           floor_ok=False, model_priority="P3", human_override="P1",
           floor_reason="floor-rule — bg_fit=4 / pmf=9", background_fit_basis="2x/yr lab cadence — episodic"),
-     _row(rounds_date="2025-11", amount="298")),
+     _row(rounds_date="2025-11", amount="298", segment="METABOLIC_NUTRITION_HEALTH", subsegs=("diagnostics",))),
     (_rec(company="gamma health", business_model="B2B", funding_stage="series-c",  # 3. B2B floor (n/a)
           background_fit=None, pmf=6, arr_level=7, growth=5, final_score=13, path_passed=False,
           agency_passed=False, gate_floored=True, floor_ok=False, model_priority="P3",
           floor_reason="PATH Test A: B2B floor — human-locked floor list", data_feedback_loop="",
           background_fit_basis="", agency_detail="n/a (floored earlier)"),
-     _row(series="series-c", rounds_date="2023-01", amount="90")),
+     _row(series="series-c", rounds_date="2023-01", amount="90", segment="SPECIALTY_CONDITION_CARE")),
     (_rec(company="delta health", business_model="B2B2C", funding_stage="series-d-plus",  # 4. agency pass via reset + override down
           background_fit=7, pmf=9, final_score=18, model_priority="P0", tier_review=True,
           agency_detail="series-d-plus late-stage +reset",
           reset_detail="reset events [leadership-change]; fired"),
-     _row(series="series-d-plus", rounds_date="2026-03", amount="150")),
+     _row(series="series-d-plus", rounds_date="2026-03", amount="150", segment="MENTAL_BEHAVIORAL_HEALTH")),
     (_rec(company="epsilon health", business_model="B2B2C", background_fit=4, pmf=3, strain=0, final_score=7,
           floor_ok=False, model_priority="P3", floor_reason="floor-rule — bg_fit=4 / pmf=3",
           strain_strength="WEAK", strain_rationale="default-low", data_feedback_loop="no",
           background_fit_basis="episodic navigation, not a habit loop", growth=4, growth_note="unknown(no-signal)"),
-     _row(amount="60")),   # 5. low-score floor, no override
+     _row(amount="60", segment="WOMENS_FAMILY_HEALTH")),   # 5. low-score floor, no override
 ]
 
 

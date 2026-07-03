@@ -128,6 +128,11 @@ score or a research fact in the ledger is forbidden; editing a priority/taxonomy
   "stage": "series-b",
   "stage_basis": "Series B $298M, Nov 2025 ($2.5B val)",
   "one_liner": "Comprehensive biomarker lab testing, consumer membership",
+  "taxonomy": {                          // 2026-07-03 — re-derivable context (like model/stage) for DASHBOARD grouping
+    "segment": "METABOLIC_NUTRITION_HEALTH",   // primary_market_segment CODE; dashboard joins taxonomy/market_segments.csv for the label
+    "subsegment_tags": ["diagnostics"], "product_model_tags": [], "distribution_model_tags": [], "data_input_tags": [],
+    "rationale": "…"                     // the classifier's taxonomy_classification, carried NOT re-authored (Option 2 holds)
+  },
 
   // DETERMINISTIC SCORING (write-once, never mutated, never hand-edited — Rule 8)
   "scoring": {
