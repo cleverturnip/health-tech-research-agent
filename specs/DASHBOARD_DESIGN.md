@@ -280,8 +280,10 @@ view rendered from the durable artifact.
 
 ## 10. Build status & Colab run steps
 
-**BUILT (package-green, 2026-07-03) — pending the live Colab run.** New ledger-based engine, importable package
-functions (Rule 1), on branch `dashboard-design`:
+**BUILT + LIVE-VERIFIED (2026-07-03).** Live Colab run on the regen-2 batch (54 companies) confirmed: finalize
+stamped all 54, build produced the artifacts + HTML, segment labels resolved, the Google-Sheet round-trip works,
+edits persist across re-runs (`seeded: False`, input-only), and the orphaned/changed safety signals fire. New
+ledger-based engine, importable package functions (Rule 1), on branch `dashboard-design`:
 
 | Module / function | Role |
 |---|---|
