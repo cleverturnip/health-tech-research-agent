@@ -293,10 +293,17 @@ functions (Rule 1), on branch `dashboard-design`:
 
 ~40 tests added; full suite green. The old module is `dashboard_legacy.py` (Phase-6 delete).
 
+**Editable store — a NATIVE Google Sheet (decided 2026-07-03 after the live run).** An `.xlsx` opened from Drive
+in Google Sheets is a *converted copy*, so the build never saw the real edits and the first design (an `.xlsx`
+the build rewrote) lost them. Fix: the store is a **native Google Sheet** read/written via `gspread`
+(`dashboard_gsheet`), and it is **INPUT-ONLY** — the build reads it and NEVER overwrites it; it seeds the two
+tabs (`Workspace` / `Contacts`) once, when missing. Change detection lives in an engine-owned
+`_user_snapshot.json`, not in the sheet. (The `.xlsx` path via `user_store_path=` still exists as a fallback.)
+
 **Colab run steps** (append AFTER the existing `render_views` cell; `OUT`/`df` are the current gate-2 vars):
 
 ```python
-# 0. install the dashboard build (branch) — or merge dashboard-design to main first
+# 0. install the dashboard build (branch) — re-run + restart to pick up fixes
 !pip -q install --force-reinstall --no-deps "git+https://github.com/cleverturnip/health-tech-research-agent.git@dashboard-design"
 
 # 1. FINALIZE the GATE-2 review — stamp every entry reviewed (run once, after apply_gate2_decisions)
@@ -304,24 +311,30 @@ from health_tech_research_agent import ledger
 OUT = "/content/drive/MyDrive/gate2_batch_2026-07-02"
 print(ledger.finalize_gate2_review_dir(OUT, reviewed_date="2026-07-03", reviewed_at_gate="gate2_batch_regen2"))
 
-# 2. taxonomy for segment LABELS (pip wheel doesn't ship taxonomy/) — clone for the label join; optional
+# 2. taxonomy for segment LABELS (pip wheel doesn't ship taxonomy/) — clone for the label join
 !git clone -q https://github.com/cleverturnip/health-tech-research-agent.git /content/htra
 
-# 3. BUILD the dashboard (reads the finalized ledger + research df + your user-store workbook)
+# 3. AUTHENTICATE + open/create your dashboard Google Sheet
+from google.colab import auth; auth.authenticate_user()
+import gspread, google.auth
+gc = gspread.authorize(google.auth.default()[0])
+try:    sh = gc.open("Health Tech Dashboard")
+except gspread.SpreadsheetNotFound:  sh = gc.create("Health Tech Dashboard")
+print("your dashboard sheet:", sh.url)
+
+# 4. BUILD the dashboard (reads the finalized ledger + research df + your Google Sheet)
 from health_tech_research_agent import dashboard
 DASH_OUT = "/content/drive/MyDrive/dashboard_2026-07-02"
 res = dashboard.build_dashboard(f"{OUT}/ledger.jsonl", research=df, out_dir=DASH_OUT,
-                                taxonomy_dir="/content/htra/taxonomy")
-print("entries:", res.entries, "| tally:", res.tally, "| labels_resolved:", res.segment_labels_resolved)
-print("changed/orphaned:", res.report)
-print("open in a browser:", res.html_path)
-print("edit your notes (pursue / notes / contacts) in:", res.user_store_path)
+                                gsheet=sh, taxonomy_dir="/content/htra/taxonomy")
+print("entries:", res.entries, "| tally:", res.tally, "| seeded:", res.store_seeded)
+print("changed/orphaned:", res.report, "| EDIT NOTES HERE:", sh.url, "| HTML:", res.html_path)
 
-# 4. (optional) preview the HTML inline
+# 5. (optional) preview the HTML inline
 from IPython.display import HTML, display
 display(HTML(open(res.html_path).read()))
 ```
 
-**Working loop:** edit `dashboard_user_store.xlsx` on Drive (Workspace tab: tick `pursue`, fill notes; Contacts
-tab: add contacts) → re-run step 3 → the read-only views + HTML refresh, your notes persist, and any priority/
-segment moves show as "changed since you last looked" banners.
+**Working loop:** open `sh.url` (your Google Sheet) → on the `Workspace` tab tick `pursue` + fill notes; on the
+`Contacts` tab add contacts → re-run step 4 → the read-only views + HTML refresh, your edits are read straight
+from the sheet and NEVER overwritten, and any priority/segment moves since last run show as "changed" banners.
