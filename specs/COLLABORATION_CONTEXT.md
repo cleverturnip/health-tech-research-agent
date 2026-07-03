@@ -84,22 +84,23 @@ history, audits, one-off probes) lives in `archive/` — reference only.
 - **Scoring-model overhaul (§B)** — the gated-then-ranked scoring + priority framework, locked at
   FRAMEWORK v1.25 in Phase 3 and merged. Rules: `SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md`; why-history:
   `archive/specs/PHASE3_PROCESS_HISTORY.md`.
+- **GATE-2 scoring ledger + review packet (2026-07-03)** — the durable `ledger.jsonl` master + the three
+  rendered CSV views (summary / cards / master export), per `MASTER_REDESIGN_SPEC.md` §4. Built as
+  importable package functions (`ledger.py` + `research_runner` orchestration): uniform scoring (every
+  company scored — floors cap PRIORITY, not scoring), write-once §B scores, the priority-only decision
+  round-trip (`cards.csv` → `apply_decisions` → history, Rule 6/8), research evidence joined at render, and
+  the full review-and-decide card. 597 tests + **live-verified on a Colab run**. Both design requirements
+  met: floored-vs-low legibility (B2B → `n/a`; distinct from a low score) and the walkthrough doc
+  (`SCORING_WALKTHROUGH.md`). Render design locked in `MASTER_REDESIGN_SPEC.md` §4 + `gate2_review_surface_mockup.html`.
 
-**Current milestone (NEXT):** Build the **scoring ledger** (the "master") + the **cards + summary
-table** review packet, per `MASTER_REDESIGN_SPEC.md`. The ledger is a pure scoring-decision layer
-(write-once §B scores + human priority/taxonomy overrides); the review surface is **CSV** (Google
-Sheets retired). Done when a live Colab run verifies the ledger and the cards+table output as designed.
+**Current milestone (NEXT):** Build + verify the **dashboard** — the second autonomous segment (after
+GATE 2) that reads the GATE-2-reviewed ledger (`final_priority` + flags) and builds the working tracker.
+Enforce the gate invariant (`MASTER_REDESIGN_SPEC.md` §1a): only gate-2-reviewed ledger entries reach the
+dashboard.
 
-Two design requirements carried into this build:
-- **Floored-vs-low legibility** — the ledger must make a FLOORED company (correctly gated: B2B /
-  non-consumer) legibly DISTINCT from one that merely scored LOW (consumer but weak). Don't conflate a
-  gated `bg=None` with a low bg score.
-- **A "how the scoring works" walkthrough doc** — a plain end-to-end walkthrough (classifier → PATH →
-  AGENCY → bg → growth-band → PMF → strain → floor → override → threshold → flags) so the system is
-  legible without chat history. Division of labor: SOT = rules, `archive/specs/PHASE3_PROCESS_HISTORY.md`
-  = why, the new doc = walkthrough.
-
-**Then:** Build + verify the **dashboard** (the autonomous segment after GATE 2).
+> **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
+> merged back into the ledger via `ledger.apply_decisions` (priority-only; scores never hand-edited). This
+> is a USE of the built packet, not a build milestone — do it whenever a batch is ready to review.
 
 **Last:** The **front end** + the data system that houses the flow so it runs autonomously end-to-end
 instead of through Colab cells. Front end: not started.
@@ -115,6 +116,15 @@ milestones move; keep done/next honest.*
   single-source series where "$0 in year one" may reflect missing early data rather than a true zero
   (`fay` / `foodsmart` / `nourish` / `berry street` / `summer` / `visana`). Surface in the ledger review
   — NOT a scoring fix. Detail: `archive/specs/PHASE3_PROCESS_HISTORY.md` "Known watch-items."
+- **Classifier wobble on borderline B2B/B2B2C** — a FRESH classifier read can flip a non-locked borderline
+  company between B2B and B2B2C run-to-run (e.g. `angle health` read B2B on the 2026-07-03 run → wrongly
+  floored with `n/a` scores; it's a consumer health plan → should be B2B2C). The 6 human-locked B2B-floor
+  companies are stable; only NON-locked borderline ones wobble. The ledger's `n/a` display makes such a
+  misclassification VISIBLE at review. Calibration item — consider extending the locked list / hardening the
+  §B2 classifier; do NOT hand-edit the ledger (Rule 8).
+- **`run_r1` cache not auto-persisted (Rule 4 gap)** — the R1 read-cache lives only in memory, so a Colab
+  disconnect loses it and forces re-taking the LLM reads (cost + re-roll). Hardening: auto-save the cache to
+  Drive as reads are taken + reload on resume. A manual `json.dump(rep["cache"], …)` currently covers it.
 - **Parked side-task — Claude Code approval-prompt hook** — a PreToolUse auto-approve hook to cut constant
   approval prompts; full spec archived at `archive/specs/spec_pretooluse_autoapprove_hook.md`. Not started.
 
