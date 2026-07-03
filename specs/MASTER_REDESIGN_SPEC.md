@@ -281,7 +281,13 @@ line to the research prompt (future, not retroactive), never conflating it with 
      gate floor (Path/Agency) reads distinctly from a Low-Score floor, and a `bg=None` READ-FAILURE reads
      distinctly from a genuine low score.
 5. **Why these scores** — one box per component: **Background Fit · ARR · Growth · Strain**, each with the
-   score + a short *why* + a **research summary** (the joined research finding for that component).
+   score + a short *why* + a **research summary** (the joined research finding for that component). **Strain
+   shows its LOGIC (2026-07-03)** — the strength (STRONG/MODERATE/WEAK) + what drove it (operating-capability
+   `a2` score vs the ≥70 / ≥55 bars, or a fast-scaling signal) — not just the terse `a2=NN` basis.
+5a. **Agency & reset line (2026-07-03)** — the card carries the AGENCY gate result + any RESET, so a late-stage
+   company that PASSED via a reset (e.g. a first-ever C-suite hire reopening the build window — Grow Therapy)
+   shows WHY it wasn't floored, up front. Reset acts on the AGENCY gate, NOT strain (kept separate so the same
+   org event can't double-count — §B1). (`cards.csv` gains an `Agency` column; the mockup shows it on the card.)
 6. **Your decision — PRIORITY ONLY (LOCKED 2026-07-02).** The one action on every card is
    `[Accept <model tier>] / [Override → pick a tier]` + reason (strongly prompted, not blocked), with the
    **Recommendation shown BESIDE it** (`recommended_action` + where the model diverges from the rule) so it is

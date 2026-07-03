@@ -458,7 +458,7 @@ def execute_ledger_write(path: str | Path, entries: list[dict], *,
 CARDS_CONTEXT_COLUMNS = ["company", "Model", "Stage", "Stage basis", "Model priority", "Recommended action",
                          "Final priority", "Background Fit", "Background Fit rationale", "Product Market Fit",
                          "ARR", "ARR basis", "Growth", "Growth basis", "Strain", "Strain rationale", "FINAL",
-                         "Floor reason", "Key flags"]
+                         "Floor reason", "Agency", "Key flags"]
 CARDS_DECISION_COLUMNS = ["human_override", "override_reason"]
 
 
@@ -492,9 +492,10 @@ def render_cards_csv(entries: list[dict]) -> pd.DataFrame:
             "Growth": growth.get("score"),
             "Growth basis": _txt(growth.get("basis")),
             "Strain": strain.get("score"),
-            "Strain rationale": _txt(strain.get("rationale")),
+            "Strain rationale": _strain_detail(entry),
             "FINAL": _final_display(entry),
             "Floor reason": floor_summary(entry),
+            "Agency": _agency_detail(entry),
             "Key flags": "; ".join(_txt(f.get("type")) for f in entry.get("flags", [])),
             "human_override": _txt(decision.get("human_override")),
             "override_reason": _txt(decision.get("override_reason")),
@@ -618,6 +619,38 @@ def _final_display(entry: dict):
     if final is not None:
         return final
     return "n/a" if _txt(entry.get("model")).upper() == "B2B" else ""
+
+
+def _strain_detail(entry: dict) -> str:
+    """The Strain LOGIC for the card (2026-07-03) — strength + what drove it, not just the terse basis. Strain
+    is a capability + speed-of-scale read: a2 ≥ 70 → STRONG (+2), ≥ 55 or a fast-scaling signal → MODERATE
+    (+1), else WEAK (+0)."""
+    strain = entry.get("scoring", {}).get("strain", {})
+    strength = _txt(strain.get("strength"))
+    basis = _txt(strain.get("rationale"))
+    if basis.startswith("a2="):
+        thr = "≥ 70 → strong" if strength == "STRONG" else ("≥ 55 → moderate" if strength == "MODERATE" else "")
+        gloss = f"operating-capability score {basis[3:]}" + (f" ({thr})" if thr else "")
+    elif "speed" in basis.lower():
+        gloss = "a fast-scaling signal (e.g. rapid headcount growth)"
+    else:
+        gloss = "no strong capability or fast-scaling signal (default-low)"
+    return f"{strength} — {gloss}" if strength else gloss
+
+
+def _agency_detail(entry: dict) -> str:
+    """The AGENCY gate result + any RESET for the card (2026-07-03) — so a late-stage company that passed via a
+    reset (e.g. a first-ever C-suite hire reopening the build window) shows WHY it wasn't floored. Reset acts
+    on the AGENCY gate, not strain — kept separate so the same event can't double-count."""
+    agency = entry.get("gates", {}).get("agency", {})
+    detail = _txt(agency.get("detail"))
+    reset = _txt(agency.get("reset"))
+    fired = "fired" in reset and "none fired" not in reset
+    if not agency.get("passed", True):
+        return f"Floored — {detail}" if detail else "Floored"
+    if fired:
+        return f"Pass — build window reopened by a reset [{reset}]"
+    return f"Pass — {detail}" if detail else "Pass"
 
 
 def render_summary_table(entries: list[dict]) -> pd.DataFrame:
@@ -805,3 +838,30 @@ def build_gate2_artifacts(roster: list[dict], research: Any = None, *, batch_id:
         ledger_path=str(ledger_path), summary_path=str(summary_path), cards_path=str(cards_path),
         export_path=str(export_path), entries=len(reopened), tally=tally,
         readback_ok=write_result.readback_ok, backup_path=write_result.backup_path)
+
+
+def apply_gate2_decisions(out_dir: str | Path, decisions: list[dict], *, decided_date: str,
+                          decided_at_gate: str, research: Any = None) -> dict:
+    """Apply GATE-2 priority decisions to an already-built ledger and RE-RENDER the three views. Reads
+    `ledger.jsonl` from `out_dir`, merges the decisions (priority-only, with history — Rule 6/8), writes it
+    back transactionally, then re-renders summary / cards / master_full_export from the reopened durable
+    ledger. `research` supplies the master-export evidence join (fit_brief_json dropped). Returns
+    `{applied, tally, readback_ok}`."""
+    out = Path(out_dir)
+    ledger_path = out / "ledger.jsonl"
+    merged = apply_decisions(read_ledger(ledger_path), decisions,
+                             decided_date=decided_date, decided_at_gate=decided_at_gate)
+    write_result = execute_ledger_write(ledger_path, merged)
+    reopened = read_ledger(ledger_path)
+
+    export_research = research
+    if isinstance(research, pd.DataFrame) and "fit_brief_json" in research.columns:
+        export_research = research.drop(columns=["fit_brief_json"])
+    write_summary_table(out / "summary_table.csv", reopened)
+    write_cards_csv(out / "cards.csv", reopened)
+    write_master_full_export(out / "master_full_export.csv", reopened, research=export_research)
+
+    tally: dict = {}
+    for entry in reopened:
+        tally[final_priority(entry)] = tally.get(final_priority(entry), 0) + 1
+    return {"applied": len(list(decisions)), "tally": tally, "readback_ok": write_result.readback_ok}
