@@ -274,9 +274,9 @@ view rendered from the durable artifact.
   source of truth); she edits a Sheet/file → a step syncs it back → the refresh merges by company name (her
   columns preserved, ledger columns refreshed) → read-back validated. A true edit-in-the-page auto-save needs a
   backend (later).
-- [~] **Legacy `dashboard.py`** — staged as `dashboard_legacy.py` (only `workflow.run_dashboard_refresh`, unused
-  in production, imports it). DELETE it + `run_dashboard_refresh` + `test_dashboard_rebuild` + the
-  `colab_workflow` old-dashboard cells in Phase 6 (after the live run).
+- [x] **Legacy `dashboard.py`** — DELETED 2026-07-03 (Phase 6): `dashboard_legacy.py`, `run_dashboard_refresh`,
+  `test_dashboard_rebuild`, and `test_calibration_recompute` removed; the three `colab_workflow` old-dashboard
+  cells marked RETIRED. Full suite green (639).
 
 ## 10. Build status & Colab run steps
 

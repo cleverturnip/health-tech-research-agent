@@ -4036,12 +4036,9 @@ market_map_df = apply_priority_fields(market_map_df)
 # Helpers
 # -----------------------------
 
-from health_tech_research_agent.dashboard import (
-    existing_cols,
-    normalize_name,
-    map_market_segment,
-    map_strategic_bucket,
-)
+# RETIRED 2026-07-03 — the old market-map / dashboard cells are superseded by the ledger-based
+# dashboard (health_tech_research_agent.dashboard.build_dashboard). The legacy helpers this cell used
+# were removed with dashboard_legacy.py; this cell no longer runs — kept only as migration history.
 
 # -----------------------------
 # Required fields
@@ -5839,14 +5836,9 @@ coverage_source_df = apply_priority_fields(coverage_source_df)
 # Helpers
 # -----------------------------
 
-from health_tech_research_agent.dashboard import (
-    existing_cols,
-    join_unique,
-    coverage_status_from_counts,
-    coverage_status_rank,
-    companies_needed_for_directional_read,
-    companies_needed_for_stronger_read,
-)
+# RETIRED 2026-07-03 — the old market-map / dashboard cells are superseded by the ledger-based
+# dashboard (health_tech_research_agent.dashboard.build_dashboard). The legacy helpers this cell used
+# were removed with dashboard_legacy.py; this cell no longer runs — kept only as migration history.
 
 # -----------------------------
 # Required columns
@@ -6137,12 +6129,9 @@ except Exception as e:
 # Helpers
 # -----------------------------
 
-from health_tech_research_agent.dashboard import (
-    existing_cols,
-    safe_sort,
-    contains_priority,
-    join_unique,
-)
+# RETIRED 2026-07-03 — the old market-map / dashboard cells are superseded by the ledger-based
+# dashboard (health_tech_research_agent.dashboard.build_dashboard). The legacy helpers this cell used
+# were removed with dashboard_legacy.py; this cell no longer runs — kept only as migration history.
 
 # -----------------------------
 # Ensure final priority fields exist
