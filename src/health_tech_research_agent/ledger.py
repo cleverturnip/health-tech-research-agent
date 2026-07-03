@@ -645,12 +645,14 @@ def _agency_detail(entry: dict) -> str:
     agency = entry.get("gates", {}).get("agency", {})
     detail = _txt(agency.get("detail"))
     reset = _txt(agency.get("reset"))
-    fired = "fired" in reset and "none fired" not in reset
     if not agency.get("passed", True):
         return f"Floored — {detail}" if detail else "Floored"
-    if fired:
+    # A reset only MATTERS when it reopened a would-have-floored window — agency_gate marks that with "+reset"
+    # in the reason (public / series-d-plus only). An in-window series-a/b/c passes on its own, so a reset
+    # firing there is irrelevant and must NOT be shown as "reopened by a reset" (2026-07-03 fix).
+    if "+reset" in detail:
         return f"Pass — build window reopened by a reset [{reset}]"
-    return f"Pass — {detail}" if detail else "Pass"
+    return f"Pass — {detail.replace('-> PASS', 'in-window')}" if detail else "Pass"
 
 
 def render_summary_table(entries: list[dict]) -> pd.DataFrame:
@@ -865,3 +867,19 @@ def apply_gate2_decisions(out_dir: str | Path, decisions: list[dict], *, decided
     for entry in reopened:
         tally[final_priority(entry)] = tally.get(final_priority(entry), 0) + 1
     return {"applied": len(list(decisions)), "tally": tally, "readback_ok": write_result.readback_ok}
+
+
+def render_views(out_dir: str | Path, research: Any = None) -> dict:
+    """Re-render the three CSV views from the EXISTING `ledger.jsonl` — NO rebuild, NO decision change — so a
+    render-only fix can be picked up while the ledger (and any applied decisions) stays exactly as-is."""
+    out = Path(out_dir)
+    entries = read_ledger(out / "ledger.jsonl")
+    export_research = research
+    if isinstance(research, pd.DataFrame) and "fit_brief_json" in research.columns:
+        export_research = research.drop(columns=["fit_brief_json"])
+    return {
+        "summary": str(write_summary_table(out / "summary_table.csv", entries)),
+        "cards": str(write_cards_csv(out / "cards.csv", entries)),
+        "export": str(write_master_full_export(out / "master_full_export.csv", entries, research=export_research)),
+        "entries": len(entries),
+    }
