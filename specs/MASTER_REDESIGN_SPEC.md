@@ -255,6 +255,15 @@ still stores **no raw research** (Option 2 holds) — the render joins `ledger.j
 underlying `ledger.jsonl` keys and all code identifiers remain `bg_fit` / `pmf` (locked §B field names — do
 NOT rename them). This is a presentation-layer mapping, not a schema change.
 
+**Uniform scoring — IMPLEMENTED + B2B n/a (LOCKED 2026-07-02).** Every company is scored (the §4 uniform-ledger
+rule made real in the live R1 flow): growth is read for ALL companies, and background fit for CONSUMER
+companies only. A floor caps PRIORITY, not scoring — the agency-floored consumer companies now carry real
+bg + FINAL (still P3 by the floor). **B2B / professional companies** have no consumer end-user, so background
+fit is **n/a BY DEFINITION** (not a cost skip); they render **Background Fit "n/a (no consumer end-user)"** and
+**FINAL "n/a"** (FINAL needs bg), while ARR / Growth / Strain still compute. **`one_liner` is dropped** — the
+research output has no clean product/service description field; a real one requires adding a "what they do"
+line to the research prompt (future, not retroactive), never conflating it with taxonomy/rationale.
+
 **Locked card layout** (top → bottom; a carded company):
 1. **Header** — company · model · stage · **one-liner (what they do)** · final-tier badge.
 2. **Headline scores** — one row: **Background Fit · Product Market Fit · Strain · FINAL**; **Product Market
