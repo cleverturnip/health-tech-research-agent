@@ -342,6 +342,14 @@ def provenance(entry: dict) -> str:
     return "human-overridden" if _txt(entry.get("decision", {}).get("human_override")) else "model-accepted"
 
 
+def is_reviewed(entry: dict) -> bool:
+    """§1a GATE INVARIANT: has this entry passed GATE-2 review? True once `finalize_gate2_review` has stamped it
+    (`decision.reviewed_date`). The dashboard enforces the invariant by refusing any entry where this is False —
+    presence in the dashboard ⟹ reviewed. Distinct from `provenance` (accepted-vs-overridden): an accepted entry
+    is still reviewed."""
+    return bool(_txt(entry.get("decision", {}).get("reviewed_date")))
+
+
 def final_priority_code(entry: dict) -> str:
     """The tier letter (the tier IS the code; domain P0–P3)."""
     return final_priority(entry)
@@ -590,6 +598,22 @@ def apply_decisions(entries: list[dict], decisions: list[dict], *,
             decision["decided_at_gate"] = decided_at_gate
         # else: nothing changed for this company — no-op (idempotent).
 
+    return result
+
+
+def finalize_gate2_review(entries: list[dict], *, reviewed_date: str, reviewed_at_gate: str) -> list[dict]:
+    """Stamp EVERY entry as GATE-2-reviewed (§1a enforcement primitive), on a COPY. Called ONCE when the GATE-2
+    review is finalized — after `apply_decisions` — to mark the whole batch reviewed, whether an entry was
+    overridden or accepted-unchanged. This is the belt-and-suspenders behind the gate invariant: the review flow
+    already forces per-company review, but stamping every entry lets the dashboard REFUSE any un-stamped (un-gated)
+    entry (see `is_reviewed`). Writes `decision.reviewed_date` / `reviewed_at_gate` ONLY — never scores/gates
+    (Rule 8). Idempotent in effect; re-finalizing just refreshes the stamp (the reference point for the
+    dashboard's 'changed since you last looked')."""
+    result = [copy.deepcopy(entry) for entry in entries]
+    for entry in result:
+        decision = entry.setdefault("decision", {})
+        decision["reviewed_date"] = reviewed_date
+        decision["reviewed_at_gate"] = reviewed_at_gate
     return result
 
 
