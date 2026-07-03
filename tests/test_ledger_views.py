@@ -114,6 +114,36 @@ def test_stage_basis_text_picks_latest_designated_round():
     assert se.stage_basis_text([]) == ""                       # no dated round -> caller falls back to the label
 
 
+def test_resolve_stage_basis_aligns_to_overridden_stage():
+    from health_tech_research_agent import structured_evidence as se
+    # signos-style: the data carries a later series-c round, but the human override locks the stage to series-b.
+    rounds = [{"series_designation": "series-b", "type": "series-b", "date": "2021-03",
+               "is_priced_equity": True, "amount_usd_m": "20"},
+              {"series_designation": "series-c", "type": "series-c", "date": "2026-05", "is_priced_equity": True}]
+    basis = se.resolve_stage_basis("signos", rounds, {}, "series-b")
+    assert basis.startswith("Series B") and "Series C" not in basis   # never contradicts the resolved stage
+
+
+def test_resolve_stage_basis_uses_funding_patch_for_equip():
+    from health_tech_research_agent import structured_evidence as se
+    # equip health: research stopped at series-b; the funding patch appends the real series-c the stage uses.
+    rounds = [{"series_designation": "series-b", "type": "series-b", "date": "2021-05", "is_priced_equity": True}]
+    assert se.resolve_stage_basis("equip health", rounds, {}, "series-c").startswith("Series C")
+
+
+def test_resolve_stage_basis_normal_company_matches_latest_round():
+    from health_tech_research_agent import structured_evidence as se
+    rounds = [{"series_designation": "series-b", "type": "series-b", "date": "2024-06",
+               "is_priced_equity": True, "amount_usd_m": "50"}]
+    assert se.resolve_stage_basis("acme", rounds, {}, "series-b") == "Series B, $50, 2024-06"
+
+
+def test_resolve_stage_basis_falls_back_to_label_never_a_wrong_series():
+    from health_tech_research_agent import structured_evidence as se
+    rounds = [{"series_designation": "series-c", "type": "series-c", "date": "2026-01", "is_priced_equity": True}]
+    assert se.resolve_stage_basis("x", rounds, {}, "series-b") == "Series B"   # label only, not the series-c round
+
+
 def test_stage_basis_derived_from_fit_brief_rounds():
     import json
     rec = {"company": "grow", "business_model": "B2C", "funding_stage": "series-b", "background_fit": 8,

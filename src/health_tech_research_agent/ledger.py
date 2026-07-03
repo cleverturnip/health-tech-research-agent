@@ -205,12 +205,14 @@ def _parse_fit_brief_row(row) -> dict:
     return {}
 
 
-def _stage_basis(row: dict, stage: str) -> str:
-    """The one-line stage basis from the row's gathered funding rounds (Rule 7 evidence), falling back to the
-    bare stage label when no dated designated round is present."""
+def _stage_basis(row: dict, stage: str, company: str = "") -> str:
+    """The one-line stage basis, ALIGNED to the resolved stage (via `resolve_stage_basis` — applies the same
+    funding patches + human stage overrides scoring used, so the display can never contradict the stage).
+    Display-only; feeds no scoring."""
     maturity = _parse_fit_brief_row(row).get("maturity_evidence")
     maturity = maturity if isinstance(maturity, dict) else {}
-    return se.stage_basis_text(maturity.get("funding_rounds"), maturity.get("ipo_event")) or se.stage_label(stage)
+    return se.resolve_stage_basis(company, maturity.get("funding_rounds"), maturity.get("ipo_event"), stage) \
+        or se.stage_label(stage)
 
 
 def build_entry(score_record: dict, row: dict | None = None, *, batch_id: str, date_scored: str,
@@ -256,7 +258,7 @@ def build_entry(score_record: dict, row: dict | None = None, *, batch_id: str, d
         # CONTEXT (re-derivable from research; for judging, not authored here)
         "model": bm,
         "stage": stage,
-        "stage_basis": _stage_basis(row, stage),
+        "stage_basis": _stage_basis(row, stage, _txt(rec.get("company"))),
         "one_liner": "",   # no clean product/service source in the research output (2026-07-02) — skipped
 
         # SCORING (write-once, never hand-edited — Rule 8)

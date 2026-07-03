@@ -305,6 +305,30 @@ def stage_basis_text(funding_rounds, ipo_event=None) -> str:
     return ", ".join(p for p in parts if p)
 
 
+def resolve_stage_basis(company, funding_rounds, ipo_event, resolved_stage) -> str:
+    """Stage-basis DISPLAY line ALIGNED to the RESOLVED stage (display-only — feeds NO scoring). Applies the
+    same `DOCUMENTED_FUNDING_PATCHES` scoring used, then picks the latest DESIGNATED round whose series MATCHES
+    the resolved stage — so a human stage override (signos / bicycle -> series-b) or a funding patch (equip ->
+    series-c) never shows a basis that contradicts the stage. Falls back to the bare stage label when no
+    matching round is in the data (never a contradictory series); an unknown stage -> best-effort latest round."""
+    stage = _norm_stage(resolved_stage)
+    patch = DOCUMENTED_FUNDING_PATCHES.get(_norm_company(company))
+    rounds = list(funding_rounds) if isinstance(funding_rounds, list) else []
+    if patch:
+        rounds = rounds + list(patch)
+    ipo = ipo_event if isinstance(ipo_event, dict) else {}
+    if stage == "public" and _is_true(ipo.get("occurred")) and _has_date(ipo.get("date")):
+        return stage_basis_text(rounds, ipo_event)
+    matching = [r for r in _designated_rounds(rounds) if _round_series(r) == stage]
+    if matching:
+        latest = max(matching, key=lambda r: _parse_date(r.get("date")))
+        parts = [stage_label(stage), _round_amount_text(latest), _safe_text(latest.get("date"))]
+        return ", ".join(p for p in parts if p)
+    if stage in _STAGE_LABELS:
+        return stage_label(stage)                 # a real stage, no matching round -> label only (never a wrong series)
+    return stage_basis_text(rounds, ipo_event)    # unknown stage -> best-effort latest round
+
+
 def funding_stage_with_confidence(funding_rounds, ipo_event) -> tuple[str, str]:
     """``(stage, stage_confidence)`` — SOT §B4 v1.10. stage_confidence == 'low' when a PRICED, DATED round
     is dated AFTER the last designated round but is NOT a canonical designation (an undesignated later
