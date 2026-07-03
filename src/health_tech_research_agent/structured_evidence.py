@@ -27,6 +27,12 @@ import json
 import math
 import re
 
+# The scoring framework version this code implements. The SOT doc
+# (specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md) is the human source of truth; this constant is the SHIPPED
+# copy so a pip-installed package can stamp entries without the (unpackaged) doc. Keep it in lockstep with
+# the SOT header when the version bumps — `tests/test_framework_version.py` FAILS if the two ever drift.
+FRAMEWORK_VERSION = "v1.25"
+
 # ---------------------------------------------------------------------------
 # Vocabulary (single source of truth)
 # ---------------------------------------------------------------------------
@@ -259,6 +265,76 @@ def funding_stage_from_rounds(funding_rounds, ipo_event) -> str:
         return "unknown"
     latest = max(designated, key=lambda r: (_parse_date(r.get("date")), _stage_order_index(_round_series(r))))
     return _round_series(latest) or "unknown"
+
+
+_STAGE_LABELS = {"pre-seed": "Pre-seed", "seed": "Seed", "series-a": "Series A", "series-b": "Series B",
+                 "series-c": "Series C", "series-d-plus": "Series D+", "public": "Public"}
+
+
+# Placeholder amount values the research writes when a raise size wasn't found — treated as NO amount (so a
+# round with amount 'unknown' does NOT render as '$unknown'; the round-display callers substitute 'undisclosed $').
+_AMOUNT_PLACEHOLDERS = frozenset({"unknown", "undisclosed", "undisclosed $", "n/a", "na", "none", "null",
+                                  "tbd", "unspecified", "not disclosed", "-"})
+
+
+def _round_amount_text(r) -> str:
+    """Best-effort $ amount from a round/ipo dict (schema varies) — '' when no REAL dollar figure is present
+    (a placeholder like 'unknown'/'undisclosed' or a missing field -> '', never '$unknown'). Round-display
+    callers substitute 'undisclosed $' to make a missing raise VISIBLE; the IPO line leaves it blank."""
+    if not isinstance(r, dict):
+        return ""
+    for key in ("amount_usd_m", "amount_m", "amount_usd", "amount", "size", "raise_usd", "round_size"):
+        text = _safe_text(r.get(key))
+        if text and text.lower() not in _AMOUNT_PLACEHOLDERS:
+            return text if text.startswith("$") else f"${text}"
+    return ""
+
+
+def stage_label(stage) -> str:
+    """A human label for a normalized stage ('series-b' -> 'Series B')."""
+    s = _norm_stage(stage)
+    return _STAGE_LABELS.get(s, _safe_text(stage))
+
+
+def stage_basis_text(funding_rounds, ipo_event=None) -> str:
+    """A one-line human STAGE BASIS from the gathered rounds (Rule 7 evidence, for the ledger's context): the
+    latest DESIGNATED round's series + amount (if present) + date — e.g. 'Series B, $298M, 2025-11'. Public ->
+    the IPO basis. '' when no dated designated round (the caller falls back to the bare stage label)."""
+    ipo = ipo_event if isinstance(ipo_event, dict) else {}
+    if _is_true(ipo.get("occurred")) and _has_date(ipo.get("date")):
+        parts = ["Public", _round_amount_text(ipo), _safe_text(ipo.get("date"))]
+        return ", ".join(p for p in parts if p)
+    designated = _designated_rounds(funding_rounds)
+    if not designated:
+        return ""
+    latest = max(designated, key=lambda r: (_parse_date(r.get("date")), _stage_order_index(_round_series(r))))
+    parts = [stage_label(_round_series(latest)), _round_amount_text(latest) or "undisclosed $",
+             _safe_text(latest.get("date"))]
+    return ", ".join(p for p in parts if p)
+
+
+def resolve_stage_basis(company, funding_rounds, ipo_event, resolved_stage) -> str:
+    """Stage-basis DISPLAY line ALIGNED to the RESOLVED stage (display-only — feeds NO scoring). Applies the
+    same `DOCUMENTED_FUNDING_PATCHES` scoring used, then picks the latest DESIGNATED round whose series MATCHES
+    the resolved stage — so a human stage override (signos / bicycle -> series-b) or a funding patch (equip ->
+    series-c) never shows a basis that contradicts the stage. Falls back to the bare stage label when no
+    matching round is in the data (never a contradictory series); an unknown stage -> best-effort latest round."""
+    stage = _norm_stage(resolved_stage)
+    patch = DOCUMENTED_FUNDING_PATCHES.get(_norm_company(company))
+    rounds = list(funding_rounds) if isinstance(funding_rounds, list) else []
+    if patch:
+        rounds = rounds + list(patch)
+    ipo = ipo_event if isinstance(ipo_event, dict) else {}
+    if stage == "public" and _is_true(ipo.get("occurred")) and _has_date(ipo.get("date")):
+        return stage_basis_text(rounds, ipo_event)
+    matching = [r for r in _designated_rounds(rounds) if _round_series(r) == stage]
+    if matching:
+        latest = max(matching, key=lambda r: _parse_date(r.get("date")))
+        parts = [stage_label(stage), _round_amount_text(latest) or "undisclosed $", _safe_text(latest.get("date"))]
+        return ", ".join(p for p in parts if p)
+    if stage in _STAGE_LABELS:
+        return stage_label(stage)                 # a real stage, no matching round -> label only (never a wrong series)
+    return stage_basis_text(rounds, ipo_event)    # unknown stage -> best-effort latest round
 
 
 def funding_stage_with_confidence(funding_rounds, ipo_event) -> tuple[str, str]:
@@ -1477,7 +1553,7 @@ def score_company(row, *, background_fit=None) -> dict:
     key = _norm_company(company)
 
     # §B2 classifier — floor / override / mapper on the persisted who_uses / who_pays read (Rule 6/7).
-    business_model, _ = business_model_for(
+    business_model, bm_needs_review = business_model_for(
         company, _row_get(row, "who_uses"), _row_get(row, "who_pays"), _row_get(row, "who_uses_confidence"))
 
     # §B3 PATH gate.
@@ -1521,6 +1597,28 @@ def score_company(row, *, background_fit=None) -> dict:
         background_fit=bf, pmf=pmf, strain=strain, reset_detail=reset_detail)
     rec.update(business_model=business_model, funding_stage=stage, background_fit=bf,
                pmf=pmf, strain=strain, arr_level=arr_level, growth=growth)
+    # RATIONALE PASSTHROUGH (2026-07-02) — the per-component reasons/evidence the scorer ALREADY computes
+    # but previously discarded, surfaced so the ledger entry (MASTER_REDESIGN_SPEC §3.4) can render each
+    # score's "why" + basis faithfully. Additive only: no score changes, existing consumers unaffected.
+    rec.update(
+        path_passed=path_passed,
+        agency_passed=agency_passed,
+        background_fit_basis=_row_get(row, "background_fit_basis"),
+        data_feedback_loop=_row_get(row, "data_feedback_loop"),
+        growth_band=growth_read.get("growth_band"),
+        growth_basis=growth_read.get("growth_basis"),
+        growth_source_mode=growth_read.get("source_mode"),
+        growth_evidence=growth_read.get("evidence"),
+        growth_note=_gnote,
+        strain_strength=_sttag,
+        strain_rationale=_stwhy,
+        path_detail=path_reason,
+        agency_detail=agency_reason,
+        reset_fired=reset_fired,
+        reset_detail=reset_detail,
+        business_model_needs_review=bm_needs_review,
+        revenue_or_arr=_row_get(row, "revenue_or_arr"),
+    )
     return rec
 
 
@@ -1688,12 +1786,15 @@ def flatten_checkpoint_row(row) -> dict:
     return flat
 
 
-def score_checkpoint_row(row, *, classifier_read, growth_read=None, background_fit=None) -> dict:
+def score_checkpoint_row(row, *, classifier_read, growth_read=None, background_fit=None,
+                         background_fit_basis=None, data_feedback_loop=None) -> dict:
     """Score ONE raw checkpoint row end-to-end. `classifier_read` is the live §B2 LLM read
     (`{"who_uses", "who_pays", "who_uses_confidence"}`); `growth_read` is the live §B6 extractor's flattened
-    columns (`flatten_growth_read(...)`, or None -> genuine-absent); `background_fit` is the live §B5 read.
-    Flattens via `flatten_checkpoint_row`, merges the three live reads, and delegates to `score_company`.
-    Pure given its inputs — the LLM I/O lives in the (thin) R1 cell, so this stays unit-testable."""
+    columns (`flatten_growth_read(...)`, or None -> genuine-absent); `background_fit` is the live §B5 score.
+    `background_fit_basis` / `data_feedback_loop` are the §B5 read's REASONING (captured 2026-07-02 so the
+    ledger renders the bg rationale) — when given, they OVERRIDE the stale fit_brief values on the flat row.
+    Flattens via `flatten_checkpoint_row`, merges the live reads, and delegates to `score_company`. Pure
+    given its inputs — the LLM I/O lives in the (thin) R1 cell, so this stays unit-testable."""
     flat = flatten_checkpoint_row(row)
     if classifier_read:
         for key in ("who_uses", "who_pays", "who_uses_confidence"):
@@ -1701,4 +1802,8 @@ def score_checkpoint_row(row, *, classifier_read, growth_read=None, background_f
                 flat[key] = classifier_read[key]
     if growth_read:
         flat.update(growth_read)
+    if background_fit_basis is not None:
+        flat["background_fit_basis"] = background_fit_basis
+    if data_feedback_loop is not None:
+        flat["data_feedback_loop"] = data_feedback_loop
     return score_company(flat, background_fit=background_fit)

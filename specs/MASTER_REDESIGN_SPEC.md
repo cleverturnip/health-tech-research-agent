@@ -9,6 +9,13 @@ two-gate autonomous flow in `COLLABORATION_CONTEXT.md`.
 `candidate_priority` V4.2 engine *as the master's priority source*; the old six priority columns; the
 "Commit 5 / Commit 6" plan.
 
+**GATE-2 review-surface addendum (2026-07-02, LOCKED with Katelynd):** the storage format (§6) is now
+DECIDED and the review packet (§4) is now a fully-specified render contract — durable **`ledger.jsonl`**
+master + **three rendered CSV views** + a locked **card layout**, with the research evidence joined in at
+render time. See the new "GATE-2 review surface — LOCKED render design" subsection in §4; the visual
+reference is [`specs/gate2_review_surface_mockup.html`](gate2_review_surface_mockup.html) (open in a
+browser). No scoring logic changed — the SOT stays at FRAMEWORK v1.25.
+
 ---
 
 ## 1. The three documents (architecture) — Option 2
@@ -173,7 +180,9 @@ score or a research fact in the ledger is forbidden; editing a priority/taxonomy
 
 ### 3.5 Flag controlled vocabulary (emitted by the pipeline, from the project's work)
 `override_candidate` · `fence_leak` · `under_extract` · `data_gap` · `evidence_thin` · `leak_discounted`
-· `b2b_floor` · `agency_floor` · `stage_low_confidence`. Each: `{ type, severity (info|warn), note }`.
+· `b2b_floor` · `agency_floor` · `stage_low_confidence` · `low_score_floor` · `tier_review`. Each:
+`{ type, severity (info|warn), note }`. (`low_score_floor` + `tier_review` added 2026-07-02 — the two
+triggered-rule signals surfaced on the card that had no vocab term; see §4 render design.)
 
 ## 4. The GATE-2 review packet (what the front end hands Katelynd)
 
@@ -186,7 +195,9 @@ the current flat summary becomes the summary table; cards + floor-reasons + rout
 summary's score columns change to the §B set (bg_fit / pmf / strain / FINAL), replacing the old synthesis
 scores. **Honor Rule 3:** CSV outputs are the human review surface — the summary table + cards are CSV
 artifacts Katelynd reviews directly (the eventual front end renders them, but must not route decisions away
-from the reviewed CSV artifacts). *(Google Sheets is retired — superseded by CSV.)*
+from the reviewed CSV artifacts). *(Google Sheets is retired — superseded by CSV.)* The full render contract
+(three CSV views + the locked card layout + the display-label convention + the evidence-join rule) is
+specified in "GATE-2 review surface — LOCKED render design" at the end of this section.
 
 The **master/ledger is UNIFORM — every company is a full scored + stored entry, gate-floored or not** (same
 schema, same scoring). Floor status changes only HOW a company is surfaced at Gate 2, never WHETHER it is
@@ -194,25 +205,116 @@ scored or stored — do NOT carry the spike's "floor-before-scoring → em-dash 
 into the ledger (components may be computed lazily for cost, but the persisted entry holds the full scored
 entry for every company). The **review packet** is a render-time VIEW over those entries, differentiated by
 altitude (cards are never hand-built):
-- **Cards** — the deliberate accept-or-override surface. Eligibility is a render-time predicate:
-  **`card ⟺ model_tier ∈ {P0, P1, P2} OR override_candidate == true`** — NOT "all floor-eligible companies"
-  (a floor-PASS company that lands at model-tier P3 gets no card; an **override candidate always gets a card
-  even at model-tier P3** — e.g. Function Health, P3-by-rule but a P1-override candidate). Each card carries
-  the scores + per-component rationale, flags (with severity, §3.5), the recommended tier and where it
-  diverges from the rule, and `[accept] / [override → ___]` controls.
-- **Summary table (top)** — every company, scannable: company · model · stage · tier · FINAL · key flag.
-- **Gate-floored → one-line floor reason in the summary table, NO card.** (e.g. "medically home — B2B floor,
-  enablement platform"; "hinge — agency floor, public.") Katelynd's **chance to catch a wrong floor** —
-  glance-and-confirm, reverse if incorrect. The floor is reviewable, not a black hole.
+- **Cards — EVERY company gets a card (LOCKED 2026-07-02, supersedes the earlier eligibility predicate).**
+  Katelynd's chosen review flow: every company — P0 through P3, floored or not — gets a full card; she
+  glosses over the ones that look right and digs into the ones that don't (the `recommended_action` label
+  triages which is which). The old predicate `card ⟺ model_tier ∈ {P0,P1,P2} OR override_candidate` is
+  **retired** — `override_candidate` no longer gates card eligibility (it now only drives routing + a flag).
+  Each card carries the scores + per-component rationale + research summary, flags (with severity, §3.5), the
+  floors block, and the priority decision control (see the render-design subsection).
+- **Summary table (top)** — every company, scannable: company · model · stage · tier · FINAL · key flag. It
+  is the quick scan; clicking any row opens that company's card.
 
-### Review routing (`recommended_action`) makes a big batch reviewable in one sitting
-- `accept` — clear tier (strong P0, clear P3-floor) → bulk-approvable.
-- `review_override` — override candidates + borderline → Katelynd's real attention.
-- `normal` — confirm.
+### Review routing (`recommended_action`) makes a big batch reviewable in one sitting (rules LOCKED 2026-07-02)
+- `review_override` — a human override exists, OR `override_candidate` is true, OR `tier_review` (FINAL is
+  boundary-adjacent), OR any `warn`-severity flag → Katelynd's real attention.
+- `accept` — a clean gate-floor (bulk-confirm the floor), OR a clear `P0` with nothing flagged → wave through.
+- `normal` — everything else → a quick confirm.
 
 ### Override reason
 **Strongly prompted, not blocked.** The front end nudges for a reason but saves without one (Katelynd's own
 rigor). The field is present regardless; `history` still appends the change.
+
+### GATE-2 review surface — LOCKED render design (2026-07-02)
+
+Designed with Katelynd and locked; visual reference: [`specs/gate2_review_surface_mockup.html`](gate2_review_surface_mockup.html)
+(open in a browser). This is the render contract the build targets. It changes **no scoring logic** — every
+value below is already emitted by `structured_evidence.score_company` (scores, gates, floor_reason, layer,
+tier_review, floored_on_bg, model_priority) or joined from the research output.
+
+**Durable master + three rendered CSV views (resolves §6).** The durable master is **`ledger.jsonl`** — one
+JSON entry per company (§3.4 schema), scores write-once, `decision` block the only mutable region. It is
+**never hand-edited.** Three CSVs are rendered FROM it (the human review surface, Rule 3):
+
+| View | Contents | Human edits it? |
+|---|---|---|
+| `summary_table.csv` | Scan — every company: company · model · stage · tier · FINAL · key flag (+ floor one-liner on floored rows) | No (read-only) |
+| `cards.csv` | The decision surface — one rich row per company (**every** company, 2026-07-02); carries the **priority** accept/override/reason columns | **Yes** — read back + merged into `ledger.jsonl` with a `history` append (Rule 6/8 protected) |
+| `master_full_export.csv` | Reference — **every ledger field PLUS all research findings** joined, one row per company | No (read-only) |
+
+`cards.csv` is the **single decision-writing surface**; `summary_table.csv` and `master_full_export.csv` are
+read-only. Front end (later) renders the same three views as: a table → click a row → a card with controls +
+an expandable full-detail-with-evidence panel. Same data, different interaction.
+
+**Evidence join at render (Katelynd, 2026-07-02).** Cards and `master_full_export.csv` **join in the raw
+research findings at render time** so a score can be audited against its evidence in one place. The ledger
+still stores **no raw research** (Option 2 holds) — the render joins `ledger.jsonl` + the research output.
+
+**Display-label convention (human-facing only).** On every human-facing surface (card labels + CSV headers),
+`bg_fit` reads **"Background Fit"** and `pmf` reads **"Product Market Fit"**; **ARR** stays short. The
+underlying `ledger.jsonl` keys and all code identifiers remain `bg_fit` / `pmf` (locked §B field names — do
+NOT rename them). This is a presentation-layer mapping, not a schema change.
+
+**Uniform scoring — IMPLEMENTED + B2B n/a (LOCKED 2026-07-02).** Every company is scored (the §4 uniform-ledger
+rule made real in the live R1 flow): growth is read for ALL companies, and background fit for CONSUMER
+companies only. A floor caps PRIORITY, not scoring — the agency-floored consumer companies now carry real
+bg + FINAL (still P3 by the floor). **B2B / professional companies** have no consumer end-user, so background
+fit is **n/a BY DEFINITION** (not a cost skip); they render **Background Fit "n/a (no consumer end-user)"** and
+**FINAL "n/a"** (FINAL needs bg), while ARR / Growth / Strain still compute. **`one_liner` is dropped** — the
+research output has no clean product/service description field; a real one requires adding a "what they do"
+line to the research prompt (future, not retroactive), never conflating it with taxonomy/rationale.
+
+**Locked card layout** (top → bottom; a carded company):
+1. **Header** — company · model · stage · **one-liner (what they do)** · final-tier badge.
+2. **Headline scores** — one row: **Background Fit · Product Market Fit · Strain · FINAL**; **Product Market
+   Fit breaks out** into **ARR** and **Growth** sub-boxes directly beneath it, with the derived note
+   `Product Market Fit = 0.4·ARR + 0.6·Growth · FINAL = Background Fit + Product Market Fit + Strain`.
+3. **Flags · triggered rules** (§3.5 vocabulary) — each flag **names the rule that fired and its scoring
+   impact** (e.g. "low_score_floor → capped at P3", "growth fence → data_gap", "B2B floor → not scored").
+4. **Floors — pass / fail and why** — three rows, each **Pass** or **"Floored because…"** with the evidence:
+   - **Path to Scale** — pass, or the flooring reason + the evidence used to floor.
+   - **Agency** — pass, or the reason + **stage · most-recent round (type + amount + date) · reset status**.
+   - **Low Score** — pass, or which of **Background Fit / Product Market Fit** was ≤ 4 (the §B7 floor rule
+     tests `bg_fit > 4 AND pmf > 4` on the PMF *composite* — NOT ARR/Growth individually).
+
+     This block is where **floored-vs-low legibility** (the locked carry-forward requirement) is honored: a
+     gate floor (Path/Agency) reads distinctly from a Low-Score floor, and a `bg=None` READ-FAILURE reads
+     distinctly from a genuine low score.
+5. **Why these scores** — one box per component: **Background Fit · ARR · Growth · Strain**, each with the
+   score + a short *why* + a **research summary** (the joined research finding for that component).
+6. **Your decision — PRIORITY ONLY (LOCKED 2026-07-02).** The one action on every card is
+   `[Accept <model tier>] / [Override → pick a tier]` + reason (strongly prompted, not blocked), with the
+   **Recommendation shown BESIDE it** (`recommended_action` + where the model diverges from the rule) so it is
+   visible while deciding. Katelynd **never edits a score or a floor** (Rule 8) and does **not** re-classify
+   taxonomy as a routine action: if she thinks a company was floored wrongly, she does NOT un-floor it — she
+   **bumps its priority** to where it belongs, and the model's floor + scores stay on the record exactly as
+   produced. Both are then visible: "model said P3 because X" + "human set P1 because Y" (Function Health is
+   the canonical case). The `taxonomy_override` field remains in the decision block (locked Rule 6) but is
+   **not** surfaced as a routine card control — a wrong B2B/B2C label is handled by a priority bump + treated
+   as upstream calibration (Rule 8), per Katelynd's priority-only workflow (2026-07-02).
+
+**Gate-floored companies get a card too (2026-07-02)** — the same as everyone else, with the **same
+priority Accept/Override control** (no separate "overturn the floor" action; disagreement is a priority
+bump, see step 6). The card leads with the **Floors block + evidence** (so the floor is reviewable before
+deciding), **followed by the per-component sections** (Background Fit · ARR · Growth · Strain, each with
+score + why + research summary), so the floor can be judged against the scoring behind it — not just the
+verdict. The headline score-tile row and FINAL are omitted for a gate-floored company (a gate-floored FINAL
+is moot — the tier is P3 by floor, not by threshold), and **Background Fit reads "n/a" when it doesn't
+apply** (a `who_uses=professional` B2B floor has no consumer end-user to score — the floored-vs-low
+legibility distinction, not a low score). The ledger stores a full uniform entry for every company (§4
+uniform-ledger rule) — floor status changes only HOW a company is surfaced, never WHETHER it is scored/stored.
+
+**Routing + `override_candidate` (LOCKED 2026-07-02).** `override_candidate` = the company is in the documented
+priority-override list (e.g. Function Health) OR is `floored_on_bg` (floored solely on a low/uncertain bg
+read — a possible real prospect frozen low, the `grow` case). It no longer gates card eligibility (every
+company is carded); it drives `recommended_action → review_override` and emits an `override_candidate` flag,
+so a probably-mis-floored company is surfaced for a look instead of sitting quietly in P3.
+
+**Flags mapping (scorer signal → §3.5 flag, LOCKED 2026-07-02).** PATH Test A B2B floor → `b2b_floor`;
+AGENCY floor → `agency_floor`; floor-rule fail (not gate-floored) → `low_score_floor`; growth fence fired
+(basis `counts-scale`/`none` forced UNKNOWN) → `data_gap`; `funding_stage_needs_review` → `stage_low_confidence`;
+documented override OR `floored_on_bg` → `override_candidate`; boundary-adjacent FINAL → `tier_review`.
+`fence_leak` · `under_extract` · `evidence_thin` · `leak_discounted` stay reserved for future extractor signals.
 
 ## 5. §B scoring supersedes the candidate_priority V4.2 engine (as the master's priority source)
 
@@ -227,8 +329,9 @@ rigor). The field is present regardless; `history` still appends the change.
 ## 6. Open / deferred
 - Dashboard schema — separate doc; format-fluid by design (Katelynd iterates).
 - Exact front-end render + controls — front-half track (later/unstarted per COLLABORATION); must honor Rule 3.
-- Storage/format of the master (repo artifact / CSV) — decide at build time; schema is
-  format-agnostic (JSON-per-entry renders to card, table row, or CSV equally).
+- ~~Storage/format of the master — decide at build time.~~ **RESOLVED (2026-07-02):** durable master is
+  **`ledger.jsonl`** (JSON-per-entry) + **three rendered CSV views** (`summary_table.csv` /
+  `cards.csv` / `master_full_export.csv`). See "GATE-2 review surface — LOCKED render design" in §4.
 - Whether `recommended_action: accept` allows true bulk-approve or still one-click-per-company.
 
 ## 7. Phase-3 migration punch-list (code to re-point / retire — built later, not now)
