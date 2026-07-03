@@ -709,7 +709,7 @@ def run_dashboard_refresh(
     """
     import os
 
-    from .dashboard import (
+    from .dashboard_legacy import (   # legacy pre-ledger dashboard; retired in the dashboard rebuild (Phase 6)
         build_dashboard_frame,
         build_workbook_sheets,
         reconcile_override_segments,
