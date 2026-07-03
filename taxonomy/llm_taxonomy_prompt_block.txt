@@ -15,7 +15,10 @@ Allowed primary_market_segment codes:
 - PAYER_BENEFITS_INFRASTRUCTURE: Payer, benefits & value-based care infrastructure — Health insurance, employer benefits platforms, payer enablement, value-based care infrastructure, risk/population management, and Medicaid/VBC infrastructure.
 - PROVIDER_INFRASTRUCTURE_AI: Provider infrastructure & clinical AI — Provider-facing AI, clinical intelligence, documentation, scribing, prior authorization, coding, RCM, workflow automation, and provider admin infrastructure.
 - DIAGNOSTICS_LIFE_SCIENCES: Diagnostics, pharma & life sciences — Diagnostics, labs, imaging AI, screening, pharma/life-sciences enablement, clinical trials, RWE, and drug-discovery tooling.
-- OTHER_REVIEW: Other / needs review — Temporary value only when a company cannot be mapped into an approved top-level segment.
+NON-HEALTH-TECH categories — use ONLY for a company that is genuinely NOT health-tech. A health-tech company MUST map to one of the health categories above; never route a health company here.
+- FINTECH: Fintech (financial technology) — consumer banking, payments, investing, budgeting, lending, crypto/wallets, consumer insurance-tech.
+- ENTERTAINMENT_TECH: Entertainment tech — consumer audio, video, digital media/streaming, gaming, content creation and production tech, ad tech, and immersive/experiential tech (e.g. Suno).
+- OTHER_REVIEW: Other — catch-all: a non-health-tech consumer company that is not Fintech or Entertainment tech, OR a health-tech company that genuinely fits no health category above. Prefer a specific category whenever one fits.
 
 Allowed subsegment tag codes. Use zero or more:
 - fertility_family_building: Fertility / family building [parent: WOMENS_FAMILY_HEALTH]
