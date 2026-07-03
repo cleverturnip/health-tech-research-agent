@@ -285,7 +285,7 @@ def _round_amount_text(r) -> str:
         return ""
     for key in ("amount_usd_m", "amount_m", "amount_usd", "amount", "size", "raise_usd", "round_size"):
         text = _safe_text(r.get(key))
-        if text and text.lower() not in _AMOUNT_PLACEHOLDERS:
+        if text and text.lstrip("$ ").lower() not in _AMOUNT_PLACEHOLDERS:   # lstrip $ catches "$unknown"
             return text if text.startswith("$") else f"${text}"
     return ""
 
