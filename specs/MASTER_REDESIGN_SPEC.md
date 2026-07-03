@@ -3,7 +3,7 @@
 **Status:** **RECONCILED v1 — ADOPTABLE.** Committed target; Phase-3 hardening builds against this. Reconciled
 from the brainstorm draft against the committed docs via two read-only passes (the design reconciliation +
 the 6-column decision-verification trace). NO scoring/master code is built by this doc.
-**Pairs with:** `SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (the §B scoring system; FRAMEWORK v1.11) and the
+**Pairs with:** `SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` (the §B scoring system; FRAMEWORK v1.25) and the
 two-gate autonomous flow in `COLLABORATION_CONTEXT.md`.
 **Supersedes:** the V4.2/V1 data-completeness master (Option 2 — ONE master going forward); the
 `candidate_priority` V4.2 engine *as the master's priority source*; the old six priority columns; the
@@ -341,6 +341,18 @@ documented override OR `floored_on_bg` → `override_candidate`; boundary-adjace
 - Whether `recommended_action: accept` allows true bulk-approve or still one-click-per-company.
 
 ## 7. Phase-3 migration punch-list (code to re-point / retire — built later, not now)
+
+> **BUILD STATUS (2026-07-03) — the ledger was built as a NEW `src/health_tech_research_agent/ledger.py`,**
+> NOT by re-pointing the legacy modules below. `ledger.py` holds the entry builder (§3.4), JSONL persistence
+> with the transactional read-back/rollback, the three CSV views, and the `build_gate2_artifacts` /
+> `apply_gate2_decisions` / `render_views` orchestrators. It is live-verified on a Colab run and merged to
+> `main`. Consequences for this list: the `priority.py` / `master_update.py` / `review.py` re-point items are
+> **SUPERSEDED** (those modules stay in the tree as legacy — the GATE-2 flow does not use them);
+> `google_sheets.py` is retired in spirit (CSV is the surface). **The ONE item below still to build is the
+> dashboard** — see the next line. The DASHBOARD (next milestone) reads `ledger.jsonl` via `ledger.py`
+> (`read_ledger` → `final_priority` + `flags` + `provenance`), enforcing the §1a GATE INVARIANT (only
+> GATE-2-reviewed entries reach the dashboard).
+
 - `priority.py` — **rewrite** to the clean model (§3.1); derive `final_priority`/`provenance`/code/rank on
   read; delete `determine_priority_source` (inference), `decision_priority`, `build_calibration_flag`.
 - `master_update.py` — **re-point** to write ledger entries (not the wide data-master CSV); keep the

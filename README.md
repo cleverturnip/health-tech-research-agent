@@ -25,7 +25,9 @@ The full flow, working model, and current status live in
 
 The workflow currently runs in **Google Colab**. It is being migrated out of notebook cells
 into an importable Python package (`src/health_tech_research_agent/`) so the flow can run
-autonomously rather than through hand-run cells. Google Sheets remains the human review surface.
+autonomously rather than through hand-run cells. **CSV artifacts are the human review surface**
+(the GATE-2 packet: `summary_table.csv` / `cards.csv` / `master_full_export.csv`, rendered from the
+durable `ledger.jsonl`); Google Sheets is retired.
 
 ## Core philosophy
 
@@ -39,5 +41,6 @@ calibration data that improves the decision logic — not fixed by manual spread
 |---|---|
 | [`specs/COLLABORATION_CONTEXT.md`](specs/COLLABORATION_CONTEXT.md) | The North-Star flow, how we work, and current status/roadmap |
 | [`specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md`](specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md) | The locked scoring + priority framework (the one source of truth for scoring logic) |
-| [`specs/MASTER_REDESIGN_SPEC.md`](specs/MASTER_REDESIGN_SPEC.md) | Design for the scoring ledger + review cards + summary table (current build) |
+| [`specs/MASTER_REDESIGN_SPEC.md`](specs/MASTER_REDESIGN_SPEC.md) | Design for the scoring ledger + review cards + summary table (built + live-verified 2026-07-03) |
+| [`specs/SCORING_WALKTHROUGH.md`](specs/SCORING_WALKTHROUGH.md) | Plain end-to-end walkthrough of how a company gets scored |
 | [`CLAUDE.md`](CLAUDE.md) | Working rules and guardrails for making changes in this repo |

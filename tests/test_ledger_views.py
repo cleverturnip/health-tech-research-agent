@@ -137,8 +137,11 @@ def test_resolve_stage_basis_shows_undisclosed_when_amount_missing():
     placeholder = [{"series_designation": "series-b", "type": "series-b", "date": "2024-07",
                     "is_priced_equity": True, "amount": "unknown"}]
     absent = [{"series_designation": "series-b", "type": "series-b", "date": "2024-07", "is_priced_equity": True}]
+    dollar_placeholder = [{"series_designation": "series-b", "type": "series-b", "date": "2024-07",
+                           "is_priced_equity": True, "amount": "$unknown"}]   # value carries a leading $
     assert se.resolve_stage_basis("x", placeholder, {}, "series-b") == "Series B, undisclosed $, 2024-07"
     assert se.resolve_stage_basis("x", absent, {}, "series-b") == "Series B, undisclosed $, 2024-07"
+    assert se.resolve_stage_basis("x", dollar_placeholder, {}, "series-b") == "Series B, undisclosed $, 2024-07"
 
 
 def test_resolve_stage_basis_normal_company_matches_latest_round():

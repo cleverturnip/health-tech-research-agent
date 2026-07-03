@@ -66,10 +66,13 @@ judgment to a gate instead of stalling or guessing.
 
 ## Source-of-truth files (current)
 1. `specs/COLLABORATION_CONTEXT.md` — this file: flow, how-we-work, and current status/roadmap.
-2. `specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` — the §B scoring + priority framework (locked).
-3. `specs/MASTER_REDESIGN_SPEC.md` — the scoring-ledger + cards + summary-table design (current build).
-4. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
-5. `CLAUDE.md` — Claude Code's working rules and repo map.
+2. `specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md` — the §B scoring + priority framework (locked, v1.25).
+3. `specs/MASTER_REDESIGN_SPEC.md` — the scoring-ledger + cards + summary-table design (BUILT 2026-07-03;
+   §4 is the render contract; visual ref `specs/gate2_review_surface_mockup.html`). The ledger IS
+   `src/health_tech_research_agent/ledger.py` (durable `ledger.jsonl` + three CSV views).
+4. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
+5. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
+6. `CLAUDE.md` — Claude Code's working rules and repo map.
 
 Superseded/historical material (finished slices, the old `candidate_priority` engine, Phase-3 process
 history, audits, one-off probes) lives in `archive/` — reference only.
@@ -93,14 +96,20 @@ history, audits, one-off probes) lives in `archive/` — reference only.
   met: floored-vs-low legibility (B2B → `n/a`; distinct from a low score) and the walkthrough doc
   (`SCORING_WALKTHROUGH.md`). Render design locked in `MASTER_REDESIGN_SPEC.md` §4 + `gate2_review_surface_mockup.html`.
 
-**Current milestone (NEXT):** Build + verify the **dashboard** — the second autonomous segment (after
-GATE 2) that reads the GATE-2-reviewed ledger (`final_priority` + flags) and builds the working tracker.
-Enforce the gate invariant (`MASTER_REDESIGN_SPEC.md` §1a): only gate-2-reviewed ledger entries reach the
-dashboard.
+**Current milestone (NEXT): the DASHBOARD.** Build + verify the second autonomous segment (after GATE 2)
+that reads the GATE-2-reviewed ledger and builds Katelynd's working tracker. Enforce the gate invariant
+(`MASTER_REDESIGN_SPEC.md` §1a): only GATE-2-reviewed ledger entries reach the dashboard.
+> **Start here (for the dashboard chat):** the ledger is `src/health_tech_research_agent/ledger.py`. Read
+> entries with `ledger.read_ledger(path)`; per entry, `ledger.final_priority(e)` / `provenance(e)` /
+> `final_priority_code(e)` / `final_priority_rank(e)` are the derived read helpers, plus `e["flags"]`,
+> `e["scoring"]`, `e["decision"]`, `e["recommended_action"]`. The dashboard SCHEMA is deliberately OPEN /
+> format-fluid (Katelynd iterates it) — scope it with her before building. `dashboard.py` is the one
+> remaining item on the §7 punch-list; the old `dashboard.py` predates the ledger and is a rebuild target.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
-> merged back into the ledger via `ledger.apply_decisions` (priority-only; scores never hand-edited). This
-> is a USE of the built packet, not a build milestone — do it whenever a batch is ready to review.
+> merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
+> The regen-2 batch was reviewed 2026-07-03 (5 overrides applied). This is a USE of the built packet, not a
+> build milestone.
 
 **Last:** The **front end** + the data system that houses the flow so it runs autonomously end-to-end
 instead of through Colab cells. Front end: not started.
