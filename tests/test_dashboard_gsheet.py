@@ -19,7 +19,7 @@ class FakeWS:
     def get_all_records(self):
         return list(self._records)
 
-    def update(self, values):
+    def append_rows(self, values, **kwargs):
         self.written = values
 
 

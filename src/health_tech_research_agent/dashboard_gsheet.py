@@ -54,11 +54,11 @@ def seed_gsheet_store(spreadsheet: Any, records: list[dict]) -> bool:
         df = dash.seed_workspace_sheet(records)
         ws = spreadsheet.add_worksheet(title=dash.WORKSPACE_SHEET,
                                        rows=max(len(df) + 10, 20), cols=max(len(df.columns) + 2, 10))
-        ws.update(_df_to_values(df))
+        ws.append_rows(_df_to_values(df))
         seeded = True
     if dash.CONTACTS_SHEET not in titles:
         df = pd.DataFrame(columns=dash.CONTACTS_COLUMNS)
         ws = spreadsheet.add_worksheet(title=dash.CONTACTS_SHEET, rows=50, cols=max(len(dash.CONTACTS_COLUMNS) + 2, 10))
-        ws.update(_df_to_values(df))
+        ws.append_rows(_df_to_values(df))
         seeded = True
     return seeded
