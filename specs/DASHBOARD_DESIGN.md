@@ -305,8 +305,8 @@ tabs (`Workspace` / `Contacts`) once, when missing. Change detection lives in an
 **Colab run steps** (append AFTER the existing `render_views` cell; `OUT`/`df` are the current gate-2 vars):
 
 ```python
-# 0. install the dashboard build (branch) — re-run + restart to pick up fixes
-!pip -q install --force-reinstall --no-deps "git+https://github.com/cleverturnip/health-tech-research-agent.git@dashboard-design"
+# 0. install (merged to main 2026-07-03) — re-run + restart to pick up the latest
+!pip -q install --force-reinstall --no-deps "git+https://github.com/cleverturnip/health-tech-research-agent.git@main"
 
 # 1. FINALIZE the GATE-2 review — stamp every entry reviewed (run once, after apply_gate2_decisions)
 from health_tech_research_agent import ledger
