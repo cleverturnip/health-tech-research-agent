@@ -344,3 +344,150 @@ def segment_radar_view(records: list[dict]) -> pd.DataFrame:
     order = {"Strong": 0, "Directional": 1, "Sparse": 2}
     rows.sort(key=lambda x: (order.get(x["coverage"], 9), -x["desirable"], -x["companies"], x["segment"]))
     return pd.DataFrame(rows, columns=SEGMENT_RADAR_COLUMNS)
+
+
+# ---------------------------------------------------------------------------
+# THE LIVING LAYER (Phase 3) — merge the durable user store into the records.
+#
+# Your editable layer lives in a durable store (a workbook: a Workspace tab keyed one-row-per-company +
+# a Contacts tab, one-row-per-contact — DASHBOARD_DESIGN.md §3/§5). The dashboard REBUILDS the ledger side
+# fresh each run, then merges your side in by COMPANY NAME: ledger columns refresh (no drift), YOUR columns are
+# carried through untouched (Rule 6), and any column you added yourself is preserved. Two safety signals are
+# surfaced (never silently resolved — no one is watching the run): a pursued company whose priority/segment
+# CHANGED since you last looked, and a company you have notes on that DROPPED from the reviewed ledger.
+# The engine is format-agnostic (operates on rows); the workbook read/write + edit sync-back is Phase 4.
+# ---------------------------------------------------------------------------
+
+# The Workspace tab: engine-managed keys (change-detection snapshot) + `company`/`pursue` are reserved; every
+# OTHER column is yours and is preserved verbatim across runs (seed set below, but you may add more).
+WORKSPACE_RESERVED_KEYS = {"company", "pursue", "last_seen_priority", "last_seen_segment"}
+WORKSPACE_USER_COLUMNS = ["status", "next_step", "HQ", "desirability_notes", "deep_dive_notes", "last_updated"]
+CONTACTS_COLUMNS = ["company", "contact", "title", "their_org", "relationship", "warm_intro_path",
+                    "email_or_linkedin", "ask_status", "notes"]
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return _txt(value).lower() in ("true", "1", "yes", "y", "x")
+
+
+def _index_rows(rows: Any) -> dict:
+    """Group store rows (a DataFrame or list of dicts) by normalized company -> list of rows."""
+    if rows is None:
+        return {}
+    records = rows.fillna("").to_dict("records") if isinstance(rows, pd.DataFrame) else list(rows)
+    out: dict[str, list] = {}
+    for rec in records:
+        key = _norm_company(rec.get("company"))
+        if key:
+            out.setdefault(key, []).append(rec)
+    return out
+
+
+def merge_user_layer(records: list[dict], workspace: Any = None, contacts: Any = None) -> tuple[list[dict], dict]:
+    """Merge the durable user store into the (freshly rebuilt) records, by company. Sets `pursue`, attaches the
+    preserved `workspace` dict (all your columns, including ones you added) and the `contacts` list, and computes
+    the `changed` signal from the stored snapshot. Returns `(records, report)` where report surfaces the two
+    safety signals: `orphaned_workspace` / `orphaned_contacts` (notes on a company no longer in the ledger) and
+    `changed` (a pursued company whose priority/segment moved). Never mutates the ledger side."""
+    ws_index = _index_rows(workspace)
+    ct_index = _index_rows(contacts)
+    record_keys = {_norm_company(r.get("company")) for r in records}
+
+    changed: list[dict] = []
+    for record in records:
+        key = _norm_company(record.get("company"))
+        ws_rows = ws_index.get(key)
+        ws = ws_rows[0] if ws_rows else {}       # one row per company on the Workspace tab
+        record["pursue"] = _truthy(ws.get("pursue")) if ws else False
+        record["workspace"] = {k: v for k, v in ws.items() if k not in WORKSPACE_RESERVED_KEYS}
+        record["contacts"] = ct_index.get(key, [])
+
+        record["changed"] = None
+        if ws:
+            last_priority = _txt(ws.get("last_seen_priority"))
+            last_segment = _txt(ws.get("last_seen_segment"))
+            deltas = {}
+            if last_priority and last_priority != record["final_priority"]:
+                deltas["priority"] = {"from": last_priority, "to": record["final_priority"]}
+            if last_segment and last_segment != record["segment_label"]:
+                deltas["segment"] = {"from": last_segment, "to": record["segment_label"]}
+            if deltas:
+                record["changed"] = deltas
+                changed.append({"company": record["company"], **deltas})
+
+    orphaned_workspace = sorted(
+        _txt(rows[0].get("company")) for key, rows in ws_index.items() if key not in record_keys)
+    orphaned_contacts = sorted(
+        {_txt(rows[0].get("company")) for key, rows in ct_index.items() if key not in record_keys})
+
+    report = {"orphaned_workspace": orphaned_workspace, "orphaned_contacts": orphaned_contacts, "changed": changed}
+    return records, report
+
+
+def next_workspace_store(records: list[dict]) -> pd.DataFrame:
+    """The Workspace tab to persist back after a run: one row per pursued company, carrying `pursue`, your
+    columns verbatim, and a REFRESHED `last_seen_priority` / `last_seen_segment` snapshot (the reference point
+    for next run's 'changed since you last looked'). Companies you're not pursuing drop off the tab. Any extra
+    columns you added are preserved (union of all workspace keys seen)."""
+    pursued = [r for r in records if r.get("pursue")]
+    extra_cols: list[str] = []
+    for r in pursued:
+        for k in (r.get("workspace") or {}):
+            if k not in WORKSPACE_USER_COLUMNS and k not in extra_cols:
+                extra_cols.append(k)
+    user_cols = WORKSPACE_USER_COLUMNS + extra_cols
+
+    rows = []
+    for r in pursued:
+        ws = r.get("workspace") or {}
+        row = {"company": r["company"], "pursue": True}
+        for col in user_cols:
+            row[col] = ws.get(col, "")
+        row["last_seen_priority"] = r["final_priority"]
+        row["last_seen_segment"] = r["segment_label"]
+        rows.append(row)
+    columns = ["company", "pursue"] + user_cols + ["last_seen_priority", "last_seen_segment"]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def pursuit_view(records: list[dict]) -> pd.DataFrame:
+    """The Pursuit tab (§5 Tab 2): pursued companies only, ledger columns refreshed + your workspace columns,
+    plus a `changed` note when priority/segment moved since you last looked. One row per company."""
+    pursued = [r for r in records if r.get("pursue")]
+    extra_cols: list[str] = []
+    for r in pursued:
+        for k in (r.get("workspace") or {}):
+            if k not in WORKSPACE_USER_COLUMNS and k not in extra_cols:
+                extra_cols.append(k)
+    user_cols = WORKSPACE_USER_COLUMNS + extra_cols
+    ledger_cols = ["company", "final_priority", "model_priority", "segment", "stage", "FINAL", "changed"]
+
+    rows = []
+    for r in pursued:
+        ws = r.get("workspace") or {}
+        changed = r.get("changed")
+        note = "; ".join(f"{k} {v['from']}→{v['to']}" for k, v in changed.items()) if changed else ""
+        row = {"company": r["company"], "final_priority": r["final_priority"],
+               "model_priority": r["model_priority"], "segment": r["segment_label"],
+               "stage": r["stage"], "FINAL": r["final_display"], "changed": note}
+        for col in user_cols:
+            row[col] = ws.get(col, "")
+        rows.append(row)
+    return pd.DataFrame(rows, columns=ledger_cols + user_cols)
+
+
+def contacts_view(records: list[dict]) -> pd.DataFrame:
+    """The Contacts tab (§5 Tab 3): one row per contact across pursued companies, in the fixed schema, preserving
+    any extra columns you added."""
+    extra_cols: list[str] = []
+    rows = []
+    for r in records:
+        for contact in (r.get("contacts") or []):
+            for k in contact:
+                if k not in CONTACTS_COLUMNS and k not in extra_cols:
+                    extra_cols.append(k)
+            rows.append({**{c: _txt(contact.get(c)) for c in CONTACTS_COLUMNS},
+                         **{c: contact.get(c) for c in extra_cols}})
+    return pd.DataFrame(rows, columns=CONTACTS_COLUMNS + extra_cols)
