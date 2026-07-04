@@ -155,9 +155,38 @@ def _row(label: str, value: str, strong: bool = False) -> str:
     return f'<div class="r"><span class="k">{_esc(label)}</span><span class="{cls}">{value}</span></div>'
 
 
-def _lever_card(title: str, chip: str, rows: str) -> str:
-    return (f'<div class="lc"><div class="lch"><span class="lct">{_esc(title)}</span>'
-            f'<span class="ls">{_esc(chip)}</span></div>{rows}</div>')
+def _lever_card(title: str, chip: str, rows: str, kind: str = "") -> str:
+    return (f'<div class="lc"><div class="lch {kind}"><span class="lct">{_esc(title)}</span>'
+            f'<span class="ls">{_esc(chip)}</span></div><div class="lcbody">{rows}</div></div>')
+
+
+def _gate_badge(passed: Any) -> str:
+    """A visually distinct PASS/FAIL chip (green check / red x), shown first on a gate row."""
+    if passed:
+        return '<span class="gbadge pass">&#10003; PASS</span>'
+    return '<span class="gbadge fail">&#10007; FAIL</span>'
+
+
+def _gate_detail(detail: Any) -> str:
+    """Tidy a gate detail string: drop the embedded verdict + arrows/brackets so only the reasons remain
+    (e.g. 'series-c -> PASS [late-C clean-pass, dial]' -> 'series-c, late-C clean-pass, dial')."""
+    d = "" if detail is None else str(detail)
+    d = re.sub(r"\s*(->|→)\s*(PASS|FAIL)\b", "", d)
+    d = re.sub(r"^\s*(pass|passed|fail|failed)\s*[—-]\s*", "", d, flags=re.I)
+    d = d.replace("[", ", ").replace("]", "")
+    d = re.sub(r"\s{2,}", " ", d)
+    d = re.sub(r"\s+,", ",", d)
+    return d.strip(" ,;—-")
+
+
+def _score(v: Any, denom: int) -> str:
+    """Format a score as 'v/denom' when numeric, else the raw display (e.g. 'n/a (no consumer end-user)')."""
+    if isinstance(v, bool) or v is None:
+        return _cell(v)
+    if isinstance(v, (int, float)):
+        return f"{v}/{denom}"
+    sv = str(v).strip()
+    return f"{sv}/{denom}" if sv.replace(".", "", 1).isdigit() else _cell(v)
 
 
 def _detail_html(r: dict) -> str:
@@ -168,11 +197,16 @@ def _detail_html(r: dict) -> str:
     was = f' <span class="pill p3" style="opacity:.8">model: {_esc(r["model_priority"])}</span>' \
         if r.get("is_overridden") else ""
 
-    score_boxes = "".join(
-        f'<div class="sbox{" final" if lbl == "FINAL" else ""}"><div class="l">{_esc(lbl)}</div>'
-        f'<div class="v">{_cell(val)}</div></div>'
-        for lbl, val in [("background fit", r["bg_display"]), ("PMF", s["pmf"]), ("ARR", s["arr"]),
-                         ("growth", s["growth"]), ("strain", s["strain"]), ("FINAL", r["final_display"])])
+    def _sbox(lbl, val, cls=""):
+        return f'<div class="sbox {cls}"><div class="l">{_esc(lbl)}</div><div class="v">{_cell(val)}</div></div>'
+
+    # Background Fit · PMF (with ARR + Growth beneath it, since they FEED pmf and aren't added to Total) · Strain · Total
+    pmf_sub = (f'<div class="pmfsub">{_sbox("ARR", s["arr"], "sm")}{_sbox("Growth", s["growth"], "sm")}</div>')
+    score_boxes = (
+        _sbox("Background Fit", r["bg_display"])
+        + f'<div class="pmfcol">{_sbox("PMF", s["pmf"])}{pmf_sub}</div>'
+        + _sbox("Strain", s["strain"])
+        + _sbox("Total", r["final_display"], "final"))
 
     ov = ""
     if r.get("override"):
@@ -184,59 +218,63 @@ def _detail_html(r: dict) -> str:
     floor = _esc(scoring.get("floor_rule", {}).get("reason"))
     why = f'<div class="why"><div>{bg_rat}</div><div>Floor rule: {floor}</div></div>' if (bg_rat or floor) else ""
 
-    # gate cards
+    # gate cards — the GATE result (PASS/FAIL badge) is the top row of each
     path = gates.get("path", {})
     agency = gates.get("agency", {})
-    class_rows = (_row("model", _esc(r["model"]))
-                  + _row("PATH", ("pass" if path.get("passed") else "floored") + " — " + _esc(path.get("detail")), True)
-                  + (_row("channel", _esc(res.get("commercial", {}).get("business_model_type")))
+    class_rows = (_row("Path to Scale Gate", _gate_badge(path.get("passed")) + _esc(_gate_detail(path.get("detail"))))
+                  + _row("Model", _esc(r["model"]))
+                  + (_row("Channel", _esc(res.get("commercial", {}).get("business_model_type")))
                      if res.get("commercial", {}).get("business_model_type") else ""))
-    fund_rows = _row("stage", _esc(r["stage"]), True) + _row("agency", _esc(agency.get("detail")))
+    fund_rows = (_row("Agency Gate", _gate_badge(agency.get("passed")) + _esc(_gate_detail(agency.get("detail"))))
+                 + _row("Stage", _esc(r["stage"])))
     if res.get("maturity", {}).get("total_funding"):
-        fund_rows += _row("total raised", _esc(res["maturity"]["total_funding"]))
+        fund_rows += _row("Total Raised", _esc(res["maturity"]["total_funding"]))
 
-    gate_cards = (_lever_card("classification & channel", "drives PATH", class_rows)
-                  + _lever_card("funding & maturity", "drives agency", fund_rows))
+    gate_cards = (_lever_card("Classification & Channel", "Drives Path", class_rows, "gate")
+                  + _lever_card("Funding & Maturity", "Drives Agency", fund_rows, "gate"))
 
-    # score cards
+    # score cards — the SCORE is the top row of each
     com = res.get("commercial", {})
-    pmf_rows = _row("ARR / growth", f'{_cell(s["arr"])} / {_cell(s["growth"])}', True)
+    pmf_rows = _row("ARR", _score(s["arr"], 10), True) + _row("Growth", _score(s["growth"], 10), True)
     if com.get("revenue_or_arr"):
-        pmf_rows += _row("revenue", _esc(com["revenue_or_arr"]))
+        pmf_rows += _row("Revenue", _esc(com["revenue_or_arr"]))
     if com.get("growth_signal"):
-        pmf_rows += _row("growth", _esc(com["growth_signal"]))
+        pmf_rows += _row("Growth signal", _esc(com["growth_signal"]))
     if com.get("evidence_quality"):
-        pmf_rows += _row("evidence", _esc(com["evidence_quality"]) + ' <span class="src">— trust cue</span>')
-    bg_rows = _row("cadence", bg_rat or "—", True) + _row("loop", str(scoring.get("bg_fit", {}).get("loop")))
+        pmf_rows += _row("Evidence", _esc(com["evidence_quality"]) + ' <span class="src">— trust cue</span>')
+    bg_rows = (_row("Background Fit", _score(r["bg_display"], 10), True)
+               + _row("Cadence", bg_rat or "—") + _row("Loop", str(scoring.get("bg_fit", {}).get("loop"))))
     cap = res.get("capability", {})
-    strain_rows = _row("strain", _esc(scoring.get("strain", {}).get("strength")) + f' ({_cell(s["strain"])})', True)
+    strain_rows = _row("Strain", _score(s["strain"], 2), True)
+    if scoring.get("strain", {}).get("strength"):
+        strain_rows += _row("Strength", _esc(scoring["strain"]["strength"]))
     if cap.get("a2_basis"):
-        strain_rows += _row("a2 basis", _esc(cap["a2_basis"]))
+        strain_rows += _row("Context", _esc(cap["a2_basis"]))
 
-    score_cards = (_lever_card("product market fit", "drives ARR + growth", pmf_rows)
-                   + _lever_card("background fit", "drives Background Fit", bg_rows)
-                   + _lever_card("operator needed", "drives strain", strain_rows))
+    score_cards = (_lever_card("Product Market Fit", "Drives PMF", pmf_rows, "score")
+                   + _lever_card("Background Fit", "Drives Background Fit", bg_rows, "score")
+                   + _lever_card("Operator Needed", "Drives Strain", strain_rows, "score"))
 
     # research accordions (only when research is joined)
     research_block = ""
     if r.get("research"):
         facts = "".join(
-            f'<div class="fact"><span class="pill cv-ver">verified</span><div>{_esc(f)}</div></div>'
+            f'<div class="fact"><span class="pill cv-ver">Verified</span><div>{_esc(f)}</div></div>'
             for f in res.get("verified_facts", []))
         weak = "".join(
-            f'<div class="fact"><span class="pill cv-weak">weak</span><div>{_esc(w)}</div></div>'
+            f'<div class="fact"><span class="pill cv-weak">Weak</span><div>{_esc(w)}</div></div>'
             for w in res.get("weak_claims", []))
         findings = "".join(
             f'<div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle(\'open\')">'
-            f'<i class="ti ti-chevron-right chev"></i> {_esc(name.replace("_finding", "").replace("_", " "))}'
+            f'<i class="ti ti-chevron-right chev"></i> {_esc(name.replace("_finding", "").replace("_", " ").title())}'
             f'</div><div class="ab"><div class="md">{_esc(text)}</div></div></div>'
             for name, text in res.get("findings", {}).items())
         research_block = (
             '<div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle(\'open\')">'
-            '<i class="ti ti-chevron-right chev"></i> verified facts &amp; sources</div>'
+            '<i class="ti ti-chevron-right chev"></i> Verified Facts &amp; Sources</div>'
             f'<div class="ab">{facts}{weak}</div></div>'
             '<div class="acc"><div class="ah" onclick="this.parentElement.classList.toggle(\'open\')">'
-            '<i class="ti ti-chevron-right chev"></i> full findings — raw research text</div>'
+            '<i class="ti ti-chevron-right chev"></i> Full Findings — raw research text</div>'
             f'<div class="ab">{findings}</div></div>')
     else:
         research_block = '<div class="src" style="margin-top:10px">No research joined for this company.</div>'
@@ -244,16 +282,16 @@ def _detail_html(r: dict) -> str:
     return (
         f'<div class="detailco" id="{_slug(r["company"])}" style="display:none">'
         f'<div class="crumb"><a href="#" onclick="showGrid();return false;"><i class="ti ti-arrow-left"></i> '
-        f'all companies</a> / <span style="color:var(--text-primary)">{_esc(r["company"])}</span></div>'
+        f'All Companies</a> / <span style="color:var(--text-primary)">{_esc(r["company"])}</span></div>'
         f'<div class="hd"><h3>{_esc(r["company"])}</h3>{_pill(r["final_priority"])}{was}'
         f'<span style="color:var(--text-secondary);font-size:12.5px">{_esc(r["segment_label"])} · '
         f'{_esc(r["model"])} · {_esc(r["stage"])}</span></div>'
-        f'<div class="card"><p class="ct">SCORING &amp; DECISION — from the ledger (write-once)</p>'
+        f'<div class="card"><p class="ct">SCORING &amp; DECISION</p>'
         f'<div class="scores">{score_boxes}</div>{why}{ov}</div>'
         f'<div class="card"><p class="ct">RESEARCH EVIDENCE — at a glance (each card = a scoring lever)</p>'
-        f'<div class="glabel">the gates — a fail here caps priority at P3</div>'
+        f'<div class="glabel">The Gates — a fail here caps priority at P3</div>'
         f'<div class="cgrid cg2">{gate_cards}</div>'
-        f'<div class="glabel">the score — background fit + PMF + strain = FINAL</div>'
+        f'<div class="glabel">The Score — Background Fit + PMF + Strain = Total</div>'
         f'<div class="cgrid cg3">{score_cards}</div>{research_block}</div></div>')
 
 
@@ -323,7 +361,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
 .dot.t0{background:var(--t0)}.dot.t1{background:var(--t1)}.dot.t2{background:var(--t2)}.dot.t3{background:var(--t3)}
 table.gtbl{border-collapse:collapse;width:100%;font-size:12.5px}
-.gtbl th{text-align:left;font-weight:700;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.9);background:var(--navy);padding:11px 10px;white-space:nowrap}
+.gtbl th{text-align:left;font-weight:700;font-size:11px;letter-spacing:.02em;text-transform:capitalize;color:rgba(255,255,255,.92);background:var(--navy);padding:11px 10px;white-space:nowrap}
 .gtbl td{padding:10px;border-bottom:1px solid var(--border);white-space:nowrap;color:var(--text-primary)}
 .gtbl tr:nth-child(even) td{background:#EAF1F8}
 .gtbl tr[data-co]{cursor:pointer;transition:background .1s}
@@ -352,7 +390,11 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
 .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.hd h3{font-size:20px;margin:0;letter-spacing:-.01em}
 .card{background:var(--surface-2);border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:14px;padding:16px 18px;margin-top:14px;box-shadow:var(--shadow)}
 .ct{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--navy);font-weight:700;margin:0 0 12px}
-.scores{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px}
+.scores{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin:2px 0 10px}
+.pmfcol{display:flex;flex-direction:column;gap:6px}.pmfsub{display:flex;gap:6px}
+.sbox.sm{min-width:0;padding:6px 11px}.sbox.sm .l{font-size:10px}.sbox.sm .v{font-size:14px}
+.gbadge{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:.03em;margin-right:8px}
+.gbadge.pass{background:#DCF3E4;color:#1E7A3E}.gbadge.fail{background:#FADCDC;color:#A32020}
 .sbox{background:#EAF1F8;border:1px solid #D3E1EE;border-radius:var(--radius);padding:9px 14px;min-width:76px}
 .sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:18px;font-weight:700;color:var(--navy)}
 .sbox.final{background:var(--navy);border-color:var(--navy)}.sbox.final .l{color:rgba(255,255,255,.72)}.sbox.final .v{color:#fff}
@@ -360,9 +402,12 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
 .ov{font-size:12.5px;margin-top:8px;padding:10px 12px;border:1px solid var(--gold);border-radius:var(--radius);background:#FCF5E2;color:#7A5B10}
 .glabel{font-size:11px;color:var(--accent-ink);font-weight:700;margin:14px 0 6px;letter-spacing:.03em}
 .cgrid{display:grid;gap:10px}.cg2{grid-template-columns:repeat(2,1fr)}.cg3{grid-template-columns:repeat(3,1fr)}
-.lc{background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius);padding:11px 13px 12px}
-.lch{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid var(--border)}
-.lct{font-size:11.5px;color:var(--text-primary);font-weight:600}.ls{font-size:10px;background:var(--accent-soft);color:var(--accent-ink);padding:2px 8px;border-radius:20px;font-weight:600}
+.lc{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.lch{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:9px 12px}
+.lch.gate{background:var(--accent)}.lch.score{background:#2E6FA8}
+.lct{font-size:11.5px;color:#fff;font-weight:700}
+.ls{font-size:9.5px;background:rgba(255,255,255,.24);color:#fff;padding:2px 8px;border-radius:20px;font-weight:600}
+.lcbody{padding:10px 12px 12px}
 .r{display:flex;gap:8px;padding:3px 0;font-size:12px;align-items:flex-start}.k{color:var(--text-muted);width:96px;flex-shrink:0}.v{color:var(--text-secondary);line-height:1.45}.v.s{color:var(--text-primary);font-weight:600}
 .acc{border:1px solid var(--border);border-radius:var(--radius);margin-top:8px;background:var(--surface-1);overflow:hidden}.acc .acc{margin-top:6px;background:var(--surface-2)}
 .ah{padding:11px 13px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}.ah:hover{background:rgba(27,31,40,.02)}.chev{display:inline-block;color:var(--text-muted)}
@@ -407,10 +452,10 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <div class="topnav"><button data-view="grid" class="active" onclick="showGrid()">Grid views</button>
 <button data-view="detail" onclick="showSelectedDetail()">Company detail</button></div>
 <div id="view-grid">{_kpi_section(records)}<div class="sheet" id="sheet">
-<div class="tabs"><button class="tab active" data-tab="all" onclick="gtab('all',this)">All companies</button>
+<div class="tabs"><button class="tab active" data-tab="all" onclick="gtab('all',this)">All Companies</button>
 <button class="tab" data-tab="pursuit" onclick="gtab('pursuit',this)">Pursuit</button>
 <button class="tab" data-tab="contacts" onclick="gtab('contacts',this)">Contacts</button>
-<button class="tab" data-tab="radar" onclick="gtab('radar',this)">Segment radar</button></div>
+<button class="tab" data-tab="radar" onclick="gtab('radar',this)">Segment Radar</button></div>
 <div id="p-all"><div class="toolbar"><span class="muted" style="font-size:11px">Click a row to select it, then open <b>Company detail</b> above &mdash; or use the expand button on a row.</span>
 <span class="chip" style="margin-left:auto" onclick="document.getElementById('sheet').classList.toggle('show-detail')"><i class="ti ti-chevron-right"></i> tags &amp; scores</span></div>
 <div class="tablewrap"><table class="gtbl">{all_head}{all_rows}</table></div></div>

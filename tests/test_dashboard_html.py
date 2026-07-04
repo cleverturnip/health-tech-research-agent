@@ -37,7 +37,7 @@ def test_page_is_self_contained_and_lists_every_company():
 def test_tabs_and_grid_render():
     records, _ = _records()
     html = dashboard_html.render_dashboard_html(records)
-    for tab in ["All companies", "Pursuit", "Contacts", "Segment radar"]:
+    for tab in ["All Companies", "Pursuit", "Contacts", "Segment Radar"]:
         assert tab in html
     assert "Metabolic, nutrition &amp; weight health" in html   # segment label joined
     assert "showDetail('co-beta-health')" in html               # per-company detail wired
@@ -49,14 +49,14 @@ def test_override_marker_and_detail_view_present():
     assert "was P3" in html                       # beta overridden P3 -> P1
     assert 'id="co-beta-health"' in html          # detail block exists
     assert "SCORING &amp; DECISION" in html
-    assert "the gates — a fail here caps priority at P3" in html
+    assert "The Gates — a fail here caps priority at P3" in html
 
 
 def test_research_findings_render_when_joined():
     records, _ = _records(with_research=True)
     html = dashboard_html.render_dashboard_html(records)
     assert "Series B raised $50M in 2024." in html            # raw finding text
-    assert "verified facts &amp; sources" in html
+    assert "Verified Facts &amp; Sources" in html
 
 
 def test_no_research_shows_a_note():
