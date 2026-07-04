@@ -18,6 +18,11 @@ The agent runs as a mostly-autonomous flow bounded by exactly two human-in-the-l
 Between the gates there is **zero user input** — each segment runs unattended, handling
 problems autonomously or surfacing them for review at the next gate.
 
+**Front end (in progress):** the flow is being wrapped in a hosted, private web app. **Phase 1 — the
+hosted dashboard** (login + your live Google data + a polished analytics UI) is **built + locally
+live-verified (2026-07-04)**; deploy to Render is the next step. Later phases add the in-app GATE-2
+review and the GATE-1 conversational discovery. See [`specs/FRONT_END_DIRECTION.md`](specs/FRONT_END_DIRECTION.md).
+
 The full flow, working model, and current status live in
 [`specs/COLLABORATION_CONTEXT.md`](specs/COLLABORATION_CONTEXT.md).
 
@@ -45,5 +50,7 @@ calibration data that improves the decision logic — not fixed by manual spread
 | [`specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md`](specs/SCORING_FRAMEWORK_SOURCE_OF_TRUTH.md) | The locked scoring + priority framework (the one source of truth for scoring logic) |
 | [`specs/MASTER_REDESIGN_SPEC.md`](specs/MASTER_REDESIGN_SPEC.md) | Design for the scoring ledger + review cards + summary table (built + live-verified 2026-07-03) |
 | [`specs/DASHBOARD_DESIGN.md`](specs/DASHBOARD_DESIGN.md) | Design + build + Colab run steps for the dashboard segment (built + live-verified 2026-07-03) |
+| [`specs/FRONT_END_DIRECTION.md`](specs/FRONT_END_DIRECTION.md) | The full-flow front-end direction + phase order |
+| [`specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`](specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md) | Phase 1 hosted dashboard — build spec (built + locally live-verified 2026-07-04) |
 | [`specs/SCORING_WALKTHROUGH.md`](specs/SCORING_WALKTHROUGH.md) | Plain end-to-end walkthrough of how a company gets scored |
 | [`CLAUDE.md`](CLAUDE.md) | Working rules and guardrails for making changes in this repo |

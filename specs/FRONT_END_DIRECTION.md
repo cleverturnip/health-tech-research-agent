@@ -1,8 +1,10 @@
 # Front-End Direction — the full-flow app
 
-**Status: DIRECTION — decided with Katelynd 2026-07-03. Design only; NO code yet.** This is the direction
-contract for the front-end milestone: the hosted app that houses the two-gate flow end-to-end and replaces the
-hand-run Colab cells. It records *what we're building and in what order*; it does **not** yet specify the
+**Status: DIRECTION — decided with Katelynd 2026-07-03.** This is the direction contract for the front-end
+milestone: the hosted app that houses the two-gate flow end-to-end and replaces the hand-run Colab cells.
+**Build progress: Phase 1 (hosted dashboard) is BUILT + locally live-verified (2026-07-04), merged to `main`** —
+see `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`; deploy to Render is next. Phases 2–3 (GATE-2 review, GATE-1 +
+long-run) are unbuilt. It records *what we're building and in what order*; it does **not** yet specify the
 Phase-1 build (that's the next doc) and it does **not** lock any LLM-facing prompt wording (designed together
 before build, per `CLAUDE.md`).
 

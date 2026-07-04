@@ -357,7 +357,9 @@ documented override OR `floored_on_bg` → `override_candidate`; boundary-adjace
 > (2026-07-03) and merged to `main`** — a NEW ledger-based `src/health_tech_research_agent/dashboard.py` (the old
 > module deleted in Phase 6), reading `ledger.jsonl` via `ledger.py` (`read_ledger` → `final_priority` + `flags`
 > + `provenance`) and enforcing the §1a GATE INVARIANT (only GATE-2-reviewed entries reach the dashboard).
-> Design + Colab run steps: `specs/DASHBOARD_DESIGN.md`. The NEXT milestone is the front end.
+> Design + Colab run steps: `specs/DASHBOARD_DESIGN.md`. **The front-end milestone is underway: Phase 1 (hosted
+> dashboard) is BUILT + locally live-verified (2026-07-04) — `specs/FRONT_END_DIRECTION.md` /
+> `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`. The GATE-2 review surface (§4) is the next front-end phase.**
 
 - `priority.py` — **rewrite** to the clean model (§3.1); derive `final_priority`/`provenance`/code/rank on
   read; delete `determine_priority_source` (inference), `decision_priority`, `build_calibration_flag`.
