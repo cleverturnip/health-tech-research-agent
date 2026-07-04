@@ -1,6 +1,10 @@
 # Front-End Phase 1 — Hosted Dashboard (build spec)
 
-**Status: BUILD SPEC — decided with Katelynd 2026-07-03. NO code yet (pending Katelynd's review).** The contract
+**Status: BUILT + LOCALLY LIVE-VERIFIED (2026-07-04), merged to `main`.** Steps 1–2 + the in-app `pursue` edit
+(§8a) + the full UI polish are done and verified end-to-end against Katelynd's real Google data (54 companies);
+667 tests. Code: `src/health_tech_research_agent/webapp/`. **Remaining: Step 3 (deploy to Render) + Step 4
+(live-verify on the hosted URL)** — needs Katelynd's Render account + moving the local settings into Render
+secrets (§7). This is the contract
 for Phase 1 of the front-end milestone. Phase order + rationale: `FRONT_END_DIRECTION.md` §4. Phase 1 hosts the
 **already-built** dashboard engine behind a login, with a Refresh button — the lowest-risk piece, chosen to prove
 the hosting/deploy/auth/data-access pipeline end-to-end before the interactive surfaces (GATE 2, GATE 1).

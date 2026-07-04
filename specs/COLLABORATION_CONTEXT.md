@@ -120,10 +120,19 @@ in-app GATE 2 review → hosted dashboard with a Google-Sheet input layer + Refr
 dashboard first** → ② in-app GATE 2 → ③ GATE 1 + the long-run orchestration (replaces Colab as the engine, done
 last). The dashboard engine already emits the durable data artifact the front end will render (the HTML render +
 Google-Sheet store are the interim surface; the front end swaps the surface, reusing the engine unchanged — see
-`DASHBOARD_DESIGN.md` §7). **Phase-1 build spec DONE — `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`** (FastAPI +
-Render, simple-password login, least-privilege read-only Google access, on-the-spot Refresh; decided 2026-07-03).
-**NEXT: building Phase 1** on a feature branch, red→green in that spec's §6 order (local skeleton → wire Refresh →
-deploy to Render → live-verify); Katelynd's account setup (§7) done alongside deploy.
+`DASHBOARD_DESIGN.md` §7). Contract: `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`.
+
+**Phase 1 — hosted dashboard: BUILT + LOCALLY LIVE-VERIFIED (2026-07-04), merged to `main`.** The FastAPI web
+shell (`src/health_tech_research_agent/webapp/`) over the existing dashboard engine (Rule 1): simple-password
+login + session gate; on-the-spot Refresh (rebuilds from Google, visible overlay, keeps your tab); a Google-backed
+source that reads `ledger.jsonl` + the research CSV from a shared Drive folder + the dashboard Sheet via a
+least-privilege service account; **in-app `pursue` editing** writes one cell back to the Sheet (read-back verified;
+narrowly widened the Sheet scope to write — spec §8a). Polished analytics UI (navy/blue-ramp/cyan/gold reference
+palette, KPI tiles, dark table headers + zebra, segment-radar chart, colored company-detail view). Verified end-to-end
+against Katelynd's real Google data (54 companies); 667 tests. Also fixed a dup-column bug (reference columns leaking
+into the user layer). **NEXT: Step 3 — deploy to Render** (Katelynd's Render account + moving the local settings into
+Render secrets) then **Step 4 — live-verify on the hosted URL** (`FRONT_END_PHASE1…md` §6–8). Then Phase 2 (in-app
+GATE-2 review). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
