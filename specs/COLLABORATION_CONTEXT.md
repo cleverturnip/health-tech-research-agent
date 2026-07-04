@@ -73,9 +73,11 @@ judgment to a gate instead of stalling or guessing.
 4. `specs/DASHBOARD_DESIGN.md` — the dashboard segment design + build + Colab run steps (BUILT + live-verified
    2026-07-03; visual ref `specs/dashboard_wireframe.html`). The dashboard IS
    `src/health_tech_research_agent/dashboard.py` (+ `dashboard_html.py` / `dashboard_gsheet.py`).
-5. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
-6. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
-7. `CLAUDE.md` — Claude Code's working rules and repo map.
+5. `specs/FRONT_END_DIRECTION.md` — the full-flow front-end DIRECTION (decided 2026-07-03): what we're building
+   (hosted, private, desktop-first app for the two-gate flow) + the phase order. The current-milestone contract.
+6. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
+7. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
+8. `CLAUDE.md` — Claude Code's working rules and repo map.
 
 Superseded/historical material (finished slices, the old `candidate_priority` engine, Phase-3 process
 history, audits, one-off probes) lives in `archive/` — reference only.
@@ -108,10 +110,16 @@ history, audits, one-off probes) lives in `archive/` — reference only.
   Sheet** (input-only via `gspread` — the build never overwrites your edits). Design: `specs/DASHBOARD_DESIGN.md`
   (+ `dashboard_wireframe.html`); ~40 tests; live-verified on the regen-2 Colab run (54 companies).
 
-**Current milestone (NEXT): the FRONT END** + the data system that houses the flow so it runs autonomously
-end-to-end instead of through Colab cells. The dashboard engine already emits the durable data artifact the
-front end will render (the HTML render + Google-Sheet store are the interim surface; the front end swaps the
-surface, reusing the engine unchanged — see `DASHBOARD_DESIGN.md` §7).
+**Current milestone (IN PROGRESS): the FRONT END** + the data system that houses the flow so it runs autonomously
+end-to-end instead of through Colab cells. **Direction DECIDED with Katelynd 2026-07-03 — see
+`specs/FRONT_END_DIRECTION.md`:** a hosted, private (login), desktop-first web app for the full two-gate flow
+(GATE 1 conversational + ledger-grounded discovery → autonomous long research run with progress + notification →
+in-app GATE 2 review → hosted dashboard with a Google-Sheet input layer + Refresh). Phase order: **① hosted
+dashboard first** → ② in-app GATE 2 → ③ GATE 1 + the long-run orchestration (replaces Colab as the engine, done
+last). The dashboard engine already emits the durable data artifact the front end will render (the HTML render +
+Google-Sheet store are the interim surface; the front end swaps the surface, reusing the engine unchanged — see
+`DASHBOARD_DESIGN.md` §7). **NEXT:** the Phase-1 (hosted dashboard) build spec; stack/hosting/data-location/login
+are open items in `FRONT_END_DIRECTION.md` §7, decided at Phase-1 planning.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
