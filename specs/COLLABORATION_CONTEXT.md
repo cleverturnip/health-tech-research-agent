@@ -75,9 +75,11 @@ judgment to a gate instead of stalling or guessing.
    `src/health_tech_research_agent/dashboard.py` (+ `dashboard_html.py` / `dashboard_gsheet.py`).
 5. `specs/FRONT_END_DIRECTION.md` — the full-flow front-end DIRECTION (decided 2026-07-03): what we're building
    (hosted, private, desktop-first app for the two-gate flow) + the phase order. The current-milestone contract.
-6. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
-7. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
-8. `CLAUDE.md` — Claude Code's working rules and repo map.
+6. `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md` — the Phase-1 (hosted dashboard) BUILD SPEC: contract for the
+   first front-end phase (FastAPI + Render, password login, least-privilege Google read, on-the-spot Refresh).
+7. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
+8. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
+9. `CLAUDE.md` — Claude Code's working rules and repo map.
 
 Superseded/historical material (finished slices, the old `candidate_priority` engine, Phase-3 process
 history, audits, one-off probes) lives in `archive/` — reference only.
@@ -118,8 +120,10 @@ in-app GATE 2 review → hosted dashboard with a Google-Sheet input layer + Refr
 dashboard first** → ② in-app GATE 2 → ③ GATE 1 + the long-run orchestration (replaces Colab as the engine, done
 last). The dashboard engine already emits the durable data artifact the front end will render (the HTML render +
 Google-Sheet store are the interim surface; the front end swaps the surface, reusing the engine unchanged — see
-`DASHBOARD_DESIGN.md` §7). **NEXT:** the Phase-1 (hosted dashboard) build spec; stack/hosting/data-location/login
-are open items in `FRONT_END_DIRECTION.md` §7, decided at Phase-1 planning.
+`DASHBOARD_DESIGN.md` §7). **Phase-1 build spec DONE — `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`** (FastAPI +
+Render, simple-password login, least-privilege read-only Google access, on-the-spot Refresh; decided 2026-07-03).
+**NEXT: building Phase 1** on a feature branch, red→green in that spec's §6 order (local skeleton → wire Refresh →
+deploy to Render → live-verify); Katelynd's account setup (§7) done alongside deploy.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
