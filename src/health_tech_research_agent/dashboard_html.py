@@ -195,13 +195,11 @@ def _detail_html(r: dict) -> str:
     def _sbox(lbl, val, cls=""):
         return f'<div class="sbox {cls}"><div class="l">{_esc(lbl)}</div><div class="v">{_cell(val)}</div></div>'
 
-    # Background Fit · PMF (with ARR + Growth beneath it, since they FEED pmf and aren't added to Total) · Strain · Total
-    pmf_sub = (f'<div class="pmfsub">{_sbox("ARR", s["arr"], "sm")}{_sbox("Growth", s["growth"], "sm")}</div>')
-    score_boxes = (
-        _sbox("Background Fit", r["bg_display"])
-        + f'<div class="pmfcol">{_sbox("PMF", s["pmf"])}{pmf_sub}</div>'
-        + _sbox("Strain", s["strain"])
-        + _sbox("Total", r["final_display"], "final"))
+    # Background Fit · PMF (ARR + Growth connected beneath — they FEED pmf, not the Total) · Strain · Total
+    pmf_group = (f'<div class="pmfcol">{_sbox("PMF", s["pmf"])}<div class="pmfconn"></div>'
+                 f'<div class="pmfsub">{_sbox("ARR", s["arr"], "sm")}{_sbox("Growth", s["growth"], "sm")}</div></div>')
+    score_boxes = (_sbox("Background Fit", r["bg_display"]) + pmf_group
+                   + _sbox("Strain", s["strain"]) + _sbox("Total", r["final_display"], "final"))
 
     ov = ""
     if r.get("override"):
@@ -211,7 +209,9 @@ def _detail_html(r: dict) -> str:
 
     bg_rat = _esc(scoring.get("bg_fit", {}).get("rationale"))
     floor = _esc(scoring.get("floor_rule", {}).get("reason"))
-    why = f'<div class="why"><div>{bg_rat}</div><div>Floor rule: {floor}</div></div>' if (bg_rat or floor) else ""
+    why_parts = ([f'<div>{bg_rat}</div>'] if bg_rat else []) + ([f'<div>Floor rule: {floor}</div>'] if floor else [])
+    right_inner = "".join(why_parts) + ov
+    score_why = f'<div class="scorewhy">{right_inner}</div>' if right_inner.strip() else ""
 
     # gate cards — the GATE result (PASS/FAIL badge) is the top row of each
     path = gates.get("path", {})
@@ -282,7 +282,7 @@ def _detail_html(r: dict) -> str:
         f'<span style="color:var(--text-secondary);font-size:12.5px">{_esc(r["segment_label"])} · '
         f'{_esc(r["model"])} · {_esc(r["stage"])}</span></div>'
         f'<div class="card"><p class="ct">SCORING &amp; DECISION</p>'
-        f'<div class="scores">{score_boxes}</div>{why}{ov}</div>'
+        f'<div class="scorewrap"><div class="scores">{score_boxes}</div>{score_why}</div></div>'
         f'<div class="card"><p class="ct">RESEARCH EVIDENCE — at a glance (each card = a scoring lever)</p>'
         f'<div class="glabel">The Gates — a fail here caps priority at P3</div>'
         f'<div class="cgrid cg2">{gate_cards}</div>'
@@ -324,7 +324,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .topnav button:hover{border-color:var(--accent);color:var(--accent)}
 .topnav button.active{background:var(--navy);color:#fff;border-color:var(--navy)}
 .pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;display:inline-block;letter-spacing:.01em}
-.p0{background:var(--p0bg);color:var(--p0c)}.p1{background:var(--p1bg);color:var(--p1c)}.p2{background:var(--p2bg);color:var(--p2c)}.p3{background:var(--p3bg);color:var(--p3c)}
+.p0{background:var(--p0c);color:#fff}.p1{background:var(--p1c);color:#fff}.p2{background:var(--p2c);color:#fff}.p3{background:var(--p3c);color:#fff}
 .was{font-size:11px;color:var(--text-muted);font-weight:400}.muted{color:var(--text-muted)}.src{color:var(--text-muted);font-size:11.5px}
 .sheet{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface-2);font-size:13px;box-shadow:var(--shadow)}
 .tabs{display:flex;gap:4px;padding:7px 8px 0;background:var(--navy)}
@@ -345,10 +345,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .kpi.hero{background:#D9F4F1;border-color:#B6E7E2}.kpi.hero .kn{color:#0A7D7D}
 .kpi.nv{background:#E5EBF1;border-color:#CDD9E4}.kpi.nv .kn{color:#123F5C}
 .kpi.gold{background:#FBF1D8;border-color:#EEDBA6}.kpi.gold .kn{color:#8A6A12}.kpi.gold .kl{color:#8A6A12}
-.kpi.t0{background:var(--p0bg);border-color:#C6D3E0}.kpi.t0 .kn,.kpi.t0 .kl{color:var(--p0c)}
-.kpi.t1{background:var(--p1bg);border-color:#C1D6EC}.kpi.t1 .kn,.kpi.t1 .kl{color:var(--p1c)}
-.kpi.t2{background:var(--p2bg);border-color:#CBE3F5}.kpi.t2 .kn,.kpi.t2 .kl{color:var(--p2c)}
-.kpi.t3{background:var(--p3bg);border-color:#D9E8F4}.kpi.t3 .kn,.kpi.t3 .kl{color:var(--p3c)}
+.kpi.t0{background:var(--p0c);border-color:var(--p0c)}.kpi.t1{background:var(--p1c);border-color:var(--p1c)}
+.kpi.t2{background:var(--p2c);border-color:var(--p2c)}.kpi.t3{background:var(--p3c);border-color:var(--p3c)}
+.kpi.t0 .kn,.kpi.t0 .kl,.kpi.t1 .kn,.kpi.t1 .kl,.kpi.t2 .kn,.kpi.t2 .kl,.kpi.t3 .kn,.kpi.t3 .kl{color:#fff}
 .kpi.t0 .kl,.kpi.t1 .kl,.kpi.t2 .kl,.kpi.t3 .kl{font-size:24px;font-weight:700;text-transform:none;letter-spacing:-.02em}
 .distwrap{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
 .distbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--surface-1)}
@@ -386,13 +385,17 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
 .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.hd h3{font-size:20px;margin:0;letter-spacing:-.01em}
 .card{background:var(--surface-2);border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:14px;padding:16px 18px;margin-top:14px;box-shadow:var(--shadow)}
 .ct{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--navy);font-weight:700;margin:0 0 12px}
-.scores{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin:2px 0 10px}
-.pmfcol{display:flex;flex-direction:column;gap:6px}.pmfsub{display:flex;gap:6px}
-.sbox.sm{min-width:0;padding:6px 11px}.sbox.sm .l{font-size:10px}.sbox.sm .v{font-size:14px}
+.scorewrap{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin:2px 0 2px}
+.scores{display:flex;gap:8px;align-items:flex-start}
+.scorewhy{flex:1;min-width:260px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;font-size:12.5px;line-height:1.6;color:var(--text-secondary)}
+.pmfcol{display:flex;flex-direction:column;align-items:center;gap:0}
+.pmfconn{width:2px;height:8px;background:var(--border-strong)}
+.pmfsub{display:flex;gap:6px}
+.sbox.sm{width:44px;padding:6px 4px}.sbox.sm .l{font-size:10px}.sbox.sm .v{font-size:14px}
 .gbadge{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:.03em;margin-right:8px}
 .gbadge.pass{background:#DCF3E4;color:#1E7A3E}.gbadge.fail{background:#FADCDC;color:#A32020}
-.sbox{background:#EAF1F8;border:1px solid #D3E1EE;border-radius:var(--radius);padding:9px 14px;min-width:76px}
-.sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:18px;font-weight:700;color:var(--navy)}
+.sbox{background:#EAF1F8;border:1px solid #D3E1EE;border-radius:var(--radius);padding:9px 8px;width:94px;text-align:center}
+.sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:18px;font-weight:700;color:var(--navy);margin-top:2px}
 .sbox.final{background:var(--navy);border-color:var(--navy)}.sbox.final .l{color:rgba(255,255,255,.72)}.sbox.final .v{color:#fff}
 .why{font-size:12.5px;line-height:1.6}
 .ov{font-size:12.5px;margin-top:8px;padding:10px 12px;border:1px solid var(--gold);border-radius:var(--radius);background:#FCF5E2;color:#7A5B10}
