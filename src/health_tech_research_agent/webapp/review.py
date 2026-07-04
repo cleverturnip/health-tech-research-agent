@@ -174,7 +174,9 @@ def render_card(record: dict, entry: dict) -> str:
         return (f'<button type="button" class="dbtn opt {base}{" sel" if selected else ""}" '
                 f'onclick="rvpick(this,\'{value}\')">{label}</button>')
 
-    opts = (_opt("accept", f"Accept {_esc(model)}", "accept") + '<span class="dsep">or override &rarr;</span>'
+    # NB: the Accept option must NOT carry the always-navy `.dbtn.accept` base — it's a toggle like the tiers
+    # (navy only when selected), so pass an empty base.
+    opts = (_opt("accept", f"Accept {_esc(model)}", "") + '<span class="dsep">or override &rarr;</span>'
             + "".join(_opt(t, t, "ovr") for t in PRIORITY_TIERS))
     initial = current or ("accept" if decided else "")
     save_disabled = "" if initial else " disabled"
