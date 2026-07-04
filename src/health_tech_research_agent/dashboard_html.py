@@ -169,7 +169,8 @@ def _detail_html(r: dict) -> str:
         if r.get("is_overridden") else ""
 
     score_boxes = "".join(
-        f'<div class="sbox"><div class="l">{_esc(lbl)}</div><div class="v">{_cell(val)}</div></div>'
+        f'<div class="sbox{" final" if lbl == "FINAL" else ""}"><div class="l">{_esc(lbl)}</div>'
+        f'<div class="v">{_cell(val)}</div></div>'
         for lbl, val in [("background fit", r["bg_display"]), ("PMF", s["pmf"]), ("ARR", s["arr"]),
                          ("growth", s["growth"]), ("strain", s["strain"]), ("FINAL", r["final_display"])])
 
@@ -349,16 +350,17 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
 .xbtn:hover{border-color:var(--accent);color:var(--accent)}
 .crumb{font-size:12px;color:var(--text-secondary);margin-bottom:10px}.crumb a{color:var(--accent);text-decoration:none}
 .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.hd h3{font-size:20px;margin:0;letter-spacing:-.01em}
-.card{background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-top:14px;box-shadow:var(--shadow)}
-.ct{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin:0 0 12px}
+.card{background:var(--surface-2);border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:14px;padding:16px 18px;margin-top:14px;box-shadow:var(--shadow)}
+.ct{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--navy);font-weight:700;margin:0 0 12px}
 .scores{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px}
-.sbox{background:var(--surface-1);border-radius:var(--radius);padding:8px 13px;min-width:76px}
-.sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:18px;font-weight:600}
+.sbox{background:#EAF1F8;border:1px solid #D3E1EE;border-radius:var(--radius);padding:9px 14px;min-width:76px}
+.sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:18px;font-weight:700;color:var(--navy)}
+.sbox.final{background:var(--navy);border-color:var(--navy)}.sbox.final .l{color:rgba(255,255,255,.72)}.sbox.final .v{color:#fff}
 .why{font-size:12.5px;line-height:1.6}
 .ov{font-size:12.5px;margin-top:8px;padding:10px 12px;border:1px solid var(--gold);border-radius:var(--radius);background:#FCF5E2;color:#7A5B10}
-.glabel{font-size:11px;color:var(--text-muted);font-weight:600;margin:14px 0 6px;letter-spacing:.02em}
+.glabel{font-size:11px;color:var(--accent-ink);font-weight:700;margin:14px 0 6px;letter-spacing:.03em}
 .cgrid{display:grid;gap:10px}.cg2{grid-template-columns:repeat(2,1fr)}.cg3{grid-template-columns:repeat(3,1fr)}
-.lc{background:var(--surface-1);border-radius:var(--radius);padding:11px 13px 12px}
+.lc{background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius);padding:11px 13px 12px}
 .lch{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid var(--border)}
 .lct{font-size:11.5px;color:var(--text-primary);font-weight:600}.ls{font-size:10px;background:var(--accent-soft);color:var(--accent-ink);padding:2px 8px;border-radius:20px;font-weight:600}
 .r{display:flex;gap:8px;padding:3px 0;font-size:12px;align-items:flex-start}.k{color:var(--text-muted);width:96px;flex-shrink:0}.v{color:var(--text-secondary);line-height:1.45}.v.s{color:var(--text-primary);font-weight:600}
@@ -371,7 +373,8 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
 
 _SCRIPT = """
 var _selCo=null;
-function gtab(p,el){['all','pursuit','contacts','radar'].forEach(function(k){document.getElementById('p-'+k).style.display=(k===p)?'':'none';});document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t===el);});}
+function gtab(p,el){['all','pursuit','contacts','radar'].forEach(function(k){document.getElementById('p-'+k).style.display=(k===p)?'':'none';});document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t===el);});try{sessionStorage.setItem('htra_tab',p);}catch(e){}}
+window.addEventListener('DOMContentLoaded',function(){var t=null;try{t=sessionStorage.getItem('htra_tab');}catch(e){}if(t&&t!=='all'){var b=document.querySelector('.tab[data-tab="'+t+'"]');if(b)gtab(t,b);}});
 function selectRow(el,slug){var t=el.closest('table');if(t){t.querySelectorAll('tr.sel').forEach(function(r){r.classList.remove('sel');});}el.classList.add('sel');_selCo=slug;}
 function showGrid(){document.getElementById('view-grid').style.display='';document.getElementById('view-detail').style.display='none';document.querySelectorAll('.topnav button').forEach(function(b){b.classList.toggle('active',b.dataset.view==='grid');});window.scrollTo(0,0);}
 function showDetail(id){document.getElementById('view-grid').style.display='none';var d=document.getElementById('view-detail');d.style.display='';document.querySelectorAll('.detailco').forEach(function(x){x.style.display='none';});var el=document.getElementById(id);if(el)el.style.display='';document.querySelectorAll('.topnav button').forEach(function(b){b.classList.toggle('active',b.dataset.view==='detail');});window.scrollTo(0,0);}
@@ -404,10 +407,10 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <div class="topnav"><button data-view="grid" class="active" onclick="showGrid()">Grid views</button>
 <button data-view="detail" onclick="showSelectedDetail()">Company detail</button></div>
 <div id="view-grid">{_kpi_section(records)}<div class="sheet" id="sheet">
-<div class="tabs"><button class="tab active" onclick="gtab('all',this)">All companies</button>
-<button class="tab" onclick="gtab('pursuit',this)">Pursuit</button>
-<button class="tab" onclick="gtab('contacts',this)">Contacts</button>
-<button class="tab" onclick="gtab('radar',this)">Segment radar</button></div>
+<div class="tabs"><button class="tab active" data-tab="all" onclick="gtab('all',this)">All companies</button>
+<button class="tab" data-tab="pursuit" onclick="gtab('pursuit',this)">Pursuit</button>
+<button class="tab" data-tab="contacts" onclick="gtab('contacts',this)">Contacts</button>
+<button class="tab" data-tab="radar" onclick="gtab('radar',this)">Segment radar</button></div>
 <div id="p-all"><div class="toolbar"><span class="muted" style="font-size:11px">Click a row to select it, then open <b>Company detail</b> above &mdash; or use the expand button on a row.</span>
 <span class="chip" style="margin-left:auto" onclick="document.getElementById('sheet').classList.toggle('show-detail')"><i class="ti ti-chevron-right"></i> tags &amp; scores</span></div>
 <div class="tablewrap"><table class="gtbl">{all_head}{all_rows}</table></div></div>

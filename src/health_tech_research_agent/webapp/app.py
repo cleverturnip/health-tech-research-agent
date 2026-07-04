@@ -45,13 +45,20 @@ _PURSUE_JS = (
     "alert('Could not save pursue — does the app have edit access to your Sheet?');});});});})();</script>"
 )
 
-_BTN = ("font:inherit;font-size:12.5px;background:#fff;border:.5px solid rgba(0,0,0,.18);"
-        "border-radius:8px;padding:6px 12px;cursor:pointer;color:#2C2C2A")
+_BTN = ("font:inherit;font-size:12.5px;font-weight:600;background:#fff;border:1px solid rgba(20,60,90,.22);"
+        "border-radius:8px;padding:7px 13px;cursor:pointer;color:#144C6F")
+_BTN_PRIMARY = ("font:inherit;font-size:12.5px;font-weight:600;background:#144C6F;border:1px solid #144C6F;"
+                "border-radius:8px;padding:7px 13px;cursor:pointer;color:#fff")
 _CONTROLS = (
-    '<div style="position:fixed;top:12px;right:16px;z-index:9999;display:flex;gap:8px;'
+    '<div id="htra-ov" style="display:none;position:fixed;inset:0;z-index:99998;background:rgba(20,60,90,.42);'
+    'align-items:center;justify-content:center;font-family:system-ui,sans-serif">'
+    '<div style="background:#fff;padding:16px 24px;border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.25);'
+    'font-size:14px;color:#144C6F;font-weight:700">&#8635; Refreshing from Google…</div></div>'
+    '<div style="position:fixed;top:12px;right:16px;z-index:99999;display:flex;gap:8px;'
     'font-family:system-ui,sans-serif">'
-    f'<form method="post" action="/refresh" style="margin:0"><button type="submit" style="{_BTN}">'
-    '&#8635; Refresh</button></form>'
+    '<form method="post" action="/refresh" style="margin:0" '
+    'onsubmit="document.getElementById(\'htra-ov\').style.display=\'flex\'">'
+    f'<button type="submit" style="{_BTN_PRIMARY}">&#8635; Refresh</button></form>'
     f'<form method="post" action="/logout" style="margin:0"><button type="submit" style="{_BTN}">'
     'Log out</button></form></div>'
 )
