@@ -51,5 +51,6 @@ calibration data that improves the decision logic — not fixed by manual spread
 | [`specs/DASHBOARD_DESIGN.md`](specs/DASHBOARD_DESIGN.md) | Design + Colab run steps for the dashboard segment |
 | [`specs/FRONT_END_DIRECTION.md`](specs/FRONT_END_DIRECTION.md) | The full-flow front-end direction + phase order |
 | [`specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`](specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md) | Phase 1 hosted dashboard — build contract + deploy runbook |
+| [`specs/FRONT_END_PHASE2_GATE2_REVIEW.md`](specs/FRONT_END_PHASE2_GATE2_REVIEW.md) | Phase 2 in-app GATE-2 review — build contract |
 | [`specs/SCORING_WALKTHROUGH.md`](specs/SCORING_WALKTHROUGH.md) | Plain end-to-end walkthrough of how a company gets scored |
 | [`CLAUDE.md`](CLAUDE.md) | Working rules and guardrails for making changes in this repo |

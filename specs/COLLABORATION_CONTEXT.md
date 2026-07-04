@@ -75,11 +75,13 @@ judgment to a gate instead of stalling or guessing.
    `src/health_tech_research_agent/dashboard.py` (+ `dashboard_html.py` / `dashboard_gsheet.py`).
 5. `specs/FRONT_END_DIRECTION.md` — the full-flow front-end DIRECTION (decided 2026-07-03): what we're building
    (hosted, private, desktop-first app for the two-gate flow) + the phase order. The current-milestone contract.
-6. `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md` — the Phase-1 (hosted dashboard) BUILD SPEC: contract for the
-   first front-end phase (FastAPI + Render, password login, least-privilege Google read, on-the-spot Refresh).
-7. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
-8. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
-9. `CLAUDE.md` — Claude Code's working rules and repo map.
+6. `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md` — the Phase-1 (hosted dashboard) BUILD SPEC + deploy runbook
+   (FastAPI + Render, password login, least-privilege Google, on-the-spot Refresh, in-app pursue).
+7. `specs/FRONT_END_PHASE2_GATE2_REVIEW.md` — the Phase-2 (in-app GATE-2 review) BUILD SPEC: the review card =
+   the dashboard detail card + a priority decision control; decisions write the ledger back to Drive.
+8. `specs/SCORING_WALKTHROUGH.md` — plain end-to-end walkthrough of how a company gets scored.
+9. `specs/regen_execution_runsheet.md` + `specs/phase2_refresh_runbook.md` — regeneration runbooks (active).
+10. `CLAUDE.md` — Claude Code's working rules and repo map.
 
 Superseded/historical material (finished slices, the old `candidate_priority` engine, Phase-3 process
 history, audits, one-off probes) lives in `archive/` — reference only.
@@ -134,10 +136,23 @@ into the user layer). **DEPLOYED to Render** (Blueprint `render.yaml`, editable 
 hash + Drive folder id as env vars; the service-account key as a Render **Secret File** — pasting it into an env var
 mangled the JSON, so `credentials_info` prefers the mounted file at `/etc/secrets/service_account.json`). The free
 tier **sleeps when idle** (~1 min cold start) — upgrade to `starter` for always-on (needed before the Phase-3 long
-jobs). **NEXT: (a) SECURITY — rotate the `dashboard-reader` service-account key** (it appeared in a Render log during
-setup; low risk / private logs, but rotate + update the Secret File as hygiene); **(b) Phase 2 — in-app GATE-2
-review** (the next front-end phase); plus the open pipeline design items (batch storage / research re-score, see
-Carry-forward notes). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
+jobs). The exposed-key from setup was **rotated** (2026-07-04) and the old key deleted.
+
+**Phase 2 — in-app GATE-2 review: BUILT + merged + DEPLOYED (2026-07-04).** `specs/FRONT_END_PHASE2_GATE2_REVIEW.md`.
+Review pending (researched+scored, un-finalized) companies as full cards in the app and decide priority (Accept the
+model tier / Override + reason), then Finalize → they flow to the dashboard (replaces editing `cards.csv`). The review
+card = the dashboard **detail card body** (`dashboard_html._detail_body`, shared) + a priority decision control
+(select-then-Save; a "why this recommendation" write-up from `recommended_action` + flags + floor — §2a; no dedicated
+LLM field exists). List: sorted by final score, whole-row clickable, green when decided (`decision.decided_date`).
+Decisions apply priority-only + history (Rule 6/8) and **write the ledger back to the Drive data folder** (targeted
+`files.update`, read-back verified — Rule 4/5; folder scope widened Viewer→**Editor**, spec §4); Finalize stamps §1a.
+Reuses `ledger.apply_decisions`/`finalize_gate2_review`. 23 tests (suite 688). Nothing pending on the live ledger yet
+(all finalized) — exercised on the next real batch.
+
+**NEXT: Phase 3 — GATE-1 (conversational, ledger-grounded discovery) + the long research/score run** (progress +
+notification; replaces Colab as the engine — the hardest part). Plus the open pipeline design items (batch storage /
+research re-score — Carry-forward notes; doc-first). Consider upgrading Render to `starter` (always-on) before Phase 3.
+Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
