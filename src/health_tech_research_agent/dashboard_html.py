@@ -84,13 +84,43 @@ def _all_companies_rows(records: list[dict]) -> str:
     return "".join(out)
 
 
-def _df_table(df: pd.DataFrame, group_label: str) -> str:
+def _df_table(df: pd.DataFrame) -> str:
     heads = "".join(f"<th>{_esc(_pretty(c))}</th>" for c in df.columns)
     body = "".join(
         "<tr>" + "".join(f"<td>{_cell(v)}</td>" for v in row) + "</tr>"
         for row in df.itertuples(index=False, name=None))
-    return (f'<table class="gtbl"><tr class="grouphdr"><th class="grp-ledger" colspan="{len(df.columns)}">'
-            f'{_esc(group_label)}</th></tr><tr>{heads}</tr>{body}</table>')
+    return f'<table class="gtbl"><tr>{heads}</tr>{body}</table>'
+
+
+_TIER_T = {"P0": "t0", "P1": "t1", "P2": "t2", "P3": "t3"}
+
+
+def _app_header(title: str, total: int) -> str:
+    return (f'<div class="apphdr"><div><div class="apptitle">{_esc(title)}</div>'
+            f'<div class="appsub">GATE-2 reviewed portfolio · {total} companies · '
+            f'read-only scores, your pursuit layer editable</div></div></div>')
+
+
+def _kpi_section(records: list[dict]) -> str:
+    """Top-of-dashboard analytics band: KPI stat tiles + a priority-distribution bar (computed from records)."""
+    total = len(records)
+    tally = {"P0": 0, "P1": 0, "P2": 0, "P3": 0}
+    for r in records:
+        if r.get("final_priority") in tally:
+            tally[r["final_priority"]] += 1
+    pursuing = sum(1 for r in records if r.get("pursue"))
+    segments = len({r.get("segment_label") for r in records if r.get("segment_label")})
+
+    tiles = [("Companies", total), ("P0 · top", tally["P0"]), ("P1", tally["P1"]),
+             ("P2", tally["P2"]), ("P3", tally["P3"]), ("Pursuing", pursuing), ("Segments", segments)]
+    kpis = "".join(f'<div class="kpi"><div class="kn">{v}</div><div class="kl">{_esc(lbl)}</div></div>'
+                   for lbl, v in tiles)
+    bar = "".join(
+        f'<div class="distseg {_TIER_T[t]}" style="width:{(tally[t] * 100 / total) if total else 0:.1f}%" '
+        f'title="{t}: {tally[t]}"></div>' for t in ("P0", "P1", "P2", "P3") if tally[t])
+    legend = "".join(f'<span><i class="dot {_TIER_T[t]}"></i>{t} {tally[t]}</span>' for t in ("P0", "P1", "P2", "P3"))
+    return (f'<div class="kpis">{kpis}</div>'
+            f'<div class="distwrap"><div class="distbar">{bar}</div><div class="distleg">{legend}</div></div>')
 
 
 # ---------------------------------------------------------------------------
@@ -248,12 +278,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 11px;border:1px solid var(--border-strong);border-radius:var(--radius);color:var(--text-primary);background:var(--surface-2);cursor:pointer}
 .chip:hover{border-color:var(--accent);color:var(--accent)}
 .tablewrap{overflow-x:auto}
-table.gtbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+.apphdr{display:flex;align-items:flex-end;justify-content:space-between;margin:2px 0 16px}
+.apptitle{font-size:22px;font-weight:700;letter-spacing:-.02em;color:var(--text-primary)}
+.appsub{font-size:12px;color:var(--text-muted);margin-top:3px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
+.kpi .kn{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--text-primary)}
+.kpi .kl{font-size:11px;color:var(--text-muted);margin-top:6px;font-weight:500}
+.distwrap{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:16px;box-shadow:var(--shadow)}
+.distbar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--surface-1)}
+.distseg{height:100%}.distseg.t0{background:#5AA02C}.distseg.t1{background:#3563E8}.distseg.t2{background:#D99A2B}.distseg.t3{background:#AAB0BB}
+.distleg{display:flex;gap:16px;margin-top:10px;font-size:11.5px;color:var(--text-secondary)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+.dot.t0{background:#5AA02C}.dot.t1{background:#3563E8}.dot.t2{background:#D99A2B}.dot.t3{background:#AAB0BB}
+table.gtbl{border-collapse:collapse;width:100%;font-size:12.5px}
 .gtbl th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.03em;text-transform:capitalize;color:var(--text-muted);padding:10px;border-bottom:1px solid var(--border);white-space:nowrap}
 .gtbl td{padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;color:var(--text-primary)}
 .gtbl tr[data-co]{cursor:pointer;transition:background .1s}
 .gtbl tr[data-co]:hover td{background:var(--surface-1)}
-.gtbl tr.sel td{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.gtbl tr.sel td{background:var(--accent-soft)}
+.gtbl tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .grouphdr th{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:none;padding:7px 10px}
 .grp-ledger{background:var(--surface-1);color:var(--text-muted)}.grp-detail{background:var(--surface-1);color:var(--text-muted)}.grp-mine{background:#FBEBCF;color:#7A4B06}
 .mycol{border-left:2px solid var(--accent)}.detail{display:none}.sheet.show-detail .detail{display:table-cell}
@@ -295,15 +339,12 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
     """Render the whole dashboard (grid tabs + per-company detail views) from the records as one self-contained
     HTML page. Pure render — every value comes from the records / merged user store."""
     all_rows = _all_companies_rows(records)
-    pursuit_tbl = _df_table(dash.pursuit_view(records), "pursuit — your active companies (ledger refreshed · your columns preserved)")
-    contacts_tbl = _df_table(dash.contacts_view(records), "contacts — one row per contact")
-    radar_tbl = _df_table(dash.segment_radar_view(records), "segment radar — where am I thin? (read-only)")
+    pursuit_tbl = _df_table(dash.pursuit_view(records))
+    contacts_tbl = _df_table(dash.contacts_view(records))
+    radar_tbl = _df_table(dash.segment_radar_view(records))
     details = "".join(_detail_html(r) for r in records)
 
-    all_head = ('<tr class="grouphdr"><th class="grp-mine">yours</th>'
-                '<th class="grp-ledger" colspan="7">from the ledger — read-only</th>'
-                '<th class="grp-detail detail" colspan="9">tags &amp; scores — toggle</th></tr>'
-                '<tr><th class="mycol">pursue</th><th>company</th><th>priority</th><th>segment</th><th>model</th>'
+    all_head = ('<tr><th class="mycol">pursue</th><th>company</th><th>priority</th><th>segment</th><th>model</th>'
                 '<th>stage</th><th>FINAL</th><th></th><th class="detail">subsegment</th><th class="detail">product</th>'
                 '<th class="detail">distribution</th><th class="detail">data input</th><th class="detail">bg</th>'
                 '<th class="detail">PMF</th><th class="detail">ARR</th><th class="detail">growth</th>'
@@ -314,11 +355,11 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <title>{_esc(title)}</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.17.0/dist/tabler-icons.min.css">
 <style>{_CSS}</style></head><body><div class="wrap">
-<div class="doc-note"><b>{_esc(title)}</b> — rebuilt from the GATE-2-reviewed ledger; your notes preserved. Every company shown passed GATE-2 review (§1a).</div>
+{_app_header(title, len(records))}
 {_banners(report)}
 <div class="topnav"><button data-view="grid" class="active" onclick="showGrid()">Grid views</button>
 <button data-view="detail" onclick="showSelectedDetail()">Company detail</button></div>
-<div id="view-grid"><div class="sheet" id="sheet">
+<div id="view-grid">{_kpi_section(records)}<div class="sheet" id="sheet">
 <div class="tabs"><button class="tab active" onclick="gtab('all',this)">All companies</button>
 <button class="tab" onclick="gtab('pursuit',this)">Pursuit</button>
 <button class="tab" onclick="gtab('contacts',this)">Contacts</button>
