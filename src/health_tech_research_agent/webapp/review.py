@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 from datetime import date
 from typing import Any
+from urllib.parse import quote
 
 from .. import dashboard, dashboard_html, ledger
 
@@ -101,8 +102,7 @@ _REVIEW_CSS = """
 .dbtn:hover{border-color:var(--accent);color:var(--accent-ink)}
 .dbtn.accept{background:var(--navy);color:#fff;border-color:var(--navy)}
 .dbtn.ovr{min-width:46px}
-.dbtn.opt.sel{border-color:var(--accent);color:var(--accent-ink);box-shadow:0 0 0 2px var(--accent-soft)}
-.dbtn.opt.accept.sel{background:var(--navy);color:#fff;border-color:var(--navy);box-shadow:0 0 0 2px var(--accent-soft)}
+.dbtn.opt.sel{background:var(--navy);color:#fff;border-color:var(--navy)}
 .dbtn[disabled]{opacity:.45;cursor:not-allowed}
 .dsep{color:var(--text-muted);font-size:12px;padding:0 2px}
 .dreason{font:inherit;font-size:13px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:9px;width:100%;min-height:72px;resize:vertical;display:block;margin-top:12px;box-sizing:border-box;line-height:1.5}
@@ -128,20 +128,21 @@ def render_index(records: list[dict], entry_by_company: dict) -> str:
             dcell = f'<span class="pill {dashboard_html._TIER_CLASS.get(override, "p3")}">{_esc(override)}</span>'
         else:
             dcell = '<span class="muted">accepted</span>' if decided else '<span class="muted">—</span>'
-        cls = ' class="done"' if decided else ''
+        done_cls = " done" if decided else ""
+        href = "/review/" + quote(rec["company"])
         rows += (
-            f'<tr{cls}><td>{_esc(rec["company"])}</td><td><b>{_cell(rec.get("final_display"))}</b></td>'
+            f'<tr class="clickrow{done_cls}" data-co="1" onclick="location.href=\'{href}\'">'
+            f'<td>{_esc(rec["company"])}</td><td><b>{_cell(rec.get("final_display"))}</b></td>'
             f'<td>{dashboard_html._pill(rec["model_priority"])}</td>'
             f'<td><span class="rvrec rec-{rec_action}">{rec_action.replace("_", " ")}</span></td>'
-            f'<td>{dcell}</td><td>{_esc(rec["model"])}</td><td>{_esc(rec["stage"])}</td>'
-            f'<td><a href="/review/{_esc(rec["company"])}">Review &rarr;</a></td></tr>')
+            f'<td>{dcell}</td><td>{_esc(rec["model"])}</td><td>{_esc(rec["stage"])}</td></tr>')
 
     total = len(records)
     if total == 0:
         body_inner = '<div class="src" style="margin-top:8px">Nothing pending review — every company in the ledger is finalized. New companies appear here after the next research batch.</div>'
     else:
         head = ('<tr><th>Company</th><th>Score</th><th>Model priority</th><th>Recommendation</th>'
-                '<th>Your decision</th><th>Model</th><th>Stage</th><th></th></tr>')
+                '<th>Your decision</th><th>Model</th><th>Stage</th></tr>')
         body_inner = (f'<div class="sheet"><div class="tablewrap rvtbl"><table class="gtbl">{head}{rows}</table></div></div>'
                       '<form method="post" action="/review/finalize" style="margin-top:16px">'
                       '<button type="submit" class="dbtn accept">Finalize review &rarr; send to dashboard</button>'
@@ -149,7 +150,7 @@ def render_index(records: list[dict], entry_by_company: dict) -> str:
 
     header = (f'<div class="rvtop"><div class="apptitle" style="color:var(--navy)">GATE-2 Review</div>'
               f'<div><a class="dbtn" href="/">&larr; Dashboard</a></div></div>'
-              f'<div class="dsub">{done} of {total} decided &mdash; accept the model\'s priority or override it, then finalize.</div>')
+              f'<div class="dsub">{done} of {total} decided &mdash; click a row to open its card, accept or override the priority, then finalize.</div>')
     return _page("GATE-2 Review", header + body_inner)
 
 

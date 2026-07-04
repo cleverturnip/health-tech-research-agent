@@ -52,8 +52,9 @@ def test_render_index_lists_pending_and_finalize():
     assert "GATE-2 Review" in html
     for company in ["alpha health", "beta health"]:
         assert company in html
-    assert "/review/alpha health" in html
-    assert "/review/finalize" in html                                # the finalize action
+    assert "onclick=\"location.href='/review/alpha%20health'\"" in html   # whole row clickable (no Review button)
+    assert "Review &rarr;" not in html                                    # the button was removed
+    assert "/review/finalize" in html                                     # the finalize action
 
 
 def test_render_index_empty_state():
@@ -80,7 +81,7 @@ def test_decision_marks_decided_even_on_accept():
     decided = {e["company"].lower(): e for e in merged}[company.lower()]["decision"]
     assert decided.get("decided_date")                                # marked reviewed-by-you -> green row
     html = review.render_index(review.review_records(merged), {e["company"].lower(): e for e in merged})
-    assert 'class="done"' in html and "<th>Score</th>" in html         # green row + a Score column
+    assert "clickrow done" in html and "<th>Score</th>" in html        # green (done) row + a Score column
 
 
 def test_card_recommendation_and_deferred_save():
