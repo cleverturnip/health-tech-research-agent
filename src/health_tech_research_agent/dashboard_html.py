@@ -113,12 +113,7 @@ def _kpi_section(records: list[dict]) -> str:
              ("P2", tally["P2"], "t2"), ("P3", tally["P3"], "t3"), ("Pursuing", pursuing, "gold"), ("Segments", segments, "nv")]
     kpis = "".join(f'<div class="kpi {cls}"><div class="kn">{v}</div><div class="kl">{_esc(lbl)}</div></div>'
                    for lbl, v, cls in tiles)
-    bar = "".join(
-        f'<div class="distseg {_TIER_T[t]}" style="width:{(tally[t] * 100 / total) if total else 0:.1f}%" '
-        f'title="{t}: {tally[t]}"></div>' for t in ("P0", "P1", "P2", "P3") if tally[t])
-    legend = "".join(f'<span><i class="dot {_TIER_T[t]}"></i>{t} {tally[t]}</span>' for t in ("P0", "P1", "P2", "P3"))
-    return (f'<div class="kpis">{kpis}</div>'
-            f'<div class="distwrap"><div class="distbar">{bar}</div><div class="distleg">{legend}</div></div>')
+    return f'<div class="kpis">{kpis}</div>'
 
 
 def _segment_radar_chart(records: list[dict]) -> str:
@@ -317,7 +312,7 @@ def _banners(report: dict | None) -> str:
 
 
 _CSS = """
-:root{--navy:#144C6F;--navy-2:#1C6389;--surface-0:#eef2f6;--surface-1:#e3eaf0;--surface-2:#fff;--text-primary:#1a2b38;--text-secondary:#54636f;--text-muted:#8794a0;--border:rgba(20,60,90,.11);--border-strong:rgba(20,60,90,.20);--accent:#06C4BD;--accent-ink:#0A8F89;--accent-soft:#D6F4F2;--gold:#F2C14E;--radius:10px;--shadow:0 1px 2px rgba(20,60,90,.05),0 8px 24px rgba(20,60,90,.08);--t0:#144C6F;--t1:#2E86B8;--t2:#58B0DE;--t3:#BADCF0}
+:root{--navy:#144C6F;--navy-2:#1C6389;--surface-0:#eef2f6;--surface-1:#e3eaf0;--surface-2:#fff;--text-primary:#1a2b38;--text-secondary:#54636f;--text-muted:#8794a0;--border:rgba(20,60,90,.11);--border-strong:rgba(20,60,90,.20);--accent:#06C4BD;--accent-ink:#0A8F89;--accent-soft:#D6F4F2;--gold:#F2C14E;--radius:10px;--shadow:0 1px 2px rgba(20,60,90,.05),0 8px 24px rgba(20,60,90,.08);--t0:#144C6F;--t1:#2E86B8;--t2:#58B0DE;--t3:#BADCF0;--p0c:#123F5C;--p0bg:#D7E3EC;--p1c:#1B6299;--p1bg:#D9E8F4;--p2c:#2E90BE;--p2bg:#DEEFF8;--p3c:#647D8E;--p3bg:#E9EEF1}
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system-ui,sans-serif;color:var(--text-primary);background:var(--surface-0);margin:0;padding:28px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .wrap{max-width:1060px;margin:0 auto}
@@ -329,7 +324,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .topnav button:hover{border-color:var(--accent);color:var(--accent)}
 .topnav button.active{background:var(--navy);color:#fff;border-color:var(--navy)}
 .pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;display:inline-block;letter-spacing:.01em}
-.p0{background:#D6E4EE;color:#123F5C}.p1{background:#DEEDF7;color:#215F86}.p2{background:#E6F2FB;color:#2E7BA8}.p3{background:#EEF4F9;color:#5E8199}
+.p0{background:var(--p0bg);color:var(--p0c)}.p1{background:var(--p1bg);color:var(--p1c)}.p2{background:var(--p2bg);color:var(--p2c)}.p3{background:var(--p3bg);color:var(--p3c)}
 .was{font-size:11px;color:var(--text-muted);font-weight:400}.muted{color:var(--text-muted)}.src{color:var(--text-muted);font-size:11.5px}
 .sheet{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface-2);font-size:13px;box-shadow:var(--shadow)}
 .tabs{display:flex;gap:4px;padding:7px 8px 0;background:var(--navy)}
@@ -350,10 +345,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .kpi.hero{background:#D9F4F1;border-color:#B6E7E2}.kpi.hero .kn{color:#0A7D7D}
 .kpi.nv{background:#E5EBF1;border-color:#CDD9E4}.kpi.nv .kn{color:#123F5C}
 .kpi.gold{background:#FBF1D8;border-color:#EEDBA6}.kpi.gold .kn{color:#8A6A12}.kpi.gold .kl{color:#8A6A12}
-.kpi.t0{background:#DFE7EF;border-color:#C6D3E0}.kpi.t0 .kn{color:#123F5C}
-.kpi.t1{background:#DEEAF6;border-color:#C1D6EC}.kpi.t1 .kn{color:#215F86}
-.kpi.t2{background:#E6F1FB;border-color:#CBE3F5}.kpi.t2 .kn{color:#2E7BA8}
-.kpi.t3{background:#EEF5FB;border-color:#D9E8F4}.kpi.t3 .kn{color:#4E7891}
+.kpi.t0{background:var(--p0bg);border-color:#C6D3E0}.kpi.t0 .kn,.kpi.t0 .kl{color:var(--p0c)}
+.kpi.t1{background:var(--p1bg);border-color:#C1D6EC}.kpi.t1 .kn,.kpi.t1 .kl{color:var(--p1c)}
+.kpi.t2{background:var(--p2bg);border-color:#CBE3F5}.kpi.t2 .kn,.kpi.t2 .kl{color:var(--p2c)}
+.kpi.t3{background:var(--p3bg);border-color:#D9E8F4}.kpi.t3 .kn,.kpi.t3 .kl{color:var(--p3c)}
+.kpi.t0 .kl,.kpi.t1 .kl,.kpi.t2 .kl,.kpi.t3 .kl{font-size:24px;font-weight:700;text-transform:none;letter-spacing:-.02em}
 .distwrap{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
 .distbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--surface-1)}
 .distseg{height:100%}.distseg.t0{background:var(--t0)}.distseg.t1{background:var(--t1)}.distseg.t2{background:var(--t2)}.distseg.t3{background:var(--t3)}
@@ -459,8 +455,8 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <div id="p-all"><div class="toolbar"><span class="muted" style="font-size:11px">Click a row to select it, then open <b>Company detail</b> above &mdash; or use the expand button on a row.</span>
 <span class="chip" style="margin-left:auto" onclick="document.getElementById('sheet').classList.toggle('show-detail')"><i class="ti ti-chevron-right"></i> tags &amp; scores</span></div>
 <div class="tablewrap"><table class="gtbl">{all_head}{all_rows}</table></div></div>
-<div id="p-pursuit" style="display:none"><div class="tablewrap">{pursuit_tbl}</div></div>
-<div id="p-contacts" style="display:none"><div class="tablewrap">{contacts_tbl}</div></div>
+<div id="p-pursuit" style="display:none"><div class="toolbar"><span class="muted" style="font-size:12px">Companies Katelynd is actively pursuing</span></div><div class="tablewrap">{pursuit_tbl}</div></div>
+<div id="p-contacts" style="display:none"><div class="toolbar"><span class="muted" style="font-size:12px">Contact list for target companies</span></div><div class="tablewrap">{contacts_tbl}</div></div>
 <div id="p-radar" style="display:none">{radar_chart}</div>
 </div></div>
 <div id="view-detail" style="display:none">{details}</div>
