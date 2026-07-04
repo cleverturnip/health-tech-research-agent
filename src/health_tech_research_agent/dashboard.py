@@ -412,7 +412,11 @@ def merge_user_layer(records: list[dict], workspace: Any = None, contacts: Any =
         ws_rows = ws_index.get(key)
         ws = ws_rows[0] if ws_rows else {}       # one row per company on the Workspace tab
         record["pursue"] = _truthy(ws.get("pursue")) if ws else False
-        record["workspace"] = {k: v for k, v in ws.items() if k not in WORKSPACE_RESERVED_KEYS}
+        # Exclude the reserved keys AND the seeded read-only REFERENCE columns (final_priority / segment): those
+        # are ledger-derived, shown in the Sheet for context only, and must never be trusted back as user data
+        # (Rule 6) — otherwise they leak into the view as duplicate columns.
+        _ignore = WORKSPACE_RESERVED_KEYS | set(WORKSPACE_REFERENCE_COLUMNS)
+        record["workspace"] = {k: v for k, v in ws.items() if k not in _ignore}
         record["contacts"] = ct_index.get(key, [])
 
         record["changed"] = None
@@ -475,7 +479,7 @@ def pursuit_view(records: list[dict]) -> pd.DataFrame:
             if k not in WORKSPACE_USER_COLUMNS and k not in extra_cols:
                 extra_cols.append(k)
     user_cols = WORKSPACE_USER_COLUMNS + extra_cols
-    ledger_cols = ["company", "final_priority", "model_priority", "segment", "stage", "FINAL", "changed"]
+    ledger_cols = ["company", "final_priority", "segment", "stage", "FINAL", "changed"]
 
     rows = []
     for r in pursued:
@@ -483,7 +487,7 @@ def pursuit_view(records: list[dict]) -> pd.DataFrame:
         changed = r.get("changed")
         note = "; ".join(f"{k} {v['from']}→{v['to']}" for k, v in changed.items()) if changed else ""
         row = {"company": r["company"], "final_priority": r["final_priority"],
-               "model_priority": r["model_priority"], "segment": r["segment_label"],
+               "segment": r["segment_label"],
                "stage": r["stage"], "FINAL": r["final_display"], "changed": note}
         for col in user_cols:
             row[col] = ws.get(col, "")
@@ -572,7 +576,7 @@ def seed_workspace_sheet(records: list[dict]) -> pd.DataFrame:
 def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: str | Path,
                     user_store_path: str | Path | None = None, gsheet: Any = None,
                     taxonomy_dir: str | Path | None = None,
-                    title: str = "Health-tech career dashboard") -> DashboardResult:
+                    title: str = "Katelynd Career Research Dashboard") -> DashboardResult:
     """Build the whole dashboard from a FINALIZED ledger (run `ledger.finalize_gate2_review_dir` first). Reads the
     reviewed ledger (ENFORCES §1a — an un-finalized ledger RAISES), the research CSV/DataFrame, and your editable
     user store; merges your layer; writes the read-only views (4 CSVs) + the self-contained HTML + the durable
