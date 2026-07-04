@@ -1,12 +1,8 @@
 # Dashboard Design — Katelynd's working tracker (career search)
 
-**Status: DESIGN — LOCKED & reconciled; all design open items resolved (2026-07-03). Ready for Katelynd's
-end-to-end read-through, then build scoping. No code yet.** This is the design contract for the dashboard
-milestone (the second autonomous segment, after GATE 2). The only remaining §9 item (`dashboard.py` retire/
-re-point) is a build-time task, not a design decision. It is being designed *with Katelynd* before any
-build, per the "scope it with her before building" note in `COLLABORATION_CONTEXT.md` and the open dashboard
-item in `MASTER_REDESIGN_SPEC.md` §6/§7. When this doc is locked, the build re-points/retires the old
-`dashboard.py` against it.
+**DESIGN contract for the dashboard** (the second autonomous segment, after GATE 2) — the render contract for the
+all-companies list, the pursuit/contacts editable layer, the segment radar, and the per-company detail view.
+*Build status is tracked ONLY in `COLLABORATION_CONTEXT.md` § Status & roadmap (not here — avoids drift).*
 
 > **What this dashboard is FOR (reframed 2026-07-03):** this is Katelynd's **career-search** working tool —
 > finding a *role* at these health-tech companies. Not an investment tracker. That drives the vocabulary:
