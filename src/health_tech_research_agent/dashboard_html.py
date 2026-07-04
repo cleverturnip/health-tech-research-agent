@@ -44,6 +44,11 @@ def _cell(value: Any) -> str:
     return _esc(text) if text.strip() else "&nbsp;"
 
 
+def _pretty(name: Any) -> str:
+    """Humanize a snake_case column name for display (underscores -> spaces; the CSS title-cases it)."""
+    return str(name).replace("_", " ").strip()
+
+
 # ---------------------------------------------------------------------------
 # grid tabs
 # ---------------------------------------------------------------------------
@@ -53,15 +58,18 @@ def _all_companies_rows(records: list[dict]) -> str:
     for r in records:
         was = f' <span class="was">was {_esc(r["model_priority"])}</span>' if r.get("is_overridden") else ""
         tags = r["tags"]
+        slug = _slug(r["company"])
         out.append(
-            f'<tr>'
-            f'<td class="mycol"><input type="checkbox" {"checked" if r.get("pursue") else ""}></td>'
+            f'<tr data-co="{slug}" onclick="selectRow(this,\'{slug}\')">'
+            f'<td class="mycol"><input type="checkbox" disabled {"checked" if r.get("pursue") else ""} '
+            f'title="Set pursue in your Google Sheet, then Refresh"></td>'
             f'<td>{_esc(r["company"])}</td>'
             f'<td>{_pill(r["final_priority"])}{was}</td>'
             f'<td>{_esc(r["segment_label"])}</td>'
             f'<td>{_esc(r["model"])}</td><td>{_esc(r["stage"])}</td>'
             f'<td>{_cell(r["final_display"])}</td>'
-            f'<td><button class="xbtn" onclick="showDetail(\'{_slug(r["company"])}\')">'
+            f'<td><button class="xbtn" title="Open detail" '
+            f'onclick="event.stopPropagation();selectRow(this.closest(\'tr\'),\'{slug}\');showDetail(\'{slug}\')">'
             f'<i class="ti ti-layout-sidebar-right-expand"></i></button></td>'
             f'<td class="detail">{_esc("; ".join(tags["subsegment"]))}</td>'
             f'<td class="detail">{_esc("; ".join(tags["product_model"]))}</td>'
@@ -77,7 +85,7 @@ def _all_companies_rows(records: list[dict]) -> str:
 
 
 def _df_table(df: pd.DataFrame, group_label: str) -> str:
-    heads = "".join(f"<th>{_esc(c)}</th>" for c in df.columns)
+    heads = "".join(f"<th>{_esc(_pretty(c))}</th>" for c in df.columns)
     body = "".join(
         "<tr>" + "".join(f"<td>{_cell(v)}</td>" for v in row) + "</tr>"
         for row in df.itertuples(index=False, name=None))
@@ -217,58 +225,69 @@ def _banners(report: dict | None) -> str:
 
 
 _CSS = """
-:root{--surface-0:#faf9f5;--surface-1:#f1efe8;--surface-2:#fff;--text-primary:#2C2C2A;--text-secondary:#5F5E5A;--text-muted:#888780;--border:rgba(0,0,0,.10);--border-strong:rgba(0,0,0,.18);--radius:8px}
-body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--text-primary);background:var(--surface-0);margin:0;padding:24px;line-height:1.5}
-.wrap{max-width:900px;margin:0 auto}
-.doc-note{font-size:13px;color:var(--text-secondary);background:var(--surface-1);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
-.banner{font-size:12.5px;border-radius:var(--radius);padding:9px 12px;margin-bottom:8px}
-.banner.warn{background:#FAEEDA;color:#633806}.banner.danger{background:#FCEBEB;color:#791F1F}
-.topnav{display:flex;gap:8px;margin:12px 0}
-.topnav button{font:inherit;font-size:13px;background:transparent;border:.5px solid var(--border-strong);border-radius:var(--radius);padding:7px 13px;cursor:pointer;color:var(--text-secondary)}
+:root{--surface-0:#f6f7f9;--surface-1:#eef0f4;--surface-2:#fff;--text-primary:#1c2128;--text-secondary:#57606a;--text-muted:#9aa1ac;--border:rgba(27,31,40,.09);--border-strong:rgba(27,31,40,.16);--accent:#3a63e8;--accent-soft:#EBF0FE;--radius:10px;--shadow:0 1px 2px rgba(27,31,40,.04),0 6px 20px rgba(27,31,40,.06)}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system-ui,sans-serif;color:var(--text-primary);background:var(--surface-0);margin:0;padding:28px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.wrap{max-width:1060px;margin:0 auto}
+.doc-note{font-size:12.5px;color:var(--text-secondary);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 15px;margin-bottom:14px;box-shadow:var(--shadow)}
+.banner{font-size:12.5px;border-radius:var(--radius);padding:10px 13px;margin-bottom:8px;border:1px solid transparent}
+.banner.warn{background:#FDF4E3;color:#7A4B06;border-color:#F2DCB3}.banner.danger{background:#FCECEC;color:#8A2020;border-color:#F1C9C9}
+.topnav{display:flex;gap:8px;margin:14px 0}
+.topnav button{font:inherit;font-size:13px;font-weight:500;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--radius);padding:8px 15px;cursor:pointer;color:var(--text-secondary);transition:.12s}
+.topnav button:hover{border-color:var(--accent);color:var(--accent)}
 .topnav button.active{background:var(--text-primary);color:#fff;border-color:var(--text-primary)}
-.pill{font-size:11px;padding:2px 8px;border-radius:20px;display:inline-block}
-.p0{background:#EAF3DE;color:#27500A}.p1{background:#E6F1FB;color:#0C447C}.p2{background:#FAEEDA;color:#633806}.p3{background:#F1EFE8;color:#444441}
-.was{font-size:11px;color:var(--text-muted)}.muted{color:var(--text-muted)}.src{color:var(--text-muted);font-size:11.5px}
-.sheet{border:.5px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface-2);font-size:13px}
-.tabs{display:flex;gap:2px;padding:0 8px;border-bottom:.5px solid var(--border);background:var(--surface-1)}
-.tab{padding:9px 14px;font-size:13px;color:var(--text-secondary);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent}
-.tab.active{color:var(--text-primary);border-bottom-color:var(--text-primary);font-weight:500}
-.toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:.5px solid var(--border);flex-wrap:wrap}
-.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border:.5px solid var(--border-strong);border-radius:var(--radius);color:var(--text-primary);background:var(--surface-2);cursor:pointer}
+.pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;display:inline-block;letter-spacing:.01em}
+.p0{background:#E4F2D8;color:#2C5A0C}.p1{background:#E1ECFC;color:#12447F}.p2{background:#FBEBCF;color:#7A4B06}.p3{background:#ECEDF0;color:#585d68}
+.was{font-size:11px;color:var(--text-muted);font-weight:400}.muted{color:var(--text-muted)}.src{color:var(--text-muted);font-size:11.5px}
+.sheet{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface-2);font-size:13px;box-shadow:var(--shadow)}
+.tabs{display:flex;gap:4px;padding:6px 8px 0;border-bottom:1px solid var(--border);background:linear-gradient(var(--surface-1),var(--surface-2))}
+.tab{padding:9px 15px;font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;transition:.12s}
+.tab:hover{color:var(--text-primary);background:rgba(27,31,40,.03)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.toolbar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--surface-2)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 11px;border:1px solid var(--border-strong);border-radius:var(--radius);color:var(--text-primary);background:var(--surface-2);cursor:pointer}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
 .tablewrap{overflow-x:auto}
-table.gtbl{border-collapse:collapse;width:100%;font-size:12.5px}
-.gtbl th{text-align:left;font-weight:500;color:var(--text-secondary);padding:8px 10px;border-bottom:.5px solid var(--border);white-space:nowrap}
-.gtbl td{padding:7px 10px;border-bottom:.5px solid var(--border);white-space:nowrap;color:var(--text-primary)}
-.grouphdr th{font-size:11px;font-weight:500;padding:6px 10px}
-.grp-ledger{background:var(--surface-1);color:var(--text-muted)}.grp-detail{background:var(--surface-1);color:var(--text-muted)}.grp-mine{background:#FAEEDA;color:#633806}
-.mycol{border-left:2px solid #EF9F27}.detail{display:none}.sheet.show-detail .detail{display:table-cell}
-.xbtn{border:.5px solid var(--border-strong);background:var(--surface-2);border-radius:var(--radius);padding:2px 7px;cursor:pointer;color:var(--text-secondary)}
-.crumb{font-size:12px;color:var(--text-secondary);margin-bottom:10px}.crumb a{color:var(--text-secondary);text-decoration:none}
-.hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.hd h3{font-size:19px;margin:0}
-.card{background:var(--surface-2);border:.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:14px}
-.ct{font-size:11px;letter-spacing:.04em;color:var(--text-muted);margin:0 0 10px}
+table.gtbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+.gtbl th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.03em;text-transform:capitalize;color:var(--text-muted);padding:10px;border-bottom:1px solid var(--border);white-space:nowrap}
+.gtbl td{padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;color:var(--text-primary)}
+.gtbl tr[data-co]{cursor:pointer;transition:background .1s}
+.gtbl tr[data-co]:hover td{background:var(--surface-1)}
+.gtbl tr.sel td{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.grouphdr th{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:none;padding:7px 10px}
+.grp-ledger{background:var(--surface-1);color:var(--text-muted)}.grp-detail{background:var(--surface-1);color:var(--text-muted)}.grp-mine{background:#FBEBCF;color:#7A4B06}
+.mycol{border-left:2px solid var(--accent)}.detail{display:none}.sheet.show-detail .detail{display:table-cell}
+.xbtn{border:1px solid var(--border-strong);background:var(--surface-2);border-radius:7px;padding:3px 8px;cursor:pointer;color:var(--text-secondary)}
+.xbtn:hover{border-color:var(--accent);color:var(--accent)}
+.crumb{font-size:12px;color:var(--text-secondary);margin-bottom:10px}.crumb a{color:var(--accent);text-decoration:none}
+.hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.hd h3{font-size:20px;margin:0;letter-spacing:-.01em}
+.card{background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-top:14px;box-shadow:var(--shadow)}
+.ct{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin:0 0 12px}
 .scores{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 10px}
-.sbox{background:var(--surface-1);border-radius:var(--radius);padding:7px 12px;min-width:74px}
-.sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:17px;font-weight:500}
+.sbox{background:var(--surface-1);border-radius:var(--radius);padding:8px 13px;min-width:76px}
+.sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:18px;font-weight:600}
 .why{font-size:12.5px;line-height:1.6}
-.ov{font-size:12.5px;margin-top:8px;padding:9px 11px;border:.5px solid #EF9F27;border-radius:var(--radius);background:#FAEEDA;color:#633806}
-.glabel{font-size:11px;color:var(--text-muted);font-weight:500;margin:12px 0 5px}
+.ov{font-size:12.5px;margin-top:8px;padding:10px 12px;border:1px solid #EFA84A;border-radius:var(--radius);background:#FDF4E3;color:#7A4B06}
+.glabel{font-size:11px;color:var(--text-muted);font-weight:600;margin:14px 0 6px;letter-spacing:.02em}
 .cgrid{display:grid;gap:10px}.cg2{grid-template-columns:repeat(2,1fr)}.cg3{grid-template-columns:repeat(3,1fr)}
-.lc{background:var(--surface-1);border-radius:var(--radius);padding:10px 12px 11px}
-.lch{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:7px;padding-bottom:6px;border-bottom:.5px solid var(--border)}
-.lct{font-size:11.5px;color:var(--text-primary);font-weight:500}.ls{font-size:10px;background:#E1F5EE;color:#085041;padding:2px 7px;border-radius:20px}
-.r{display:flex;gap:7px;padding:3px 0;font-size:12px;align-items:flex-start}.k{color:var(--text-muted);width:96px;flex-shrink:0}.v{color:var(--text-secondary);line-height:1.45}.v.s{color:var(--text-primary);font-weight:500}
-.acc{border:.5px solid var(--border);border-radius:var(--radius);margin-top:8px;background:var(--surface-1)}.acc .acc{margin-top:6px;background:var(--surface-2)}
-.ah{padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px}.chev{display:inline-block;color:var(--text-muted)}
-.ab{display:none;padding:0 12px 12px}.acc.open>.ab{display:block}.acc.open>.ah .chev{transform:rotate(90deg)}
-.fact{font-size:12.5px;line-height:1.5;padding:8px 0;border-top:.5px solid var(--border);display:flex;gap:9px}.fact:first-child{border-top:none}
-.cv-ver{background:#E1F5EE;color:#085041}.cv-weak{background:#FAEEDA;color:#633806}.md{font-size:12px;line-height:1.55;color:var(--text-secondary);padding-top:8px}
+.lc{background:var(--surface-1);border-radius:var(--radius);padding:11px 13px 12px}
+.lch{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid var(--border)}
+.lct{font-size:11.5px;color:var(--text-primary);font-weight:600}.ls{font-size:10px;background:#DFF3EC;color:#0A5A48;padding:2px 8px;border-radius:20px;font-weight:500}
+.r{display:flex;gap:8px;padding:3px 0;font-size:12px;align-items:flex-start}.k{color:var(--text-muted);width:96px;flex-shrink:0}.v{color:var(--text-secondary);line-height:1.45}.v.s{color:var(--text-primary);font-weight:600}
+.acc{border:1px solid var(--border);border-radius:var(--radius);margin-top:8px;background:var(--surface-1);overflow:hidden}.acc .acc{margin-top:6px;background:var(--surface-2)}
+.ah{padding:11px 13px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}.ah:hover{background:rgba(27,31,40,.02)}.chev{display:inline-block;color:var(--text-muted)}
+.ab{display:none;padding:0 13px 13px}.acc.open>.ab{display:block}.acc.open>.ah .chev{transform:rotate(90deg)}
+.fact{font-size:12.5px;line-height:1.5;padding:8px 0;border-top:1px solid var(--border);display:flex;gap:9px}.fact:first-child{border-top:none}
+.cv-ver{background:#DFF3EC;color:#0A5A48}.cv-weak{background:#FBEBCF;color:#7A4B06}.md{font-size:12px;line-height:1.55;color:var(--text-secondary);padding-top:8px}
 """
 
 _SCRIPT = """
+var _selCo=null;
 function gtab(p,el){['all','pursuit','contacts','radar'].forEach(function(k){document.getElementById('p-'+k).style.display=(k===p)?'':'none';});document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t===el);});}
+function selectRow(el,slug){var t=el.closest('table');if(t){t.querySelectorAll('tr.sel').forEach(function(r){r.classList.remove('sel');});}el.classList.add('sel');_selCo=slug;}
 function showGrid(){document.getElementById('view-grid').style.display='';document.getElementById('view-detail').style.display='none';document.querySelectorAll('.topnav button').forEach(function(b){b.classList.toggle('active',b.dataset.view==='grid');});window.scrollTo(0,0);}
 function showDetail(id){document.getElementById('view-grid').style.display='none';var d=document.getElementById('view-detail');d.style.display='';document.querySelectorAll('.detailco').forEach(function(x){x.style.display='none';});var el=document.getElementById(id);if(el)el.style.display='';document.querySelectorAll('.topnav button').forEach(function(b){b.classList.toggle('active',b.dataset.view==='detail');});window.scrollTo(0,0);}
+function showSelectedDetail(){var id=_selCo||(document.querySelector('.detailco')&&document.querySelector('.detailco').id);if(id)showDetail(id);}
 """
 
 
@@ -298,13 +317,13 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <div class="doc-note"><b>{_esc(title)}</b> — rebuilt from the GATE-2-reviewed ledger; your notes preserved. Every company shown passed GATE-2 review (§1a).</div>
 {_banners(report)}
 <div class="topnav"><button data-view="grid" class="active" onclick="showGrid()">Grid views</button>
-<button data-view="detail" onclick="showDetail(document.querySelector('.detailco')&&document.querySelector('.detailco').id)">Company detail</button></div>
+<button data-view="detail" onclick="showSelectedDetail()">Company detail</button></div>
 <div id="view-grid"><div class="sheet" id="sheet">
 <div class="tabs"><button class="tab active" onclick="gtab('all',this)">All companies</button>
 <button class="tab" onclick="gtab('pursuit',this)">Pursuit</button>
 <button class="tab" onclick="gtab('contacts',this)">Contacts</button>
 <button class="tab" onclick="gtab('radar',this)">Segment radar</button></div>
-<div id="p-all"><div class="toolbar"><span class="muted" style="font-size:11px">filters live on the header row</span>
+<div id="p-all"><div class="toolbar"><span class="muted" style="font-size:11px">Click a row to select it, then open <b>Company detail</b> above &mdash; or use the expand button on a row.</span>
 <span class="chip" style="margin-left:auto" onclick="document.getElementById('sheet').classList.toggle('show-detail')"><i class="ti ti-chevron-right"></i> tags &amp; scores</span></div>
 <div class="tablewrap"><table class="gtbl">{all_head}{all_rows}</table></div></div>
 <div id="p-pursuit" style="display:none"><div class="tablewrap">{pursuit_tbl}</div></div>
