@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 
+from . import review as review_mod
 from .config import WebConfig
 from .security import verify_password
 from .source import DashboardSource
@@ -59,6 +60,7 @@ _CONTROLS = (
     '<form method="post" action="/refresh" style="margin:0" '
     'onsubmit="document.getElementById(\'htra-ov\').style.display=\'flex\'">'
     f'<button type="submit" style="{_BTN_PRIMARY}">&#8635; Refresh</button></form>'
+    f'<a href="/review" style="{_BTN};text-decoration:none;display:inline-block">GATE-2 Review</a>'
     f'<form method="post" action="/logout" style="margin:0"><button type="submit" style="{_BTN}">'
     'Log out</button></form></div>'
 )
@@ -151,5 +153,61 @@ def create_app(config: WebConfig, source: DashboardSource) -> FastAPI:
         if not setter(body.company, body.pursue):
             return JSONResponse({"error": "save failed read-back validation"}, status_code=500)
         return JSONResponse({"ok": True, "company": body.company, "pursue": body.pursue})
+
+    # --- GATE-2 review (Phase 2) — reads pending entries; decisions write the ledger back to the store ---
+    def _review_ok() -> bool:
+        return hasattr(source, "read_review_data") and hasattr(source, "write_entries")
+
+    def _norm(name) -> str:
+        return str("" if name is None else name).strip().lower()
+
+    @app.get("/review", response_class=HTMLResponse)
+    def review_index(request: Request):
+        if not _authed(request):
+            return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        if not _review_ok():
+            return HTMLResponse("Review is not available for this data source.", status_code=400)
+        entries, research = source.read_review_data()
+        recs = review_mod.review_records(review_mod.pending(entries), research=research,
+                                         taxonomy_dir=getattr(source, "taxonomy_dir", None))
+        return HTMLResponse(review_mod.render_index(recs, {_norm(e.get("company")): e for e in entries}))
+
+    @app.get("/review/{company}", response_class=HTMLResponse)
+    def review_card(request: Request, company: str):
+        if not _authed(request):
+            return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        if not _review_ok():
+            return HTMLResponse("Review is not available for this data source.", status_code=400)
+        entries, research = source.read_review_data()
+        entry = next((e for e in entries if _norm(e.get("company")) == _norm(company)), None)
+        if entry is None:
+            return RedirectResponse("/review", status_code=HTTP_303_SEE_OTHER)
+        recs = review_mod.review_records([entry], research=research,
+                                         taxonomy_dir=getattr(source, "taxonomy_dir", None))
+        return HTMLResponse(review_mod.render_card(recs[0], entry))
+
+    @app.post("/review/decision")
+    def review_decision(request: Request, company: str = Form(default=""), action: str = Form(default=""),
+                        reason: str = Form(default="")):
+        if not _authed(request):
+            return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        if not _review_ok() or action not in ("accept",) + review_mod.PRIORITY_TIERS:
+            return HTMLResponse("Invalid decision.", status_code=400)
+        tier = None if action == "accept" else action
+        merged = review_mod.apply_one(source.read_review_data()[0], company, tier, reason)
+        if not source.write_entries(merged):
+            return HTMLResponse("Save failed read-back validation — decision NOT saved.", status_code=500)
+        return RedirectResponse("/review", status_code=HTTP_303_SEE_OTHER)
+
+    @app.post("/review/finalize")
+    def review_finalize(request: Request):
+        if not _authed(request):
+            return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        if not _review_ok():
+            return HTMLResponse("Review is not available for this data source.", status_code=400)
+        finalized = review_mod.finalize(source.read_review_data()[0])
+        if not source.write_entries(finalized):
+            return HTMLResponse("Save failed read-back validation — finalize NOT saved.", status_code=500)
+        return RedirectResponse("/", status_code=HTTP_303_SEE_OTHER)
 
     return app

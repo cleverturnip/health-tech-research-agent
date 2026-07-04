@@ -184,7 +184,9 @@ def _score(v: Any, denom: int) -> str:
     return f"{sv}/{denom}" if sv.replace(".", "", 1).isdigit() else _cell(v)
 
 
-def _detail_html(r: dict) -> str:
+def _detail_body(r: dict) -> str:
+    """The per-company detail CARD BODY (header + SCORING & DECISION + RESEARCH EVIDENCE) — shared by the
+    dashboard's detail view and the Phase-2 GATE-2 review card. No outer toggle wrapper / breadcrumb."""
     s = r["scores"]
     scoring = r.get("scoring", {})
     gates = r.get("gates", {})
@@ -275,9 +277,6 @@ def _detail_html(r: dict) -> str:
         research_block = '<div class="src" style="margin-top:10px">No research joined for this company.</div>'
 
     return (
-        f'<div class="detailco" id="{_slug(r["company"])}" style="display:none">'
-        f'<div class="crumb"><a href="#" onclick="showGrid();return false;"><i class="ti ti-arrow-left"></i> '
-        f'All Companies</a> / <span style="color:var(--text-primary)">{_esc(r["company"])}</span></div>'
         f'<div class="hd"><h3>{_esc(r["company"])}</h3>{_pill(r["final_priority"])}{was}'
         f'<span style="color:var(--text-secondary);font-size:12.5px">{_esc(r["segment_label"])} · '
         f'{_esc(r["model"])} · {_esc(r["stage"])}</span></div>'
@@ -287,7 +286,16 @@ def _detail_html(r: dict) -> str:
         f'<div class="glabel">The Gates — a fail here caps priority at P3</div>'
         f'<div class="cgrid cg2">{gate_cards}</div>'
         f'<div class="glabel">The Score — Background Fit + PMF + Strain = Total</div>'
-        f'<div class="cgrid cg3">{score_cards}</div>{research_block}</div></div>')
+        f'<div class="cgrid cg3">{score_cards}</div>{research_block}</div>')
+
+
+def _detail_html(r: dict) -> str:
+    """Dashboard detail view: the shared card body wrapped in the toggled container + breadcrumb (dashboard nav)."""
+    return (
+        f'<div class="detailco" id="{_slug(r["company"])}" style="display:none">'
+        f'<div class="crumb"><a href="#" onclick="showGrid();return false;"><i class="ti ti-arrow-left"></i> '
+        f'All Companies</a> / <span style="color:var(--text-primary)">{_esc(r["company"])}</span></div>'
+        f'{_detail_body(r)}</div>')
 
 
 # ---------------------------------------------------------------------------
