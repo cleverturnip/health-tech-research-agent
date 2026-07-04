@@ -475,7 +475,7 @@ def pursuit_view(records: list[dict]) -> pd.DataFrame:
             if k not in WORKSPACE_USER_COLUMNS and k not in extra_cols:
                 extra_cols.append(k)
     user_cols = WORKSPACE_USER_COLUMNS + extra_cols
-    ledger_cols = ["company", "final_priority", "model_priority", "segment", "stage", "FINAL", "changed"]
+    ledger_cols = ["company", "final_priority", "segment", "stage", "FINAL", "changed"]
 
     rows = []
     for r in pursued:
@@ -483,7 +483,7 @@ def pursuit_view(records: list[dict]) -> pd.DataFrame:
         changed = r.get("changed")
         note = "; ".join(f"{k} {v['from']}→{v['to']}" for k, v in changed.items()) if changed else ""
         row = {"company": r["company"], "final_priority": r["final_priority"],
-               "model_priority": r["model_priority"], "segment": r["segment_label"],
+               "segment": r["segment_label"],
                "stage": r["stage"], "FINAL": r["final_display"], "changed": note}
         for col in user_cols:
             row[col] = ws.get(col, "")

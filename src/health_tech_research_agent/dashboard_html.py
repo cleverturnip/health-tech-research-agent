@@ -111,16 +111,40 @@ def _kpi_section(records: list[dict]) -> str:
     pursuing = sum(1 for r in records if r.get("pursue"))
     segments = len({r.get("segment_label") for r in records if r.get("segment_label")})
 
-    tiles = [("Companies", total), ("P0 · top", tally["P0"]), ("P1", tally["P1"]),
-             ("P2", tally["P2"]), ("P3", tally["P3"]), ("Pursuing", pursuing), ("Segments", segments)]
-    kpis = "".join(f'<div class="kpi"><div class="kn">{v}</div><div class="kl">{_esc(lbl)}</div></div>'
-                   for lbl, v in tiles)
+    tiles = [("Companies", total, ""), ("P0 · top", tally["P0"], "t0"), ("P1", tally["P1"], "t1"),
+             ("P2", tally["P2"], "t2"), ("P3", tally["P3"], "t3"), ("Pursuing", pursuing, ""), ("Segments", segments, "")]
+    kpis = "".join(f'<div class="kpi {cls}"><div class="kn">{v}</div><div class="kl">{_esc(lbl)}</div></div>'
+                   for lbl, v, cls in tiles)
     bar = "".join(
         f'<div class="distseg {_TIER_T[t]}" style="width:{(tally[t] * 100 / total) if total else 0:.1f}%" '
         f'title="{t}: {tally[t]}"></div>' for t in ("P0", "P1", "P2", "P3") if tally[t])
     legend = "".join(f'<span><i class="dot {_TIER_T[t]}"></i>{t} {tally[t]}</span>' for t in ("P0", "P1", "P2", "P3"))
     return (f'<div class="kpis">{kpis}</div>'
             f'<div class="distwrap"><div class="distbar">{bar}</div><div class="distleg">{legend}</div></div>')
+
+
+def _segment_radar_chart(records: list[dict]) -> str:
+    """Segment radar as a visual (replaces the plain table): one horizontal stacked bar per segment — length =
+    company count (scaled to the biggest segment), stacked by priority tier — plus the coverage badge. Answers
+    'where am I thin by segment' at a glance."""
+    df = dash.segment_radar_view(records)
+    if df.empty:
+        return '<div class="radar"><div class="src">No segments yet.</div></div>'
+    maxc = max((int(r.companies) for r in df.itertuples(index=False)), default=1) or 1
+    legend = "".join(f'<span><i class="dot {_TIER_T[t]}"></i>{t}</span>' for t in ("P0", "P1", "P2", "P3"))
+    cov_class = {"Strong": "cov-strong", "Directional": "cov-directional", "Sparse": "cov-sparse"}
+    rows = ""
+    for r in df.itertuples(index=False):
+        segs = "".join(
+            f'<div class="radseg {_TIER_T[t]}" style="width:{getattr(r, t) * 100 / maxc:.2f}%" '
+            f'title="{t}: {getattr(r, t)}"></div>' for t in ("P0", "P1", "P2", "P3") if getattr(r, t))
+        cov = str(r.coverage)
+        rows += (
+            f'<div class="radrow"><div class="radlabel"><span class="radname">{_esc(r.segment)}</span>'
+            f'<span class="cov {cov_class.get(cov, "cov-sparse")}">{_esc(cov)}</span></div>'
+            f'<div class="radtrack">{segs}</div>'
+            f'<div class="radmeta">{r.companies} cos · {r.pursuing} pursuing</div></div>')
+    return f'<div class="radar"><div class="radleg">{legend}</div>{rows}</div>'
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +279,7 @@ def _banners(report: dict | None) -> str:
 
 
 _CSS = """
-:root{--surface-0:#f6f7f9;--surface-1:#eef0f4;--surface-2:#fff;--text-primary:#1c2128;--text-secondary:#57606a;--text-muted:#9aa1ac;--border:rgba(27,31,40,.09);--border-strong:rgba(27,31,40,.16);--accent:#3a63e8;--accent-soft:#EBF0FE;--radius:10px;--shadow:0 1px 2px rgba(27,31,40,.04),0 6px 20px rgba(27,31,40,.06)}
+:root{--navy:#16273f;--navy-2:#22436a;--surface-0:#eef1f5;--surface-1:#e5eaf0;--surface-2:#fff;--text-primary:#1b2733;--text-secondary:#586274;--text-muted:#8b94a3;--border:rgba(22,38,61,.10);--border-strong:rgba(22,38,61,.18);--accent:#0EA5A5;--accent-ink:#0A7D7D;--accent-soft:#dcecf0;--radius:10px;--shadow:0 1px 2px rgba(22,38,61,.05),0 8px 24px rgba(22,38,61,.07);--t0:#4CA32B;--t1:#2563EB;--t2:#E0952B;--t3:#94A0B3}
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system-ui,sans-serif;color:var(--text-primary);background:var(--surface-0);margin:0;padding:28px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .wrap{max-width:1060px;margin:0 auto}
@@ -265,9 +289,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .topnav{display:flex;gap:8px;margin:14px 0}
 .topnav button{font:inherit;font-size:13px;font-weight:500;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:var(--radius);padding:8px 15px;cursor:pointer;color:var(--text-secondary);transition:.12s}
 .topnav button:hover{border-color:var(--accent);color:var(--accent)}
-.topnav button.active{background:var(--text-primary);color:#fff;border-color:var(--text-primary)}
-.pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;display:inline-block;letter-spacing:.01em}
-.p0{background:#E4F2D8;color:#2C5A0C}.p1{background:#E1ECFC;color:#12447F}.p2{background:#FBEBCF;color:#7A4B06}.p3{background:#ECEDF0;color:#585d68}
+.topnav button.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;display:inline-block;letter-spacing:.01em}
+.p0{background:#E4F2D8;color:#3B7D1E}.p1{background:#E1EAFB;color:#1E51C4}.p2{background:#FBEBCF;color:#B4741A}.p3{background:#E8ECF1;color:#657084}
 .was{font-size:11px;color:var(--text-muted);font-weight:400}.muted{color:var(--text-muted)}.src{color:var(--text-muted);font-size:11.5px}
 .sheet{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface-2);font-size:13px;box-shadow:var(--shadow)}
 .tabs{display:flex;gap:4px;padding:6px 8px 0;border-bottom:1px solid var(--border);background:linear-gradient(var(--surface-1),var(--surface-2))}
@@ -278,26 +302,44 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 11px;border:1px solid var(--border-strong);border-radius:var(--radius);color:var(--text-primary);background:var(--surface-2);cursor:pointer}
 .chip:hover{border-color:var(--accent);color:var(--accent)}
 .tablewrap{overflow-x:auto}
-.apphdr{display:flex;align-items:flex-end;justify-content:space-between;margin:2px 0 16px}
-.apptitle{font-size:22px;font-weight:700;letter-spacing:-.02em;color:var(--text-primary)}
-.appsub{font-size:12px;color:var(--text-muted);margin-top:3px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-bottom:12px}
-.kpi{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
-.kpi .kn{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--text-primary)}
-.kpi .kl{font-size:11px;color:var(--text-muted);margin-top:6px;font-weight:500}
-.distwrap{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;margin-bottom:16px;box-shadow:var(--shadow)}
-.distbar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--surface-1)}
-.distseg{height:100%}.distseg.t0{background:#5AA02C}.distseg.t1{background:#3563E8}.distseg.t2{background:#D99A2B}.distseg.t3{background:#AAB0BB}
-.distleg{display:flex;gap:16px;margin-top:10px;font-size:11.5px;color:var(--text-secondary)}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
-.dot.t0{background:#5AA02C}.dot.t1{background:#3563E8}.dot.t2{background:#D99A2B}.dot.t3{background:#AAB0BB}
+.apphdr{background:linear-gradient(120deg,var(--navy),var(--navy-2));color:#fff;border-radius:14px;padding:18px 22px;margin:2px 0 16px;box-shadow:var(--shadow)}
+.apptitle{font-size:21px;font-weight:800;letter-spacing:-.01em;color:#fff}
+.appsub{font-size:12px;color:rgba(255,255,255,.72);margin-top:4px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:15px 16px 14px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
+.kpi .kn{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1;color:var(--navy)}
+.kpi .kl{font-size:10px;color:var(--text-muted);margin-top:8px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.kpi.t0::before{background:var(--t0)}.kpi.t0 .kn{color:#3B7D1E}
+.kpi.t1::before{background:var(--t1)}.kpi.t1 .kn{color:#1E51C4}
+.kpi.t2::before{background:var(--t2)}.kpi.t2 .kn{color:#B4741A}
+.kpi.t3::before{background:var(--t3)}.kpi.t3 .kn{color:#657084}
+.distwrap{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
+.distbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--surface-1)}
+.distseg{height:100%}.distseg.t0{background:var(--t0)}.distseg.t1{background:var(--t1)}.distseg.t2{background:var(--t2)}.distseg.t3{background:var(--t3)}
+.distleg{display:flex;gap:16px;margin-top:11px;font-size:11.5px;color:var(--text-secondary);font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
+.dot.t0{background:var(--t0)}.dot.t1{background:var(--t1)}.dot.t2{background:var(--t2)}.dot.t3{background:var(--t3)}
 table.gtbl{border-collapse:collapse;width:100%;font-size:12.5px}
-.gtbl th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.03em;text-transform:capitalize;color:var(--text-muted);padding:10px;border-bottom:1px solid var(--border);white-space:nowrap}
-.gtbl td{padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;color:var(--text-primary)}
+.gtbl th{text-align:left;font-weight:700;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.9);background:var(--navy);padding:11px 10px;white-space:nowrap}
+.gtbl td{padding:10px;border-bottom:1px solid var(--border);white-space:nowrap;color:var(--text-primary)}
+.gtbl tr:nth-child(even) td{background:#f5f8fb}
 .gtbl tr[data-co]{cursor:pointer;transition:background .1s}
-.gtbl tr[data-co]:hover td{background:var(--surface-1)}
+.gtbl tr[data-co]:hover td{background:#e9f0f8}
 .gtbl tr.sel td{background:var(--accent-soft)}
 .gtbl tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+.radar{padding:14px 16px}
+.radleg{display:flex;gap:16px;margin-bottom:14px;font-size:11.5px;color:var(--text-secondary);font-weight:500}
+.radrow{display:grid;grid-template-columns:210px 1fr 122px;align-items:center;gap:14px;padding:9px 4px;border-bottom:1px solid var(--border)}
+.radrow:last-child{border-bottom:none}
+.radlabel{font-size:12.5px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px;min-width:0}
+.radname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.radtrack{display:flex;height:18px;background:var(--surface-1);border-radius:6px;overflow:hidden}
+.radseg{height:100%}.radseg.t0{background:var(--t0)}.radseg.t1{background:var(--t1)}.radseg.t2{background:var(--t2)}.radseg.t3{background:var(--t3)}
+.radmeta{font-size:11.5px;color:var(--text-muted);text-align:right;white-space:nowrap}
+.cov{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.cov-strong{background:#E4F2D8;color:#3B7D1E}.cov-directional{background:#FBEBCF;color:#B4741A}.cov-sparse{background:#F7DADA;color:#9A2A2A}
 .grouphdr th{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:none;padding:7px 10px}
 .grp-ledger{background:var(--surface-1);color:var(--text-muted)}.grp-detail{background:var(--surface-1);color:var(--text-muted)}.grp-mine{background:#FBEBCF;color:#7A4B06}
 .mycol{border-left:2px solid var(--accent)}.detail{display:none}.sheet.show-detail .detail{display:table-cell}
@@ -341,7 +383,7 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
     all_rows = _all_companies_rows(records)
     pursuit_tbl = _df_table(dash.pursuit_view(records))
     contacts_tbl = _df_table(dash.contacts_view(records))
-    radar_tbl = _df_table(dash.segment_radar_view(records))
+    radar_chart = _segment_radar_chart(records)
     details = "".join(_detail_html(r) for r in records)
 
     all_head = ('<tr><th class="mycol">pursue</th><th>company</th><th>priority</th><th>segment</th><th>model</th>'
@@ -369,7 +411,7 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <div class="tablewrap"><table class="gtbl">{all_head}{all_rows}</table></div></div>
 <div id="p-pursuit" style="display:none"><div class="tablewrap">{pursuit_tbl}</div></div>
 <div id="p-contacts" style="display:none"><div class="tablewrap">{contacts_tbl}</div></div>
-<div id="p-radar" style="display:none"><div class="tablewrap">{radar_tbl}</div></div>
+<div id="p-radar" style="display:none">{radar_chart}</div>
 </div></div>
 <div id="view-detail" style="display:none">{details}</div>
 </div><script>{_SCRIPT}</script></body></html>"""
