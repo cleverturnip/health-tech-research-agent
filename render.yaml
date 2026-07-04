@@ -1,0 +1,30 @@
+# Render Blueprint for the Phase-1 hosted dashboard (front-end).
+# Create a Render "Blueprint" from this repo; Render reads this file, provisions the web service, and prompts
+# for the three secrets marked `sync: false`. Nothing sensitive is stored in this file (it's in the public repo).
+#
+# The app is a thin FastAPI shell over the package (specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md). Editable install
+# keeps the package importable from the repo checkout so it can find taxonomy/ (segment labels) at runtime.
+services:
+  - type: web
+    name: htra-dashboard
+    runtime: python
+    plan: free                # free spins down when idle (~1 min cold start); upgrade to "starter" for always-on
+    buildCommand: pip install -e ".[web]"
+    startCommand: uvicorn health_tech_research_agent.webapp.asgi:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: HTRA_SECURE_COOKIE
+        value: "true"          # the session cookie is HTTPS-only in prod (Render serves TLS)
+      - key: HTRA_WORK_DIR
+        value: "/tmp/htra_work"
+      - key: HTRA_SESSION_SECRET
+        generateValue: true    # Render generates a strong random value; never in the repo
+      # --- secrets you paste into the Render dashboard (kept OUT of the public repo) ---
+      - key: HTRA_PASSWORD_HASH
+        sync: false            # the PBKDF2 hash of your app password (see the hash command in the deploy steps)
+      - key: HTRA_GOOGLE_CREDENTIALS_JSON
+        sync: false            # the full contents of your service-account JSON key
+      - key: HTRA_DRIVE_FOLDER_ID
+        sync: false            # your "HTRA Dashboard Data" Drive folder id

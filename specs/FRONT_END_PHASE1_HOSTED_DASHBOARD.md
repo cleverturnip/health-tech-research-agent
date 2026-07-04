@@ -110,6 +110,25 @@ Katelynd asked for `pursue` to be clickable in the app (not only in the Sheet). 
   so All + Pursuit stay consistent (a lighter in-place update is a possible later optimization).
 - Notes/contacts editing is still out of scope (stays in the Sheet); only `pursue` is in-app editable.
 
+## 8b. Deploy to Render (Step 3) — runbook
+
+Config lives in `render.yaml` (Blueprint) at the repo root — nothing sensitive in it. Editable install
+(`pip install -e ".[web]"`) keeps the package importable from the repo checkout so `taxonomy/` resolves at
+runtime. Start: `uvicorn health_tech_research_agent.webapp.asgi:app`; health check `/healthz`. `plan: free`
+(spins down when idle, ~1 min cold start; upgrade to `starter` for always-on / before the Phase-3 long jobs).
+
+**Steps:**
+1. **Generate the password hash** (locally, password never leaves the machine):
+   `PYTHONPATH=src python3 -m health_tech_research_agent.webapp.hash_password` → prompts twice → prints the hash.
+2. **Render → New → Blueprint**, connect the GitHub repo (`cleverturnip/health-tech-research-agent`, branch `main`).
+   Render reads `render.yaml` and creates the `htra-dashboard` web service.
+3. **Set the three secrets** (prompted, `sync:false`): `HTRA_PASSWORD_HASH` (step 1 output);
+   `HTRA_GOOGLE_CREDENTIALS_JSON` (the full contents of the service-account JSON key); `HTRA_DRIVE_FOLDER_ID`
+   (the "HTRA Dashboard Data" folder id). `HTRA_SESSION_SECRET` is auto-generated; sheet name defaults to
+   "Health Tech Dashboard".
+4. **Deploy**, then **live-verify (Step 4)** on the Render URL: log in, dashboard renders from live Google data,
+   Refresh works, pursue saves (Sheet shared as **Editor**), no secrets/data in the repo.
+
 ## 9. Out of scope (later phases)
 
 - In-app editing of notes / contacts (stays in the Sheet for now; `pursue` is in-app editable per §8a).
