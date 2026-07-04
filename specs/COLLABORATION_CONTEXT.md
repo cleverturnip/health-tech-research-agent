@@ -122,17 +122,22 @@ last). The dashboard engine already emits the durable data artifact the front en
 Google-Sheet store are the interim surface; the front end swaps the surface, reusing the engine unchanged — see
 `DASHBOARD_DESIGN.md` §7). Contract: `specs/FRONT_END_PHASE1_HOSTED_DASHBOARD.md`.
 
-**Phase 1 — hosted dashboard: BUILT + LOCALLY LIVE-VERIFIED (2026-07-04), merged to `main`.** The FastAPI web
+**Phase 1 — hosted dashboard: BUILT + DEPLOYED + LIVE on Render (2026-07-04).** The FastAPI web
 shell (`src/health_tech_research_agent/webapp/`) over the existing dashboard engine (Rule 1): simple-password
 login + session gate; on-the-spot Refresh (rebuilds from Google, visible overlay, keeps your tab); a Google-backed
 source that reads `ledger.jsonl` + the research CSV from a shared Drive folder + the dashboard Sheet via a
 least-privilege service account; **in-app `pursue` editing** writes one cell back to the Sheet (read-back verified;
 narrowly widened the Sheet scope to write — spec §8a). Polished analytics UI (navy/blue-ramp/cyan/gold reference
 palette, KPI tiles, dark table headers + zebra, segment-radar chart, colored company-detail view). Verified end-to-end
-against Katelynd's real Google data (54 companies); 667 tests. Also fixed a dup-column bug (reference columns leaking
-into the user layer). **NEXT: Step 3 — deploy to Render** (Katelynd's Render account + moving the local settings into
-Render secrets) then **Step 4 — live-verify on the hosted URL** (`FRONT_END_PHASE1…md` §6–8). Then Phase 2 (in-app
-GATE-2 review). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
+against Katelynd's real Google data (54 companies); 669 tests. Also fixed a dup-column bug (reference columns leaking
+into the user layer). **DEPLOYED to Render** (Blueprint `render.yaml`, editable install; **free** plan; login-password
+hash + Drive folder id as env vars; the service-account key as a Render **Secret File** — pasting it into an env var
+mangled the JSON, so `credentials_info` prefers the mounted file at `/etc/secrets/service_account.json`). The free
+tier **sleeps when idle** (~1 min cold start) — upgrade to `starter` for always-on (needed before the Phase-3 long
+jobs). **NEXT: (a) SECURITY — rotate the `dashboard-reader` service-account key** (it appeared in a Render log during
+setup; low risk / private logs, but rotate + update the Secret File as hygiene); **(b) Phase 2 — in-app GATE-2
+review** (the next front-end phase); plus the open pipeline design items (batch storage / research re-score, see
+Carry-forward notes). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
