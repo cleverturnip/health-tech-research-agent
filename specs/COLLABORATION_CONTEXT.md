@@ -134,6 +134,23 @@ deploy to Render → live-verify); Katelynd's account setup (§7) done alongside
 milestones move; keep done/next honest.*
 
 ## Carry-forward engineering notes (open, not yet built)
+- **Batch research storage — new CSV per batch (DECIDED 2026-07-04).** Ongoing research runs in batches of 5–10
+  companies; each batch writes its OWN immutable research CSV — never append to / mutate a prior file (Rule 8 /
+  append-only; strongest "never touch existing data" guarantee). The ledger already accumulates (score-once-on-entry,
+  append per batch) and GATE-2 finalize stamps only the NEW entries, so a batch's GATE 2 = only its new companies.
+  **Near-term front-end change (not yet built):** the dashboard Google source must read + COMBINE all research CSVs in
+  the Drive folder (today it reads a single `research.csv`) so a new batch appears with zero risk to old data.
+- **Research update / re-score flow — OPEN design item (2026-07-04; touches the LOCKED write-once-scores rule → spec
+  DOC-FIRST before building).** Two human-initiated ways to update an already-scored company, BOTH creating a NEW
+  DATED ledger entry (old kept as history, nothing edited in place — write-once preserved; latest wins): (1) full
+  re-research; (2) a FAST "human-augmented re-score" — copy the existing research forward, add ONE human-provided fact
+  (e.g. "Series B $35M"), re-score WITHOUT the ~20-min full research (Katelynd's rationale: re-research is slow, and a
+  fact the thorough research layer missed once it will likely miss again). Rule-consistent: the human supplies
+  EVIDENCE, the deterministic scorer still DECIDES (Rule 7). **Crux to design (the plausible-but-wrong trap):** the
+  scorer reads STRUCTURED fit-brief fields, NOT raw pasted text — so a pasted fact must be turned into the structured
+  field(s) the scorer consumes (a tiny LLM re-extraction pass over findings+fact, OR direct structured-field entry) or
+  the re-score SILENTLY no-ops. Also: tag the human-provided fact's provenance (human vs research-gathered) and
+  reconcile with any existing human priority override (Rule 6). Does NOT block the front-end Phase 1.
 - **GATE-2 review data findings (regen-2 batch, 2026-07-03)** — surfaced during the live GATE-2 review; each
   is an UPSTREAM/research fix (Rule 8 — do NOT hand-edit the ledger): (1) **`cylinder health` = `vivante health`**
   are the SAME company (Cylinder is the rebrand of Vivante) — de-dup the candidate/research set (drop `vivante`).
