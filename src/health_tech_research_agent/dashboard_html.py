@@ -60,7 +60,7 @@ def _all_companies_rows(records: list[dict]) -> str:
         tags = r["tags"]
         slug = _slug(r["company"])
         out.append(
-            f'<tr data-co="{slug}" onclick="selectRow(this,\'{slug}\')">'
+            f'<tr data-co="{slug}" data-company="{_esc(r["company"])}" onclick="selectRow(this,\'{slug}\')">'
             f'<td class="mycol"><input type="checkbox" disabled {"checked" if r.get("pursue") else ""} '
             f'title="Set pursue in your Google Sheet, then Refresh"></td>'
             f'<td>{_esc(r["company"])}</td>'

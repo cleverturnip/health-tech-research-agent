@@ -21,7 +21,9 @@ from .. import dashboard
 
 _DRIVE_FILES = "https://www.googleapis.com/drive/v3/files"
 _DRIVE_RO = "https://www.googleapis.com/auth/drive.readonly"
-_SHEETS_RO = "https://www.googleapis.com/auth/spreadsheets.readonly"
+# The dashboard SHEET needs write (the pursue-in-app decision, 2026-07-04) — a targeted single-cell update; the
+# Drive DATA folder (ledger/research) stays read-only (_DRIVE_RO). The write scope also covers reads.
+_SHEETS_RW = "https://www.googleapis.com/auth/spreadsheets"
 _DEFAULT_SHEET_NAME = "Health Tech Dashboard"
 
 
@@ -149,7 +151,7 @@ class GoogleDashboardSource:
 
     def _open_sheet(self):
         import gspread
-        gc = gspread.authorize(self._credentials([_SHEETS_RO, _DRIVE_RO]))
+        gc = gspread.authorize(self._credentials([_SHEETS_RW, _DRIVE_RO]))
         if self.config.sheet_key:
             return gc.open_by_key(self.config.sheet_key)
         return gc.open(self.config.sheet_name)
@@ -174,3 +176,11 @@ class GoogleDashboardSource:
 
     def refresh(self) -> None:
         self._html = self._build()
+
+    def set_pursue(self, company: str, pursue: bool) -> bool:
+        """Toggle a company's `pursue` flag in the Sheet (the one in-app write). Invalidates the cached render so
+        the next `html()` rebuilds from the now-updated Sheet (All + Pursuit tabs stay consistent)."""
+        from .. import dashboard_gsheet as gs
+        ok = gs.set_pursue(self._open_sheet(), company, pursue)
+        self._html = None
+        return ok

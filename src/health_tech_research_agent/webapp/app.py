@@ -13,7 +13,8 @@ is built in `asgi.py` from `WebConfig.from_env()`. Routes:
 from __future__ import annotations
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 
@@ -22,6 +23,27 @@ from .security import verify_password
 from .source import DashboardSource
 
 _SESSION_KEY = "authed"
+
+
+class PursueIn(BaseModel):
+    company: str
+    pursue: bool
+
+
+# Enables the (otherwise read-only) pursue checkboxes and wires each to POST /pursue → reload so the Pursuit tab
+# reflects it. Injected ONLY when the source supports editing (the Google source); the demo source stays read-only.
+_PURSUE_JS = (
+    "<script>(function(){"
+    "document.querySelectorAll('tr[data-company] td.mycol input[type=checkbox]').forEach(function(cb){"
+    "cb.disabled=false;cb.style.cursor='pointer';cb.title='Pursue / un-pursue (saves to your Sheet)';"
+    "cb.addEventListener('click',function(ev){ev.stopPropagation();"
+    "var company=cb.closest('tr').getAttribute('data-company');var want=cb.checked;cb.disabled=true;"
+    "fetch('/pursue',{method:'POST',headers:{'Content-Type':'application/json'},"
+    "body:JSON.stringify({company:company,pursue:want})})"
+    ".then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(){location.reload();})"
+    ".catch(function(){cb.checked=!want;cb.disabled=false;"
+    "alert('Could not save pursue — does the app have edit access to your Sheet?');});});});})();</script>"
+)
 
 _BTN = ("font:inherit;font-size:12.5px;background:#fff;border:.5px solid rgba(0,0,0,.18);"
         "border-radius:8px;padding:6px 12px;cursor:pointer;color:#2C2C2A")
@@ -57,9 +79,10 @@ def _login_page(*, error: str = "", title: str = "Health-tech dashboard") -> str
     )
 
 
-def _with_controls(html_doc: str) -> str:
-    """Inject the fixed Refresh / Log out bar into the engine's HTML (the engine stays untouched)."""
-    bar = _CONTROLS
+def _with_controls(html_doc: str, *, editable: bool = False) -> str:
+    """Inject the fixed Refresh / Log out bar (and, when the source is editable, the pursue-checkbox script) into
+    the engine's HTML. The engine's render stays untouched — the interactivity is added here, at the app layer."""
+    bar = _CONTROLS + (_PURSUE_JS if editable else "")
     if "</body>" in html_doc:
         return html_doc.replace("</body>", bar + "</body>", 1)
     return html_doc + bar
@@ -102,7 +125,7 @@ def create_app(config: WebConfig, source: DashboardSource) -> FastAPI:
     def home(request: Request):
         if not _authed(request):
             return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
-        return HTMLResponse(_with_controls(source.html()))
+        return HTMLResponse(_with_controls(source.html(), editable=hasattr(source, "set_pursue")))
 
     @app.post("/refresh")
     def refresh(request: Request):
@@ -110,5 +133,16 @@ def create_app(config: WebConfig, source: DashboardSource) -> FastAPI:
             return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
         source.refresh()
         return RedirectResponse("/", status_code=HTTP_303_SEE_OTHER)
+
+    @app.post("/pursue")
+    def pursue(request: Request, body: PursueIn):
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=HTTP_401_UNAUTHORIZED)
+        setter = getattr(source, "set_pursue", None)
+        if setter is None:
+            return JSONResponse({"error": "editing not available for this source"}, status_code=400)
+        if not setter(body.company, body.pursue):
+            return JSONResponse({"error": "save failed read-back validation"}, status_code=500)
+        return JSONResponse({"ok": True, "company": body.company, "pursue": body.pursue})
 
     return app

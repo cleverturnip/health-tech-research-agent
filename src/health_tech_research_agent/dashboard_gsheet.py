@@ -44,6 +44,39 @@ def _df_to_values(df: pd.DataFrame) -> list[list]:
     return [list(df.columns)] + body
 
 
+def set_pursue(spreadsheet: Any, company: str, pursue: bool) -> bool:
+    """Write ONE cell — the `pursue` flag for `company` — in the Workspace tab, and read it back (Rules 4/5).
+
+    This is the only in-app WRITE to the store (the pursue-in-app decision, 2026-07-04). It is a TARGETED
+    single-cell update (`update_cell`), so it never touches any of your other edits. If the company has no row
+    yet (e.g. added by a later batch, unseeded) a minimal row is appended. Returns True iff the read-back matches.
+    """
+    ws = spreadsheet.worksheet(dash.WORKSPACE_SHEET)
+    header = ws.row_values(1)
+    lower = [str(h).strip().lower() for h in header]
+    try:
+        company_col = lower.index("company") + 1
+        pursue_col = lower.index("pursue") + 1
+    except ValueError as exc:
+        raise KeyError("Workspace tab is missing a 'company' or 'pursue' column") from exc
+
+    value = "TRUE" if pursue else ""
+    target = dash._norm_company(company)
+    column = ws.col_values(company_col)  # [header, row2, row3, ...]
+    row_idx = next((i + 1 for i, val in enumerate(column) if i and dash._norm_company(val) == target), None)
+    if row_idx is None:
+        new_row = [""] * len(header)
+        new_row[company_col - 1] = company
+        new_row[pursue_col - 1] = value
+        ws.append_row(new_row)
+        row_idx = len(column) + 1
+    else:
+        ws.update_cell(row_idx, pursue_col, value)
+
+    readback = ws.cell(row_idx, pursue_col).value or ""
+    return dash._truthy(readback) == bool(pursue)
+
+
 def seed_gsheet_store(spreadsheet: Any, records: list[dict]) -> bool:
     """Seed the two tabs if (and only if) they are missing. Workspace gets one row per company (tick `pursue`,
     add notes); Contacts gets just the header. Returns True if anything was created. NEVER touches an existing

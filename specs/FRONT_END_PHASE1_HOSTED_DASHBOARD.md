@@ -93,9 +93,22 @@ entrypoint: `uvicorn`. A `render.yaml` (or Render dashboard config) + a `require
 - Refresh re-reads the Sheet + latest data and rebuilds on the spot; your Sheet edits are preserved; safety banners fire.
 - Read-back verified live (`readback_ok`); no secrets or private data in the public repo; web-layer tests green.
 
+## 8a. Amendment — in-app `pursue` editing (2026-07-04, from demo feedback)
+
+Katelynd asked for `pursue` to be clickable in the app (not only in the Sheet). Adopted, scoped narrowly:
+- **The app writes ONLY the `pursue` cell** for a company in the Workspace tab (`dashboard_gsheet.set_pursue`) — a
+  **targeted single-cell update**, read-back verified (Rules 4/5); it never touches any other cell, so your other
+  edits are safe and the Sheet stays the single source of truth (D7 intact for everything else).
+- **Narrow revision of P1.5:** the SHEET now needs **write** scope (`spreadsheets`) and the service account must be
+  shared on the Sheet as **Editor** (not Viewer). The Drive **data folder** (ledger/research) stays **read-only**.
+- The interactivity is injected at the **app layer** (`_PURSUE_JS`, only when the source supports `set_pursue`); the
+  shared engine render stays read-only (correct for the Colab/interim surface). A pursue toggle reloads → rebuild,
+  so All + Pursuit stay consistent (a lighter in-place update is a possible later optimization).
+- Notes/contacts editing is still out of scope (stays in the Sheet); only `pursue` is in-app editable.
+
 ## 9. Out of scope (later phases)
 
-- In-app editing of pursue / notes / contacts (Phase 2 territory; stays in the Sheet for now).
+- In-app editing of notes / contacts (stays in the Sheet for now; `pursue` is in-app editable per §8a).
 - The GATE-2 review surface (Phase 2) and GATE-1 + the long research run + progress/notification (Phase 3).
 - Notification channel; multi-user sharing; phone-optimized layout (`FRONT_END_DIRECTION.md` §7 / D4).
 - Moving the ledger/research producer off Colab (Phase 3) — Phase 1 reads what Colab writes to Drive.
