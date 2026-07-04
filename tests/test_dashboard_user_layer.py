@@ -100,6 +100,22 @@ def test_pursuit_view_shows_changed_note_and_user_columns():
     assert beta["status"] == "Seeking warm intro"
 
 
+def test_seeded_reference_columns_do_not_leak_or_duplicate():
+    # A REAL seeded Workspace row carries the read-only reference columns (final_priority / segment) alongside
+    # the user's notes. Those must not be trusted back as user data (Rule 6) nor duplicated in the view.
+    ws = [{"company": "alpha health", "pursue": "TRUE", "final_priority": "P0",
+           "segment": "Metabolic, nutrition & weight health", "HQ": "NYC"}]
+    records, _ = dashboard.merge_user_layer(_records(), ws)
+    wsdict = {r["company"]: r for r in records}["alpha health"]["workspace"]
+    assert "final_priority" not in wsdict and "segment" not in wsdict   # reference cols not captured as user data
+    assert wsdict["HQ"] == "NYC"                                        # the real note survives
+
+    view = dashboard.pursuit_view(records)
+    assert list(view.columns).count("final_priority") == 1             # no duplicate columns
+    assert list(view.columns).count("segment") == 1
+    assert view[view["company"] == "alpha health"].iloc[0]["HQ"] == "NYC"
+
+
 def test_contacts_view_one_row_per_contact():
     records, _ = dashboard.merge_user_layer(_records(), _workspace(), _contacts())
     view = dashboard.contacts_view(records)

@@ -412,7 +412,11 @@ def merge_user_layer(records: list[dict], workspace: Any = None, contacts: Any =
         ws_rows = ws_index.get(key)
         ws = ws_rows[0] if ws_rows else {}       # one row per company on the Workspace tab
         record["pursue"] = _truthy(ws.get("pursue")) if ws else False
-        record["workspace"] = {k: v for k, v in ws.items() if k not in WORKSPACE_RESERVED_KEYS}
+        # Exclude the reserved keys AND the seeded read-only REFERENCE columns (final_priority / segment): those
+        # are ledger-derived, shown in the Sheet for context only, and must never be trusted back as user data
+        # (Rule 6) — otherwise they leak into the view as duplicate columns.
+        _ignore = WORKSPACE_RESERVED_KEYS | set(WORKSPACE_REFERENCE_COLUMNS)
+        record["workspace"] = {k: v for k, v in ws.items() if k not in _ignore}
         record["contacts"] = ct_index.get(key, [])
 
         record["changed"] = None
