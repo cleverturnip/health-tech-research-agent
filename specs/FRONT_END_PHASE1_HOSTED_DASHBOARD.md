@@ -120,10 +120,12 @@ runtime. Start: `uvicorn health_tech_research_agent.webapp.asgi:app`; health che
    `PYTHONPATH=src python3 -m health_tech_research_agent.webapp.hash_password` → prompts twice → prints the hash.
 2. **Render → New → Blueprint**, connect the GitHub repo (`cleverturnip/health-tech-research-agent`, branch `main`).
    Render reads `render.yaml` and creates the `htra-dashboard` web service.
-3. **Set the three secrets** (prompted, `sync:false`): `HTRA_PASSWORD_HASH` (step 1 output);
-   `HTRA_GOOGLE_CREDENTIALS_JSON` (the full contents of the service-account JSON key); `HTRA_DRIVE_FOLDER_ID`
-   (the "HTRA Dashboard Data" folder id). `HTRA_SESSION_SECRET` is auto-generated; sheet name defaults to
-   "Health Tech Dashboard".
+3. **Set the secrets:** `HTRA_PASSWORD_HASH` (step 1 output) + `HTRA_DRIVE_FOLDER_ID` (the "HTRA Dashboard Data"
+   folder id) as env vars; and add the service-account key as a **Render Secret File** named
+   `service_account.json` (Dashboard → Environment → Secret Files — a mounted file avoids env-var JSON mangling).
+   `HTRA_GOOGLE_CREDENTIALS_FILE` (`/etc/secrets/service_account.json`) + `HTRA_SESSION_SECRET` come from
+   `render.yaml`; sheet name defaults to "Health Tech Dashboard". (`credentials_info` prefers the file and
+   ignores a stray/mangled `HTRA_GOOGLE_CREDENTIALS_JSON`.)
 4. **Deploy**, then **live-verify (Step 4)** on the Render URL: log in, dashboard renders from live Google data,
    Refresh works, pursue saves (Sheet shared as **Editor**), no secrets/data in the repo.
 

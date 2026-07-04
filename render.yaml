@@ -24,7 +24,9 @@ services:
       # --- secrets you paste into the Render dashboard (kept OUT of the public repo) ---
       - key: HTRA_PASSWORD_HASH
         sync: false            # the PBKDF2 hash of your app password (see the hash command in the deploy steps)
-      - key: HTRA_GOOGLE_CREDENTIALS_JSON
-        sync: false            # the full contents of your service-account JSON key
+      - key: HTRA_GOOGLE_CREDENTIALS_FILE
+        # Point at a Render SECRET FILE (Dashboard → Environment → Secret Files) named `service_account.json`
+        # with the key contents. A mounted file avoids the env-var paste-mangling that breaks pasted JSON.
+        value: /etc/secrets/service_account.json
       - key: HTRA_DRIVE_FOLDER_ID
         sync: false            # your "HTRA Dashboard Data" Drive folder id

@@ -119,3 +119,18 @@ def test_credentials_info_none_raises():
     cfg = GoogleSourceConfig(drive_folder_id="F", work_dir="/w")
     with pytest.raises(SourceError, match="No Google credentials"):
         cfg.credentials_info()
+
+
+def test_credentials_info_prefers_file_over_json(tmp_path):
+    # A mounted key file wins over a (possibly mangled) env-var JSON — the Render deploy fix.
+    key = tmp_path / "service_account.json"
+    key.write_text(json.dumps({"type": "service_account", "from": "file"}), encoding="utf-8")
+    cfg = GoogleSourceConfig(drive_folder_id="F", work_dir="/w",
+                             credentials_json="}}not-valid-json", credentials_file=str(key))
+    assert cfg.credentials_info()["from"] == "file"
+
+
+def test_credentials_info_bad_json_raises_actionable_error():
+    cfg = GoogleSourceConfig(drive_folder_id="F", work_dir="/w", credentials_json="}}garbage")
+    with pytest.raises(SourceError, match="Secret File"):
+        cfg.credentials_info()

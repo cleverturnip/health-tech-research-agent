@@ -92,13 +92,23 @@ class GoogleSourceConfig:
     credentials_file: str | None = None   # OR a path to the JSON key (local dev)
 
     def credentials_info(self) -> dict:
-        if self.credentials_json:
-            return json.loads(self.credentials_json)
-        if self.credentials_file:
+        # Prefer a mounted key FILE when it exists (e.g. a Render Secret File) — env-var JSON is easy to mangle
+        # on paste, so the file wins if present. Fall back to the JSON string, with an actionable error if it's
+        # set but unparseable (the classic "pasted the key into an env var" failure).
+        if self.credentials_file and Path(self.credentials_file).exists():
             return json.loads(Path(self.credentials_file).read_text(encoding="utf-8"))
+        if self.credentials_json:
+            try:
+                return json.loads(self.credentials_json)
+            except json.JSONDecodeError as exc:
+                raise SourceError(
+                    "HTRA_GOOGLE_CREDENTIALS_JSON is set but is not valid JSON — pasting a service-account key "
+                    "into an env var often mangles it. Use a Render Secret File + HTRA_GOOGLE_CREDENTIALS_FILE "
+                    "(pointing at the mounted path, e.g. /etc/secrets/service_account.json) instead."
+                ) from exc
         raise SourceError(
-            "No Google credentials configured — set HTRA_GOOGLE_CREDENTIALS_JSON (the key contents) or "
-            "HTRA_GOOGLE_CREDENTIALS_FILE (a path to the JSON key)."
+            "No Google credentials configured — set HTRA_GOOGLE_CREDENTIALS_FILE (a mounted key file) or "
+            "HTRA_GOOGLE_CREDENTIALS_JSON (the key contents)."
         )
 
     @classmethod
