@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass
 from typing import Mapping
 
-DEFAULT_TITLE = "Health-tech career dashboard"
+DEFAULT_TITLE = "Katelynd Career Research Dashboard"
 
 
 @dataclass

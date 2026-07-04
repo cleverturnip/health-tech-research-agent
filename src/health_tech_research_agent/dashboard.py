@@ -572,7 +572,7 @@ def seed_workspace_sheet(records: list[dict]) -> pd.DataFrame:
 def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: str | Path,
                     user_store_path: str | Path | None = None, gsheet: Any = None,
                     taxonomy_dir: str | Path | None = None,
-                    title: str = "Health-tech career dashboard") -> DashboardResult:
+                    title: str = "Katelynd Career Research Dashboard") -> DashboardResult:
     """Build the whole dashboard from a FINALIZED ledger (run `ledger.finalize_gate2_review_dir` first). Reads the
     reviewed ledger (ENFORCES §1a — an un-finalized ledger RAISES), the research CSV/DataFrame, and your editable
     user store; merges your layer; writes the read-only views (4 CSVs) + the self-contained HTML + the durable

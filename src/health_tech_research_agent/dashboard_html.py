@@ -109,8 +109,8 @@ def _kpi_section(records: list[dict]) -> str:
     pursuing = sum(1 for r in records if r.get("pursue"))
     segments = len({r.get("segment_label") for r in records if r.get("segment_label")})
 
-    tiles = [("Companies", total, ""), ("P0 · top", tally["P0"], "t0"), ("P1", tally["P1"], "t1"),
-             ("P2", tally["P2"], "t2"), ("P3", tally["P3"], "t3"), ("Pursuing", pursuing, "gold"), ("Segments", segments, "")]
+    tiles = [("Companies", total, "hero"), ("P0", tally["P0"], "t0"), ("P1", tally["P1"], "t1"),
+             ("P2", tally["P2"], "t2"), ("P3", tally["P3"], "t3"), ("Pursuing", pursuing, "gold"), ("Segments", segments, "nv")]
     kpis = "".join(f'<div class="kpi {cls}"><div class="kn">{v}</div><div class="kl">{_esc(lbl)}</div></div>'
                    for lbl, v, cls in tiles)
     bar = "".join(
@@ -293,10 +293,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .p0{background:#D6E4EE;color:#123F5C}.p1{background:#DEEDF7;color:#215F86}.p2{background:#E6F2FB;color:#2E7BA8}.p3{background:#EEF4F9;color:#5E8199}
 .was{font-size:11px;color:var(--text-muted);font-weight:400}.muted{color:var(--text-muted)}.src{color:var(--text-muted);font-size:11.5px}
 .sheet{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface-2);font-size:13px;box-shadow:var(--shadow)}
-.tabs{display:flex;gap:4px;padding:6px 8px 0;border-bottom:1px solid var(--border);background:linear-gradient(var(--surface-1),var(--surface-2))}
-.tab{padding:9px 15px;font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;transition:.12s}
-.tab:hover{color:var(--text-primary);background:rgba(27,31,40,.03)}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.tabs{display:flex;gap:4px;padding:7px 8px 0;background:var(--navy)}
+.tab{padding:10px 17px;font-size:13px;font-weight:600;color:rgba(255,255,255,.72);cursor:pointer;border:none;background:transparent;border-radius:8px 8px 0 0;transition:.12s}
+.tab:hover{color:#fff;background:rgba(255,255,255,.14)}
+.tab.active{color:var(--navy);background:var(--surface-2)}
 .toolbar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--surface-2)}
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 11px;border:1px solid var(--border-strong);border-radius:var(--radius);color:var(--text-primary);background:var(--surface-2);cursor:pointer}
 .chip:hover{border-color:var(--accent);color:var(--accent)}
@@ -304,13 +304,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .apphdr{background:linear-gradient(120deg,var(--navy),var(--navy-2));color:#fff;border-radius:14px;padding:18px 22px;margin:2px 0 16px;box-shadow:var(--shadow)}
 .apptitle{font-size:21px;font-weight:800;letter-spacing:-.01em;color:#fff}
 .appsub{font-size:12px;color:rgba(255,255,255,.72);margin-top:4px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:12px;margin-bottom:14px}
-.kpi{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:15px 16px 14px;box-shadow:var(--shadow);position:relative;overflow:hidden}
-.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
-.kpi .kn{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1;color:var(--navy)}
-.kpi .kl{font-size:10px;color:var(--text-muted);margin-top:8px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-.kpi.t0::before{background:var(--t0)}.kpi.t1::before{background:var(--t1)}.kpi.t2::before{background:var(--t2)}.kpi.t3::before{background:var(--t3)}
-.kpi.gold::before{background:var(--gold)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px;margin-bottom:14px}
+.kpi{display:flex;align-items:baseline;gap:8px;border:1px solid var(--border);border-radius:11px;padding:13px 15px;box-shadow:var(--shadow);background:var(--surface-2)}
+.kpi .kn{font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1;color:var(--navy)}
+.kpi .kl{font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+.kpi.hero{background:#D9F4F1;border-color:#B6E7E2}.kpi.hero .kn{color:#0A7D7D}
+.kpi.nv{background:#E5EBF1;border-color:#CDD9E4}.kpi.nv .kn{color:#123F5C}
+.kpi.gold{background:#FBF1D8;border-color:#EEDBA6}.kpi.gold .kn{color:#8A6A12}.kpi.gold .kl{color:#8A6A12}
+.kpi.t0{background:#DFE7EF;border-color:#C6D3E0}.kpi.t0 .kn{color:#123F5C}
+.kpi.t1{background:#DEEAF6;border-color:#C1D6EC}.kpi.t1 .kn{color:#215F86}
+.kpi.t2{background:#E6F1FB;border-color:#CBE3F5}.kpi.t2 .kn{color:#2E7BA8}
+.kpi.t3{background:#EEF5FB;border-color:#D9E8F4}.kpi.t3 .kn{color:#4E7891}
 .distwrap{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
 .distbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--surface-1)}
 .distseg{height:100%}.distseg.t0{background:var(--t0)}.distseg.t1{background:var(--t1)}.distseg.t2{background:var(--t2)}.distseg.t3{background:var(--t3)}
@@ -320,9 +324,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 table.gtbl{border-collapse:collapse;width:100%;font-size:12.5px}
 .gtbl th{text-align:left;font-weight:700;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.9);background:var(--navy);padding:11px 10px;white-space:nowrap}
 .gtbl td{padding:10px;border-bottom:1px solid var(--border);white-space:nowrap;color:var(--text-primary)}
-.gtbl tr:nth-child(even) td{background:#f5f8fb}
+.gtbl tr:nth-child(even) td{background:#EAF1F8}
 .gtbl tr[data-co]{cursor:pointer;transition:background .1s}
-.gtbl tr[data-co]:hover td{background:#e9f0f8}
+.gtbl tr[data-co]:hover td{background:#DCE8F5}
 .gtbl tr.sel td{background:var(--accent-soft)}
 .gtbl tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
@@ -351,18 +355,18 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
 .sbox{background:var(--surface-1);border-radius:var(--radius);padding:8px 13px;min-width:76px}
 .sbox .l{font-size:11px;color:var(--text-secondary)}.sbox .v{font-size:18px;font-weight:600}
 .why{font-size:12.5px;line-height:1.6}
-.ov{font-size:12.5px;margin-top:8px;padding:10px 12px;border:1px solid #EFA84A;border-radius:var(--radius);background:#FDF4E3;color:#7A4B06}
+.ov{font-size:12.5px;margin-top:8px;padding:10px 12px;border:1px solid var(--gold);border-radius:var(--radius);background:#FCF5E2;color:#7A5B10}
 .glabel{font-size:11px;color:var(--text-muted);font-weight:600;margin:14px 0 6px;letter-spacing:.02em}
 .cgrid{display:grid;gap:10px}.cg2{grid-template-columns:repeat(2,1fr)}.cg3{grid-template-columns:repeat(3,1fr)}
 .lc{background:var(--surface-1);border-radius:var(--radius);padding:11px 13px 12px}
 .lch{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid var(--border)}
-.lct{font-size:11.5px;color:var(--text-primary);font-weight:600}.ls{font-size:10px;background:#DFF3EC;color:#0A5A48;padding:2px 8px;border-radius:20px;font-weight:500}
+.lct{font-size:11.5px;color:var(--text-primary);font-weight:600}.ls{font-size:10px;background:var(--accent-soft);color:var(--accent-ink);padding:2px 8px;border-radius:20px;font-weight:600}
 .r{display:flex;gap:8px;padding:3px 0;font-size:12px;align-items:flex-start}.k{color:var(--text-muted);width:96px;flex-shrink:0}.v{color:var(--text-secondary);line-height:1.45}.v.s{color:var(--text-primary);font-weight:600}
 .acc{border:1px solid var(--border);border-radius:var(--radius);margin-top:8px;background:var(--surface-1);overflow:hidden}.acc .acc{margin-top:6px;background:var(--surface-2)}
 .ah{padding:11px 13px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}.ah:hover{background:rgba(27,31,40,.02)}.chev{display:inline-block;color:var(--text-muted)}
 .ab{display:none;padding:0 13px 13px}.acc.open>.ab{display:block}.acc.open>.ah .chev{transform:rotate(90deg)}
 .fact{font-size:12.5px;line-height:1.5;padding:8px 0;border-top:1px solid var(--border);display:flex;gap:9px}.fact:first-child{border-top:none}
-.cv-ver{background:#DFF3EC;color:#0A5A48}.cv-weak{background:#FBEBCF;color:#7A4B06}.md{font-size:12px;line-height:1.55;color:var(--text-secondary);padding-top:8px}
+.cv-ver{background:var(--accent-soft);color:var(--accent-ink)}.cv-weak{background:#FBF1D8;color:#8A6A12}.md{font-size:12px;line-height:1.55;color:var(--text-secondary);padding-top:8px}
 """
 
 _SCRIPT = """
@@ -375,7 +379,7 @@ function showSelectedDetail(){var id=_selCo||(document.querySelector('.detailco'
 """
 
 
-def render_dashboard_html(records: list[dict], report: dict | None = None, *, title: str = "Health-tech career dashboard") -> str:
+def render_dashboard_html(records: list[dict], report: dict | None = None, *, title: str = "Katelynd Career Research Dashboard") -> str:
     """Render the whole dashboard (grid tabs + per-company detail views) from the records as one self-contained
     HTML page. Pure render — every value comes from the records / merged user store."""
     all_rows = _all_companies_rows(records)

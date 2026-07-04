@@ -134,7 +134,7 @@ class GoogleDashboardSource:
     """Builds the dashboard from live Google data. `refresh()` re-downloads + rebuilds; `html()` builds lazily."""
 
     def __init__(self, config: GoogleSourceConfig, *, taxonomy_dir: str | Path | None = None,
-                 title: str = "Health-tech career dashboard") -> None:
+                 title: str = "Katelynd Career Research Dashboard") -> None:
         self.config = config
         self.taxonomy_dir = taxonomy_dir
         self.title = title
