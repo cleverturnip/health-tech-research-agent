@@ -20,10 +20,13 @@ from typing import Any, Mapping
 from .. import dashboard
 
 _DRIVE_FILES = "https://www.googleapis.com/drive/v3/files"
+_DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 _DRIVE_RO = "https://www.googleapis.com/auth/drive.readonly"
-# The dashboard SHEET needs write (the pursue-in-app decision, 2026-07-04) — a targeted single-cell update; the
-# Drive DATA folder (ledger/research) stays read-only (_DRIVE_RO). The write scope also covers reads.
+# The dashboard SHEET needs write (the pursue-in-app decision, 2026-07-04) — a targeted single-cell update.
 _SHEETS_RW = "https://www.googleapis.com/auth/spreadsheets"
+# GATE-2 decisions write the ledger BACK to the Drive DATA folder (Phase 2, spec §4) — needs Drive write; the
+# actual reach is still bounded by what's shared with the service account (the one folder). Reads use _DRIVE_RO.
+_DRIVE_RW = "https://www.googleapis.com/auth/drive"
 _DEFAULT_SHEET_NAME = "Health Tech Dashboard"
 
 
@@ -74,6 +77,30 @@ def download_data(session: Any, folder_id: str, dest_dir: str | Path, *,
     if research_id:
         research_path = _download_file(session, research_id, dest / research_name)
     return ledger_path, research_path
+
+
+# ---------------------------------------------------------------------------
+# Drive write (Phase 2 — GATE-2 decisions write the ledger back) — unit-tested with a fake session
+# ---------------------------------------------------------------------------
+
+def update_drive_file(session: Any, file_id: str, content: bytes) -> None:
+    """Overwrite an existing Drive file's content (files.update, media upload)."""
+    resp = session.patch(f"{_DRIVE_UPLOAD}/{file_id}",
+                         params={"uploadType": "media", "supportsAllDrives": True}, data=content)
+    resp.raise_for_status()
+
+
+def write_file_to_folder(session: Any, folder_id: str, name: str, content: bytes) -> bool:
+    """Overwrite an EXISTING file in the folder with `content`, then read it back and verify (Rule 4/5). Returns
+    True iff the read-back matches. A missing target RAISES (Phase-2 writes update files the pipeline already
+    produced — e.g. `ledger.jsonl`)."""
+    file_id = _find_file_id(session, folder_id, name)
+    if not file_id:
+        raise SourceError(f"Cannot write '{name}' — it is not in the shared Drive folder ({folder_id}).")
+    update_drive_file(session, file_id, content)
+    resp = session.get(f"{_DRIVE_FILES}/{file_id}", params={"alt": "media", "supportsAllDrives": True})
+    resp.raise_for_status()
+    return resp.content == content
 
 
 # ---------------------------------------------------------------------------
@@ -192,5 +219,29 @@ class GoogleDashboardSource:
         the next `html()` rebuilds from the now-updated Sheet (All + Pursuit tabs stay consistent)."""
         from .. import dashboard_gsheet as gs
         ok = gs.set_pursue(self._open_sheet(), company, pursue)
+        self._html = None
+        return ok
+
+    # -- GATE-2 review (Phase 2): read the ledger, write decisions back to the Drive folder --
+    def _drive_write_session(self):
+        from google.auth.transport.requests import AuthorizedSession
+        return AuthorizedSession(self._credentials([_DRIVE_RW]))
+
+    def read_review_data(self) -> tuple[list, Any]:
+        """Download the ledger + research from Drive -> (ledger entries, research DataFrame|None)."""
+        from .. import ledger, storage
+        work = Path(self.config.work_dir)
+        ledger_path, research_path = download_data(
+            self._drive_session(), self.config.drive_folder_id, work / "data",
+            ledger_name=self.config.ledger_filename, research_name=self.config.research_filename)
+        research = storage.load_csv(research_path).fillna("") if research_path else None
+        return ledger.read_ledger(ledger_path), research
+
+    def write_entries(self, entries: list) -> bool:
+        """Write the (decision-updated) ledger back to Drive — a targeted overwrite of `ledger.jsonl`, read-back
+        verified (Rule 4/5). Invalidates the dashboard cache since the ledger changed."""
+        content = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries).encode("utf-8")
+        ok = write_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
+                                  self.config.ledger_filename, content)
         self._html = None
         return ok
