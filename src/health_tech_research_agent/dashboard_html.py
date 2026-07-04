@@ -95,10 +95,8 @@ def _df_table(df: pd.DataFrame) -> str:
 _TIER_T = {"P0": "t0", "P1": "t1", "P2": "t2", "P3": "t3"}
 
 
-def _app_header(title: str, total: int) -> str:
-    return (f'<div class="apphdr"><div><div class="apptitle">{_esc(title)}</div>'
-            f'<div class="appsub">GATE-2 reviewed portfolio · {total} companies · '
-            f'read-only scores, your pursuit layer editable</div></div></div>')
+def _app_header(title: str) -> str:
+    return f'<div class="apphdr"><div class="apptitle">{_esc(title)}</div></div>'
 
 
 def _kpi_section(records: list[dict]) -> str:
@@ -112,7 +110,7 @@ def _kpi_section(records: list[dict]) -> str:
     segments = len({r.get("segment_label") for r in records if r.get("segment_label")})
 
     tiles = [("Companies", total, ""), ("P0 · top", tally["P0"], "t0"), ("P1", tally["P1"], "t1"),
-             ("P2", tally["P2"], "t2"), ("P3", tally["P3"], "t3"), ("Pursuing", pursuing, ""), ("Segments", segments, "")]
+             ("P2", tally["P2"], "t2"), ("P3", tally["P3"], "t3"), ("Pursuing", pursuing, "gold"), ("Segments", segments, "")]
     kpis = "".join(f'<div class="kpi {cls}"><div class="kn">{v}</div><div class="kl">{_esc(lbl)}</div></div>'
                    for lbl, v, cls in tiles)
     bar = "".join(
@@ -140,10 +138,11 @@ def _segment_radar_chart(records: list[dict]) -> str:
             f'title="{t}: {getattr(r, t)}"></div>' for t in ("P0", "P1", "P2", "P3") if getattr(r, t))
         cov = str(r.coverage)
         rows += (
-            f'<div class="radrow"><div class="radlabel"><span class="radname">{_esc(r.segment)}</span>'
+            f'<div class="radrow"><div class="radhead">'
+            f'<div class="radname">{_esc(r.segment)}'
             f'<span class="cov {cov_class.get(cov, "cov-sparse")}">{_esc(cov)}</span></div>'
-            f'<div class="radtrack">{segs}</div>'
-            f'<div class="radmeta">{r.companies} cos · {r.pursuing} pursuing</div></div>')
+            f'<div class="radmeta">{r.companies} cos · {r.pursuing} pursuing</div></div>'
+            f'<div class="radtrack">{segs}</div></div>')
     return f'<div class="radar"><div class="radleg">{legend}</div>{rows}</div>'
 
 
@@ -279,7 +278,7 @@ def _banners(report: dict | None) -> str:
 
 
 _CSS = """
-:root{--navy:#16273f;--navy-2:#22436a;--surface-0:#eef1f5;--surface-1:#e5eaf0;--surface-2:#fff;--text-primary:#1b2733;--text-secondary:#586274;--text-muted:#8b94a3;--border:rgba(22,38,61,.10);--border-strong:rgba(22,38,61,.18);--accent:#0EA5A5;--accent-ink:#0A7D7D;--accent-soft:#dcecf0;--radius:10px;--shadow:0 1px 2px rgba(22,38,61,.05),0 8px 24px rgba(22,38,61,.07);--t0:#4CA32B;--t1:#2563EB;--t2:#E0952B;--t3:#94A0B3}
+:root{--navy:#144C6F;--navy-2:#1C6389;--surface-0:#eef2f6;--surface-1:#e3eaf0;--surface-2:#fff;--text-primary:#1a2b38;--text-secondary:#54636f;--text-muted:#8794a0;--border:rgba(20,60,90,.11);--border-strong:rgba(20,60,90,.20);--accent:#06C4BD;--accent-ink:#0A8F89;--accent-soft:#D6F4F2;--gold:#F2C14E;--radius:10px;--shadow:0 1px 2px rgba(20,60,90,.05),0 8px 24px rgba(20,60,90,.08);--t0:#144C6F;--t1:#2E86B8;--t2:#58B0DE;--t3:#BADCF0}
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system-ui,sans-serif;color:var(--text-primary);background:var(--surface-0);margin:0;padding:28px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .wrap{max-width:1060px;margin:0 auto}
@@ -291,7 +290,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .topnav button:hover{border-color:var(--accent);color:var(--accent)}
 .topnav button.active{background:var(--navy);color:#fff;border-color:var(--navy)}
 .pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;display:inline-block;letter-spacing:.01em}
-.p0{background:#E4F2D8;color:#3B7D1E}.p1{background:#E1EAFB;color:#1E51C4}.p2{background:#FBEBCF;color:#B4741A}.p3{background:#E8ECF1;color:#657084}
+.p0{background:#D6E4EE;color:#123F5C}.p1{background:#DEEDF7;color:#215F86}.p2{background:#E6F2FB;color:#2E7BA8}.p3{background:#EEF4F9;color:#5E8199}
 .was{font-size:11px;color:var(--text-muted);font-weight:400}.muted{color:var(--text-muted)}.src{color:var(--text-muted);font-size:11.5px}
 .sheet{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface-2);font-size:13px;box-shadow:var(--shadow)}
 .tabs{display:flex;gap:4px;padding:6px 8px 0;border-bottom:1px solid var(--border);background:linear-gradient(var(--surface-1),var(--surface-2))}
@@ -310,10 +309,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system
 .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
 .kpi .kn{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1;color:var(--navy)}
 .kpi .kl{font-size:10px;color:var(--text-muted);margin-top:8px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-.kpi.t0::before{background:var(--t0)}.kpi.t0 .kn{color:#3B7D1E}
-.kpi.t1::before{background:var(--t1)}.kpi.t1 .kn{color:#1E51C4}
-.kpi.t2::before{background:var(--t2)}.kpi.t2 .kn{color:#B4741A}
-.kpi.t3::before{background:var(--t3)}.kpi.t3 .kn{color:#657084}
+.kpi.t0::before{background:var(--t0)}.kpi.t1::before{background:var(--t1)}.kpi.t2::before{background:var(--t2)}.kpi.t3::before{background:var(--t3)}
+.kpi.gold::before{background:var(--gold)}
 .distwrap{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow)}
 .distbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--surface-1)}
 .distseg{height:100%}.distseg.t0{background:var(--t0)}.distseg.t1{background:var(--t1)}.distseg.t2{background:var(--t2)}.distseg.t3{background:var(--t3)}
@@ -329,15 +326,16 @@ table.gtbl{border-collapse:collapse;width:100%;font-size:12.5px}
 .gtbl tr.sel td{background:var(--accent-soft)}
 .gtbl tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
-.radar{padding:14px 16px}
-.radleg{display:flex;gap:16px;margin-bottom:14px;font-size:11.5px;color:var(--text-secondary);font-weight:500}
-.radrow{display:grid;grid-template-columns:210px 1fr 122px;align-items:center;gap:14px;padding:9px 4px;border-bottom:1px solid var(--border)}
+.radar{padding:16px 18px}
+.radleg{display:flex;gap:16px;margin-bottom:16px;font-size:11.5px;color:var(--text-secondary);font-weight:500}
+.radrow{padding:11px 2px;border-bottom:1px solid var(--border)}
 .radrow:last-child{border-bottom:none}
-.radlabel{font-size:12.5px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px;min-width:0}
-.radname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.radtrack{display:flex;height:18px;background:var(--surface-1);border-radius:6px;overflow:hidden}
+.radhead{display:flex;justify-content:space-between;align-items:baseline;gap:14px;margin-bottom:8px}
+.radname{font-size:13px;font-weight:600;color:var(--text-primary)}
+.radname .cov{margin-left:8px}
+.radtrack{display:flex;height:16px;background:var(--surface-1);border-radius:6px;overflow:hidden}
 .radseg{height:100%}.radseg.t0{background:var(--t0)}.radseg.t1{background:var(--t1)}.radseg.t2{background:var(--t2)}.radseg.t3{background:var(--t3)}
-.radmeta{font-size:11.5px;color:var(--text-muted);text-align:right;white-space:nowrap}
+.radmeta{font-size:11.5px;color:var(--text-muted);white-space:nowrap;flex-shrink:0}
 .cov{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:10px;white-space:nowrap}
 .cov-strong{background:#E4F2D8;color:#3B7D1E}.cov-directional{background:#FBEBCF;color:#B4741A}.cov-sparse{background:#F7DADA;color:#9A2A2A}
 .grouphdr th{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:none;padding:7px 10px}
@@ -397,7 +395,7 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <title>{_esc(title)}</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.17.0/dist/tabler-icons.min.css">
 <style>{_CSS}</style></head><body><div class="wrap">
-{_app_header(title, len(records))}
+{_app_header(title)}
 {_banners(report)}
 <div class="topnav"><button data-view="grid" class="active" onclick="showGrid()">Grid views</button>
 <button data-view="detail" onclick="showSelectedDetail()">Company detail</button></div>
