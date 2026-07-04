@@ -71,4 +71,25 @@ def test_render_card_has_detail_body_and_decision_control():
     assert "SCORING &amp; DECISION" in card                           # reuses the dashboard detail body
     assert "Your decision — priority only" in card
     assert ">P0<" in card and ">P1<" in card                          # override tier buttons
-    assert 'name="reason"' in card                                    # reason field
+
+
+def test_decision_marks_decided_even_on_accept():
+    entries = _entries()
+    company = entries[0]["company"]
+    merged = review.apply_one(entries, company, None, "")             # Accept (no override)
+    decided = {e["company"].lower(): e for e in merged}[company.lower()]["decision"]
+    assert decided.get("decided_date")                                # marked reviewed-by-you -> green row
+    html = review.render_index(review.review_records(merged), {e["company"].lower(): e for e in merged})
+    assert 'class="done"' in html and "<th>Score</th>" in html         # green row + a Score column
+
+
+def test_card_recommendation_and_deferred_save():
+    entries = _entries()
+    recs = review.review_records(review.pending(entries))
+    by = {e["company"].lower(): e for e in entries}
+    fh = next((r for r in recs if r["company"] == "function health"), recs[0])
+    card = review.render_card(fh, by[fh["company"].lower()])
+    assert "Recommendation:" in card                                   # the 'why this recommendation' write-up
+    assert 'id="rv-save"' in card and "Save decision" in card          # explicit Save — nothing submits on tier pick
+    assert 'type="button"' in card and "rvpick" in card                # tier buttons are non-submitting
+    assert '<textarea class="dreason"' in card                          # full-width reason box

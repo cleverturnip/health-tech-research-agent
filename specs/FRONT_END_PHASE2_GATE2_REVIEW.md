@@ -36,6 +36,25 @@ Render each pending company with the **exact** dashboard detail view (`_detail_h
 - Katelynd never edits a score or un-floors a company (Rule 8); disagreement with a floor = a priority bump
   (Function Health is the canonical case). Taxonomy override is NOT a routine card control (MASTER §4).
 
+## 2a. Recommendation write-up — source fields (2026-07-04)
+
+The card shows a **"why this recommendation"** block. The recommendation (`recommended_action`) is **deterministic**
+(Rule 7 — the model routes, it does not reason in prose), so the write-up is **assembled from the drivers already
+in the ledger**, not a separate LLM narrative:
+- `entry["recommended_action"]` — the routing verdict (`accept` / `review_override` / `normal`).
+- `entry["flags"][].note` — each triggered flag's note (e.g. `override_candidate` → "documented priority-override
+  candidate"; `low_score_floor` → "Floor rule … → capped at P3 …"). These notes are the closest thing to a written
+  rationale (pipeline-authored, per the §3.5 flag vocabulary in `MASTER_REDESIGN_SPEC.md`).
+- `entry["scoring"]["floor_rule"]["reason"]` — the floor explanation when a floor fired.
+
+**There is NO dedicated LLM-prose "recommendation rationale" field today** (the recommendation is deterministic).
+If a true LLM narrative is wanted, that is a **pipeline addition** (a new research/scoring field) — Phase-3 /
+doc-first, not a render change. `review._recommendation_html` renders the assembled block.
+
+**Per-company review state (green rows):** a decision stamps `decision.decided_date` on that company (even an
+unchanged Accept) — the "you reviewed this" marker that turns its list row green. The §1a `decision.reviewed_date`
+is still stamped only by **Finalize** (which admits the batch to the dashboard). Two distinct stamps.
+
 ## 3. Data flow + persistence
 
 1. The app reads `ledger.jsonl` from the **Drive data folder** (same folder the dashboard reads). **Pending** =
