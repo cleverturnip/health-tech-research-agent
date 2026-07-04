@@ -15,7 +15,11 @@ from health_tech_research_agent.webapp.gsource import (
     GoogleSourceConfig,
     SourceError,
     download_data,
+    write_file_to_folder,
 )
+from health_tech_research_agent.webapp.source import FixtureDashboardSource
+
+FIXTURE = Path(__file__).parent / "fixtures" / "sample_ledger.jsonl"
 
 
 # --- a fake authorized session (Drive REST) ---------------------------------
@@ -35,9 +39,10 @@ class _FakeResp:
 class _FakeSession:
     """Answers the two Drive calls download_data makes: a name->id lookup, and an id->bytes media fetch."""
 
-    def __init__(self, files: dict, blobs: dict):
+    def __init__(self, files: dict, blobs: dict, *, swallow_writes: bool = False):
         self.files = files      # name -> id
         self.blobs = blobs      # id -> bytes
+        self.swallow_writes = swallow_writes   # if True, PATCH is a no-op (simulates a failed write) -> read-back mismatch
         self.requests: list[str] = []
 
     def get(self, url, params=None, **kwargs):
@@ -50,6 +55,13 @@ class _FakeSession:
             return _FakeResp(json_data={"files": [{"id": file_id, "name": name}] if file_id else []})
         file_id = url.rsplit("/", 1)[-1]
         return _FakeResp(content=self.blobs.get(file_id, b""))
+
+    def patch(self, url, params=None, data=None, **kwargs):   # files.update (media upload)
+        self.requests.append(url)
+        file_id = url.rsplit("/", 1)[-1]
+        if not self.swallow_writes:
+            self.blobs[file_id] = data if isinstance(data, (bytes, bytearray)) else str(data).encode()
+        return _FakeResp(content=b"")
 
 
 def test_download_data_writes_ledger_and_research(tmp_path):
@@ -134,3 +146,35 @@ def test_credentials_info_bad_json_raises_actionable_error():
     cfg = GoogleSourceConfig(drive_folder_id="F", work_dir="/w", credentials_json="}}garbage")
     with pytest.raises(SourceError, match="Secret File"):
         cfg.credentials_info()
+
+
+# --- Drive write-back (Phase 2) ---------------------------------------------
+
+def test_write_file_to_folder_overwrites_and_reads_back():
+    session = _FakeSession(files={"ledger.jsonl": "L1"}, blobs={"L1": b"old"})
+    assert write_file_to_folder(session, "FOLDER", "ledger.jsonl", b"new-content") is True
+    assert session.blobs["L1"] == b"new-content"      # the file was overwritten in place (same id)
+
+
+def test_write_file_to_folder_missing_target_raises():
+    session = _FakeSession(files={}, blobs={})
+    with pytest.raises(SourceError, match="not in the shared Drive folder"):
+        write_file_to_folder(session, "FOLDER", "ledger.jsonl", b"x")
+
+
+def test_write_file_to_folder_readback_mismatch_returns_false():
+    session = _FakeSession(files={"ledger.jsonl": "L1"}, blobs={"L1": b"old"}, swallow_writes=True)
+    assert write_file_to_folder(session, "FOLDER", "ledger.jsonl", b"new") is False   # write didn't stick
+
+
+# --- fixture review source (writable local copy, for the demo flow) ----------
+
+def test_fixture_review_reads_pending_and_persists_writes(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path)
+    entries, research = src.read_review_data()
+    assert len(entries) == 5 and research is None
+    # mutate + write, then re-read: the change persisted to the writable copy
+    entries[0]["decision"] = {"human_override": "P1"}
+    assert src.write_entries(entries) is True
+    reread, _ = src.read_review_data()
+    assert reread[0]["decision"]["human_override"] == "P1"

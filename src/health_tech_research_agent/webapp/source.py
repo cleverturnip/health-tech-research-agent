@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from .. import dashboard, dashboard_html, ledger
 
@@ -31,9 +31,11 @@ class FixtureDashboardSource:
     gate passes). Offline and Google-free — used for the skeleton until the real source is wired (Step 2)."""
 
     def __init__(self, fixture_path: str | Path,
-                 *, title: str = "Health-tech career dashboard (demo data)") -> None:
+                 *, title: str = "Health-tech career dashboard (demo data)",
+                 review_work_dir: str | Path | None = None) -> None:
         self._fixture = Path(fixture_path)
         self._title = title
+        self._review_work_dir = Path(review_work_dir) if review_work_dir else None
         self._html: str | None = None
 
     def _build(self) -> str:
@@ -50,3 +52,22 @@ class FixtureDashboardSource:
 
     def refresh(self) -> None:
         self._html = self._build()
+
+    # -- GATE-2 review (Phase 2): a WRITABLE local copy of the raw (un-finalized) fixture, for the demo flow --
+    def _review_ledger_path(self) -> Path:
+        import shutil
+        import tempfile
+        base = self._review_work_dir or Path(tempfile.gettempdir()) / "htra_review_demo"
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "ledger.jsonl"
+        if not path.exists():
+            shutil.copy(self._fixture, path)   # seed from the raw fixture (entries un-finalized -> all pending)
+        return path
+
+    def read_review_data(self) -> tuple[list, Any]:
+        return ledger.read_ledger(self._review_ledger_path()), None
+
+    def write_entries(self, entries: list) -> bool:
+        ledger.write_ledger(self._review_ledger_path(), entries)
+        self._html = None
+        return True
