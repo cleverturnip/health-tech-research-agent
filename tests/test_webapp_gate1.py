@@ -77,12 +77,25 @@ def test_parse_candidates_no_block_and_malformed():
     assert cands == []                                               # malformed -> empty, never raises
 
 
-def test_drop_researched_catches_exact_and_suffix_variants():
-    entries = [{"company": "Levels Health"}, {"company": "Culina Health"}]
-    candidates = [{"company": "Levels"}, {"company": "Culina Health"}, {"company": "Bevel"}]
+def test_drop_researched_catches_exact_suffix_and_extra_word_variants():
+    entries = [{"company": "Levels Health"}, {"company": "Culina Health"}, {"company": "oura"}]
+    candidates = [
+        {"company": "Levels"},        # subset of "levels health"
+        {"company": "Culina Health"}, # exact
+        {"company": "Oura Ring"},     # superset of stored "oura" (generic word "ring" dropped)
+        {"company": "Bevel"},         # genuinely new
+    ]
     kept, dropped = gate1.drop_researched(candidates, entries)
     assert [c["company"] for c in kept] == ["Bevel"]          # only the genuinely-new one survives
-    assert set(dropped) == {"Levels", "Culina Health"}        # exact + trailing-"Health" variant both caught
+    assert set(dropped) == {"Levels", "Culina Health", "Oura Ring"}
+
+
+def test_drop_researched_does_not_overmatch_distinct_companies():
+    entries = [{"company": "Function Health"}, {"company": "Hinge Health"}]
+    # different companies that merely share a generic word — must NOT be dropped
+    kept, dropped = gate1.drop_researched(
+        [{"company": "Thrive Global"}, {"company": "Maven Clinic"}], entries)
+    assert dropped == [] and [c["company"] for c in kept] == ["Thrive Global", "Maven Clinic"]
 
 
 def test_discover_calls_openai_with_web_search_and_returns_candidates():

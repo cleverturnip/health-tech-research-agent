@@ -120,31 +120,33 @@ def parse_candidates(text: str) -> tuple[str, list[dict]]:
 
 
 # The prompt ASKS the model not to re-propose researched companies, but it doesn't reliably obey (the live-verify
-# saw it re-propose "Levels"/"Culina Health"). Rule 7: enforce the exclude list DETERMINISTICALLY here, so a dupe
-# can never reach the tray regardless of the model. Matching is name-normalized, tolerant of a trailing generic
-# word ("Levels" ↔ "levels health") — deliberately a touch aggressive: better to drop a name-colliding proposal
-# than to re-surface something already researched.
-_GENERIC_SUFFIX = {"health", "inc", "llc", "co", "corp", "labs", "ai", "app"}
+# saw "Levels"/"Culina Health", and later "Oura Ring" for the stored "oura"). Rule 7: enforce the exclude list
+# DETERMINISTICALLY here so a dupe can never reach the tray. Matching is on the CORE name tokens (generic words
+# like "health"/"inc"/"ring" dropped), and a candidate matches a researched company when one's core tokens are a
+# subset of the other's — so "Oura Ring" ⊇ "oura" and "Levels" ⊆ "levels health" both catch. Deliberately a touch
+# aggressive: better to drop a name-colliding proposal than to re-surface something already researched.
+_GENERIC_TOKENS = {"health", "inc", "llc", "co", "corp", "company", "labs", "lab", "ai",
+                   "app", "the", "io", "ring", "care", "group", "technologies", "tech"}
 
 
-def _name_keys(name: Any) -> set[str]:
-    normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", str(name).lower())).strip()
-    keys = {normalized} if normalized else set()
-    tokens = normalized.split()
-    if len(tokens) > 1 and tokens[-1] in _GENERIC_SUFFIX:
-        keys.add(" ".join(tokens[:-1]))
-    return keys
+def _core_tokens(name: Any) -> frozenset[str]:
+    raw = [tok for tok in re.sub(r"[^a-z0-9]+", " ", str(name).lower()).split() if tok]
+    core = [tok for tok in raw if tok not in _GENERIC_TOKENS]
+    return frozenset(core or raw)   # if a name is ALL generic words, fall back to the raw tokens
+
+
+def _same_company(a: frozenset[str], b: frozenset[str]) -> bool:
+    return bool(a) and bool(b) and (a <= b or b <= a)
 
 
 def drop_researched(candidates: list[dict], entries: list[dict]) -> tuple[list[dict], list[str]]:
     """Split proposed candidates into (kept, dropped_names), dropping any whose name matches a company already in
     the ledger — the deterministic guard behind the prompt's do-not-repeat instruction."""
-    researched: set[str] = set()
-    for entry in entries:
-        researched |= _name_keys(entry.get("company", ""))
+    researched = [t for t in (_core_tokens(e.get("company", "")) for e in entries) if t]
     kept, dropped = [], []
     for candidate in candidates:
-        if _name_keys(candidate.get("company", "")) & researched:
+        tokens = _core_tokens(candidate.get("company", ""))
+        if any(_same_company(tokens, r) for r in researched):
             dropped.append(str(candidate.get("company", "")).strip())
         else:
             kept.append(candidate)
