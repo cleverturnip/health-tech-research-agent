@@ -1797,11 +1797,11 @@ def run_research_batch(
             logger.info("Skipping %s; already complete in checkpoint.", company)
             result.reused.append(company)
             if on_progress is not None:
-                on_progress(company, "reused")
+                on_progress(company, "reused", None)
             continue
 
         if on_progress is not None:
-            on_progress(company, "started")   # BEFORE the minutes-long research, so the progress page names the current company
+            on_progress(company, "started", None)   # BEFORE the minutes-long research, so the progress page names the current company
         try:
             # Funding-ROUNDS recovery (the 4th recovery field): source-directed retries for LATEST-round
             # RECALL (the Sword 2/4 miss) + an observability-only presence check. Built v1.2. The union ->
@@ -1952,7 +1952,7 @@ def run_research_batch(
 
             logger.info("Checkpoint saved after %s.", company)
             if on_progress is not None:
-                on_progress(company, "completed")   # fired AFTER the durable checkpoint write
+                on_progress(company, "completed", None)   # fired AFTER the durable checkpoint write
             sleep_fn(wait_between_searches)  # trailing wait between companies
 
         except (KeyboardInterrupt, SystemExit):
@@ -1964,7 +1964,7 @@ def run_research_batch(
             )
             result.failed[company] = f"{type(exc).__name__}: {exc}"
             if on_progress is not None:
-                on_progress(company, "failed")
+                on_progress(company, "failed", result.failed[company])   # surface WHY, not just that it failed
             continue
 
     return result

@@ -101,6 +101,20 @@ def test_run_batch_no_new_candidates_is_done_immediately(tmp_path):
     assert status["state"] == "done" and status["total"] == 0 and seen == []
 
 
+def test_failure_reason_is_recorded_in_status(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Good Co", "Bad Co"])
+
+    def _rs(companies, on_progress):
+        on_progress("Bad Co", "failed", "APIError: internal_server_error")
+        on_progress("Good Co", "completed")
+        return [_rec("Good Co")], pd.DataFrame([{"company": "Good Co", "funding_finding": "Seed"}])
+
+    status = research.run_batch(src, work_dir=tmp_path / "jobs", research_and_score=_rs, clock=CLOCK)
+    assert status["state"] == "done" and status["failed"] == 1 and status["added"] == 1
+    assert status["failures"] == [{"company": "Bad Co", "reason": "APIError: internal_server_error"}]
+
+
 def test_run_batch_records_failure_and_leaves_ledger_untouched(tmp_path):
     src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
     before = [e["company"] for e in src.read_entries()]

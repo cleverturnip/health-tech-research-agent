@@ -48,6 +48,11 @@ def test_build_run_email_done_and_failed():
     assert fail_subject == "Research run failed"
     assert "RateLimitError: &lt;boom&gt;" in fail_html                # error HTML-escaped
 
+    # a run that finished but with a per-company failure lists it in the completion email
+    _, done_with_fail = email.build_run_email(
+        {"state": "done", "added": 1, "failures": [{"company": "Clair Health", "reason": "APIError: x"}]})
+    assert "Clair Health" in done_with_fail and "auto-retried" in done_with_fail
+
 
 def test_send_run_notification_only_for_terminal_states():
     poster = _Poster(200)

@@ -102,7 +102,7 @@ def run_batch(source, *, work_dir, client=None, batch_id: str | None = None, mod
     companies = [c for c in source.read_candidates() if _norm(c) and _norm(c) not in have]
 
     status = {"batch_id": batch_id, "state": "running", "total": len(companies), "completed": 0,
-              "reused": 0, "failed": 0, "added": 0, "current_company": "", "error": "",
+              "reused": 0, "failed": 0, "added": 0, "current_company": "", "error": "", "failures": [],
               "started_at": clock().isoformat(), "finished_at": ""}
     _write_status(work_dir, status)
 
@@ -111,10 +111,12 @@ def run_batch(source, *, work_dir, client=None, batch_id: str | None = None, mod
         _write_status(work_dir, status)
         return status
 
-    def on_progress(company, kind):
+    def on_progress(company, kind, detail=None):
         current = read_status(work_dir) or status
         if kind in ("completed", "reused", "failed"):
             current[kind] = current.get(kind, 0) + 1
+        if kind == "failed":
+            current.setdefault("failures", []).append({"company": str(company), "reason": str(detail or "")})
         current["current_company"] = str(company)
         _write_status(work_dir, current)
 
@@ -221,6 +223,10 @@ _RESEARCH_CSS = """
 .rcounts{font-size:12px;color:var(--text-secondary);margin-top:12px}
 .rerr{font-size:12.5px;color:#791F1F;margin-top:8px;word-break:break-word}
 .rmuted{font-size:13px;color:var(--text-secondary);line-height:1.5}
+.rfails{margin-top:14px;border-top:1px solid var(--border);padding-top:12px}
+.rfailh{font-size:12.5px;font-weight:600;color:#791F1F;margin-bottom:6px}
+.rfails ul{margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.6}
+.rfails b{color:var(--text-primary)}
 .rbtn{display:inline-block;margin-top:14px;font-size:13px;font-weight:600;background:var(--navy);color:#fff;border:1px solid var(--navy);border-radius:9px;padding:9px 15px;text-decoration:none}
 .rbtns{font:inherit;font-size:12.5px;font-weight:600;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;padding:7px 13px;color:var(--navy);text-decoration:none}
 """
@@ -232,13 +238,14 @@ _RESEARCH_JS = r"""
   function pct(s){return s.total?Math.round(100*((s.completed||0)+(s.reused||0))/s.total):0;}
   function bar(s){return '<div class="rbar"><div class="rfill" style="width:'+pct(s)+'%"></div></div>';}
   function counts(s){return '<div class="rcounts">'+esc(s.completed||0)+' researched · '+esc(s.reused||0)+' reused · '+esc(s.failed||0)+' failed · of '+esc(s.total||0)+'</div>';}
+  function fails(s){if(!s.failures||!s.failures.length)return '';var items=s.failures.map(function(f){return '<li><b>'+esc(f.company)+'</b> — '+esc(f.reason)+'</li>';}).join('');return '<div class="rfails"><div class="rfailh">Didn\'t finish (auto-retried on the next run):</div><ul>'+items+'</ul></div>';}
   function render(s){
     if(!s||!s.state){box.innerHTML='<div class="rmuted">No research run yet. Approve a candidate list at GATE-1 to start one — it runs here automatically.</div>';return;}
     var h='';
     if(s.state==='running'){h+='<div class="rstate run">Researching…</div>'+bar(s)+'<div class="rline">Current: <b>'+esc(s.current_company||'starting…')+'</b></div>';}
     else if(s.state==='done'){h+='<div class="rstate done">Done ✓</div>'+bar(s)+'<div class="rline">Added <b>'+esc(s.added||0)+'</b> newly-scored companies to your ledger.</div><a class="rbtn" href="/review">Review them at GATE-2 →</a>';}
     else if(s.state==='failed'){h+='<div class="rstate fail">Run failed</div>'+bar(s)+'<div class="rerr">'+esc(s.error||'')+'</div><div class="rline">Completed companies are saved; starting a new run re-attempts only what didn’t finish.</div>';}
-    box.innerHTML=h+counts(s);
+    box.innerHTML=h+counts(s)+fails(s);
   }
   var timer;
   function poll(){fetch('/research/status').then(function(r){return r.json();}).then(function(s){render(s);if(s&&(s.state==='done'||s.state==='failed')){clearInterval(timer);}}).catch(function(){});}

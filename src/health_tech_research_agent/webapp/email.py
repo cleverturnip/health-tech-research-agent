@@ -49,6 +49,16 @@ def send_email(*, api_key: str, to: str, subject: str, html: str, from_addr: str
     return True
 
 
+def _failures_html(status: dict) -> str:
+    failures = status.get("failures") or []
+    if not failures:
+        return ""
+    items = "".join(f"<li><b>{_html.escape(str(f.get('company', '')))}</b> — "
+                    f"{_html.escape(str(f.get('reason', '')))}</li>" for f in failures)
+    return ("<p>These didn't finish (they're auto-retried on the next run):</p>"
+            f"<ul>{items}</ul>")
+
+
 def build_run_email(status: dict, base_url: str = "") -> tuple[str, str]:
     """(subject, html) for a finished/failed run."""
     link = (base_url.rstrip("/") + "/research") if base_url else "/research"
@@ -59,7 +69,7 @@ def build_run_email(status: dict, base_url: str = "") -> tuple[str, str]:
         html = (f"<p>Your research run finished. <b>{added}</b> newly-scored "
                 f"{'company is' if added == 1 else 'companies are'} ready for GATE-2 review.</p>"
                 f"<p>{status.get('completed', 0)} researched · {status.get('reused', 0)} reused · "
-                f"{status.get('failed', 0)} failed.</p>{open_link}")
+                f"{status.get('failed', 0)} failed.</p>{_failures_html(status)}{open_link}")
         return subject, html
     subject = "Research run failed"
     html = ("<p>Your research run hit a problem and stopped:</p>"
