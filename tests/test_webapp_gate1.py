@@ -41,3 +41,50 @@ def test_build_system_prompt_fills_all_placeholders():
     assert "USE WEB SEARCH" in prompt                                # locked wording present
     assert "{thesis}" not in prompt and "{roster}" not in prompt     # every placeholder filled
     assert "do NOT propose any of these again" in prompt
+
+
+# --- Step 2: the discovery call ---------------------------------------------
+
+import types  # noqa: E402
+
+
+class _FakeResponses:
+    def __init__(self, text, calls):
+        self._text, self._calls = text, calls
+
+    def create(self, **kwargs):
+        self._calls.append(kwargs)
+        return types.SimpleNamespace(output_text=self._text)
+
+
+class _FakeClient:
+    def __init__(self, text):
+        self.calls = []
+        self.responses = _FakeResponses(text, self.calls)
+
+
+def test_parse_candidates_extracts_block_and_strips_it():
+    text = ('Here are a few ideas!\n\n```candidates\n'
+            '[{"company":"Acme Health","why":"daily engagement","signal":"Series A, $14M"}]\n```')
+    display, cands = gate1.parse_candidates(text)
+    assert display == "Here are a few ideas!"
+    assert cands == [{"company": "Acme Health", "why": "daily engagement", "signal": "Series A, $14M"}]
+
+
+def test_parse_candidates_no_block_and_malformed():
+    assert gate1.parse_candidates("just chatting, no companies yet") == ("just chatting, no companies yet", [])
+    display, cands = gate1.parse_candidates("text\n```candidates\nnot json{{\n```")
+    assert cands == []                                               # malformed -> empty, never raises
+
+
+def test_discover_calls_openai_with_web_search_and_returns_candidates():
+    reply = ('Try these.\n```candidates\n[{"company":"Beta Co","why":"w","signal":"s"}]\n```')
+    client = _FakeClient(reply)
+    out = gate1.discover(client, "SYSTEM PROMPT HERE",
+                         [{"role": "user", "content": "early-stage metabolic health"}])
+    assert out["reply"] == "Try these."
+    assert out["candidates"] == [{"company": "Beta Co", "why": "w", "signal": "s"}]
+    call = client.calls[0]
+    assert call["tools"] == [{"type": "web_search"}]                 # web search enabled
+    assert "SYSTEM PROMPT HERE" in call["instructions"]              # system prompt passed
+    assert call["input"][0]["content"] == "early-stage metabolic health"
