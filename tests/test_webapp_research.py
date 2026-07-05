@@ -92,6 +92,19 @@ def test_run_batch_persists_raw_research_for_new_companies(tmp_path):
     assert research_df is not None and "Brand New A" in list(research_df["company"])
 
 
+def test_research_write_abort_is_a_warning_not_a_batch_failure(tmp_path):
+    # If the research-write guard fires (e.g. a corrupt research.csv), the batch must STILL succeed — the scored
+    # ledger entry is the durable artifact; the abort protects existing research and is surfaced as a warning.
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Brand New A"])
+    src._review_research_path().write_text("not_the_company_column\n1\n", encoding="utf-8")   # corrupt existing
+    status = research.run_batch(src, work_dir=tmp_path / "jobs",
+                                research_and_score=_stub_research_and_score([]), clock=CLOCK)
+    assert status["state"] == "done" and status["added"] == 1        # scored work saved despite the research abort
+    assert "research_write_warning" in status                        # surfaced, not silently lost
+    assert src._review_research_path().read_text().startswith("not_the_company_column")   # corrupt file NOT clobbered
+
+
 def test_write_research_is_write_once(tmp_path):
     src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
     src.write_research(pd.DataFrame([{"company": "NewCo", "funding_finding": "first"}]))

@@ -119,6 +119,35 @@ def read_text_file(session: Any, folder_id: str, name: str) -> str:
 _CANDIDATE_COLUMNS = ("date", "company", "why", "signal")
 
 
+def merge_research_guarded(existing_df, rows, *, had_content: bool):
+    """Merge new research `rows` into `existing_df` write-once (by company), with SAFETY GUARDS that ABORT rather
+    than risk clobbering completed research. Returns (merged_df, n_added). Raises SourceError on a suspect base so
+    the caller (best-effort) leaves the file untouched — better to skip persisting new research than to lose the old.
+
+    - GUARD 1 (abort-on-suspect-read): if the file existed with content but parsed to 0 rows or lost the `company`
+      column, the read is suspect → abort (never overwrite from a bad base).
+    - GUARD 2 (grow-only): never return a result with fewer companies, or that drops any existing company.
+    Existing rows are ALWAYS carried through unchanged; a company already present is NEVER overwritten (write-once).
+    """
+    import pandas as pd
+    if existing_df is None:
+        existing_df = pd.DataFrame(columns=list(rows.columns))
+    if had_content:   # GUARD 1
+        if "company" not in existing_df.columns:
+            raise SourceError("research.csv read is missing the 'company' column — aborting write to protect "
+                              "existing research (suspect read).")
+        if existing_df.empty:
+            raise SourceError("research.csv read returned 0 rows despite existing content — aborting write to "
+                              "protect existing research (suspect read).")
+    have = set(existing_df["company"].astype(str).str.lower()) if "company" in existing_df.columns else set()
+    add = rows[~rows["company"].astype(str).str.lower().isin(have)]
+    merged = pd.concat([existing_df, add], ignore_index=True)
+    merged_companies = set(merged["company"].astype(str).str.lower()) if "company" in merged.columns else set()
+    if len(merged) < len(existing_df) or not have.issubset(merged_companies):   # GUARD 2
+        raise SourceError("refusing to write research.csv — the result would drop existing companies (grow-only).")
+    return merged, len(add)
+
+
 def parse_candidate_companies(text: str) -> list:
     """The distinct company names from a candidates.csv (order-preserving, case-insensitive dedup)."""
     import csv
@@ -324,18 +353,24 @@ class GoogleDashboardSource:
 
     def write_research(self, rows) -> bool:
         """Append the newly-researched companies' RAW research to research.csv on Drive (write-once — existing rows
-        kept), so the GATE-2 review + dashboard can join it. `rows` is a DataFrame in the research checkpoint schema."""
+        kept), so the GATE-2 review + dashboard can join it. `rows` is a DataFrame in the research checkpoint schema.
+        Guarded (`merge_research_guarded`): a suspect/short read or a shrinking merge ABORTS rather than risk
+        clobbering completed research."""
         import io
         import pandas as pd
         name = self.config.research_filename
         existing_text = read_text_file(self._drive_session(), self.config.drive_folder_id, name)
-        existing = (pd.read_csv(io.StringIO(existing_text)).fillna("") if existing_text.strip()
-                    else pd.DataFrame(columns=list(rows.columns)))
-        have = set(existing["company"].astype(str).str.lower()) if "company" in existing.columns else set()
-        add = rows[~rows["company"].astype(str).str.lower().isin(have)]
-        if add.empty:
+        had_content = bool(existing_text.strip())
+        if had_content:
+            try:
+                existing = pd.read_csv(io.StringIO(existing_text)).fillna("")
+            except Exception as exc:   # a read that won't even parse is suspect — never overwrite from it
+                raise SourceError(f"research.csv did not parse — aborting write to protect existing research ({exc}).")
+        else:
+            existing = None
+        merged, n_added = merge_research_guarded(existing, rows, had_content=had_content)
+        if n_added == 0:
             return True   # every researched company already has a research row — nothing to add
-        merged = pd.concat([existing, add], ignore_index=True)
         return write_file_to_folder(self._drive_write_session(), self.config.drive_folder_id, name,
                                     merged.to_csv(index=False).encode("utf-8"))
 

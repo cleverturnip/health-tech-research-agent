@@ -11,11 +11,14 @@ from pathlib import Path
 
 import pytest
 
+import pandas as pd
+
 from health_tech_research_agent.webapp.gsource import (
     GoogleSourceConfig,
     SourceError,
     append_candidates_csv,
     download_data,
+    merge_research_guarded,
     read_text_file,
     write_file_to_folder,
 )
@@ -207,6 +210,35 @@ def test_append_candidates_csv_preserves_prior_batches():
     second = append_candidates_csv(first, [{"company": "Beta", "why": "x", "signal": "y"}], "2026-07-05").decode()
     assert "2026-07-01,Acme,w,s" in second and "2026-07-05,Beta,x,y" in second   # both batches kept
     assert second.count("date,company,why,signal") == 1                          # single header
+
+
+# --- research merge guards (protect completed research from clobber) ---------
+
+def test_merge_research_appends_write_once_and_never_overwrites_existing():
+    existing = pd.DataFrame([{"company": "Acme", "funding_finding": "ORIGINAL"}])
+    rows = pd.DataFrame([{"company": "Acme", "funding_finding": "NEW"},      # already present -> skipped
+                         {"company": "Beta", "funding_finding": "b"}])       # new -> appended
+    merged, n_added = merge_research_guarded(existing, rows, had_content=True)
+    assert n_added == 1 and list(merged["company"]) == ["Acme", "Beta"]
+    assert merged[merged["company"] == "Acme"].iloc[0]["funding_finding"] == "ORIGINAL"   # existing untouched
+
+
+def test_merge_research_aborts_on_empty_read_with_content():
+    rows = pd.DataFrame([{"company": "Acme", "funding_finding": "x"}])
+    with pytest.raises(SourceError, match="0 rows"):   # GUARD 1: content existed but parsed to nothing -> abort
+        merge_research_guarded(pd.DataFrame(columns=["company", "funding_finding"]), rows, had_content=True)
+
+
+def test_merge_research_aborts_on_missing_company_column():
+    rows = pd.DataFrame([{"company": "Acme", "funding_finding": "x"}])
+    with pytest.raises(SourceError, match="company"):   # GUARD 1: lost the company column -> suspect read -> abort
+        merge_research_guarded(pd.DataFrame([{"garbage": "1"}]), rows, had_content=True)
+
+
+def test_merge_research_first_write_with_no_existing_file():
+    rows = pd.DataFrame([{"company": "Acme", "funding_finding": "x"}])
+    merged, n_added = merge_research_guarded(None, rows, had_content=False)   # no prior file -> just write the new
+    assert n_added == 1 and list(merged["company"]) == ["Acme"]
 
 
 # --- fixture review source (writable local copy, for the demo flow) ----------
