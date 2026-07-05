@@ -199,30 +199,24 @@ Discovery / Review Pipeline) across all pages via `webapp/chrome.py`; navy title
 the dashboard; a "Research running…" status strip links to `/research` (which is reached by auto-redirect on approve,
 not a tab). Deploys with the phase.
 
-**⚠️ MUST-FIX BEFORE THE NEXT RESEARCH PASS (2 scoring-pipeline bugs, both highest-stakes → SOT/doc-first + a live
-re-run to verify; agreed 2026-07-05 to deploy first, then fix these before running research again):**
-1. **Non-health company → all-None instead of Tech-Other/B2C + a real background fit.** A non-health-tech company
-   returns `segment=None`, `business_model=None`, `background_fit=None`. **Intent (Katelynd 2026-07-05) — build Bug 1
-   against THIS, not the earlier flawed framing:**
-   - **Gates are health-AGNOSTIC.** PATH-to-scale passes on a strong **B2C direct-revenue** signal OR a strong
-     health-tech **institutional** signal; a non-health company with strong direct revenue (Sandbar has it) must pass.
-   - **Every company gets a FULL score even if it fails the two gates** (path/agency) — the floor caps *priority*
-     (→ P3), not scoring. So `background_fit` must NOT be skipped. *(Open Q to resolve when building: does bg score
-     apply to EVERY company incl. B2B/professional, or consumer only? — the read is currently gated on consumer.)*
-   - **The §B2 business-model classifier is the primary error locus** — it failed to read Sandbar as the obvious
-     **B2C**; because it wasn't "consumer", the bg read was skipped and it fell through. **Localize exactly where/why
-     the classifier read went wrong before changing wording.**
-   - **Segment must route non-health → `OTHER_REVIEW` ("Other")** — the taxonomy is built for this; the fit-brief
-     segment classifier isn't reaching it.
-   - **background_fit is NOT a health-thesis fit** (earlier characterization was WRONG). It scores the **user
-     ENGAGEMENT PATTERN and how tied it is to the REVENUE engine**, health-agnostic: **biometric feedback data loop =
-     top tier; daily habitual engagement tied to revenue = medium–strong; less-frequent engagement = weak.**
-   - **Test case: Sandbar** — smart ring (~$200–300 hardware + subscription, B2C, daily habitual use, NO biometric
-     loop). Expected: `business_model=B2C`, `segment=Other`, **background_fit = MEDIUM** (habitual + tied to
-     subscription revenue, but no biometric loop), `final_priority` floored to **P3**.
-2. **Fit-brief JSON truncation (~one company per run)** — `JSONDecodeError: Unterminated string`; see
-   `fit-brief-json-truncation-known-bug`. Likely fix: retry the fit brief at a higher token budget on a JSON parse
-   failure (mirrors the existing empty-output→bumped-budget retry). Hit Clair Health this run.
+**✅ RESOLVED 2026-07-05 — the two "must-fix" items + a real dashboard bug the batch exposed:**
+1. **NON-ISSUE (a mis-read, not a bug).** The original "non-health → all-None" diagnosis was a FALSE ALARM — I read
+   the WRONG JSON keys (`sb.get("segment")` instead of nested `taxonomy.segment`; a nonexistent `background_fit` key).
+   Sandbar actually classified **correctly**: `taxonomy.segment=OTHER_REVIEW` ("Other"), `business_model=B2C`, PATH gate
+   PASSED on B2C direct revenue (health-agnostic), AGENCY PASSED, `model_priority=P3` (floored). The one real value,
+   `bg_fit=4`, **STANDS** — the read correctly judged Sandbar's engagement as episodic (a conversational voice ring, no
+   daily loop); Katelynd overrides manually if her deep-dive warrants. No code change. *Reference — the engagement-fit
+   rubric (Katelynd 2026-07-05): `background_fit` scores the user ENGAGEMENT PATTERN + how tied it is to the REVENUE
+   engine, health-agnostic — biometric feedback loop = top; daily habitual engagement tied to revenue = medium–strong;
+   infrequent = weak.*
+2. **FIXED — fit-brief JSON truncation (~one/run).** On a parse failure the batch now retries the fit brief ONCE at
+   `FIT_BRIEF_RETRY_TOKENS=12000` (was a fixed 6500); same prompt, never worse. Live-proof on the next run (recurs
+   every run, so we'll know immediately). See `fit-brief-json-truncation-known-bug`.
+3. **FIXED — dashboard 500 on un-reviewed entries.** The runner merges new companies UN-reviewed (pending GATE-2), but
+   `build_dashboard` raised on any un-reviewed entry (§1a) → the live dashboard 500'd right after the batch merged
+   Sandbar. Now `build_dashboard(skip_unreviewed=True)` (webapp) shows REVIEWED companies + excludes pending ones (they
+   appear once finalized at GATE-2); the Colab-regen flow keeps the raise-guard by default. The dashboard now survives
+   every research batch.
 
 **NEXT (after the runner): pipeline design items** — batch storage / the paste-one-corrected-fact re-score path
 (Carry-forward notes; doc-first). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
