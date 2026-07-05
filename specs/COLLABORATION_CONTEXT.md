@@ -201,14 +201,25 @@ not a tab). Deploys with the phase.
 
 **⚠️ MUST-FIX BEFORE THE NEXT RESEARCH PASS (2 scoring-pipeline bugs, both highest-stakes → SOT/doc-first + a live
 re-run to verify; agreed 2026-07-05 to deploy first, then fix these before running research again):**
-1. **Non-health company → all-None instead of Tech-Other/B2C + a real background fit.** A non-health-tech company that
-   should route to the `OTHER_REVIEW` ("Other") catch-all returns `segment=None`, `business_model=None`,
-   `background_fit=None` (a health-eligibility gate appears to short-circuit it — the business-model prompt opens "You
-   classify a HEALTH company…"). The taxonomy catch-all IS set up correctly; the classifiers/eligibility logic don't
-   reach it. **Test case: Sandbar** — a smart ring (like Oura: ~$200–300 hardware + subscription, B2C, habitual daily
-   use, but NO biometric feedback loop → should score B2C / Tech-Other with a background fit LOWER than Oura, not None).
-   Expected: `business_model=B2C`, `segment=Other (Tech-Other)`, a real-but-lower bg fit. Fix = eligibility/classifier
-   prompt + mapping so non-health routes to the catch-all WITH a classification.
+1. **Non-health company → all-None instead of Tech-Other/B2C + a real background fit.** A non-health-tech company
+   returns `segment=None`, `business_model=None`, `background_fit=None`. **Intent (Katelynd 2026-07-05) — build Bug 1
+   against THIS, not the earlier flawed framing:**
+   - **Gates are health-AGNOSTIC.** PATH-to-scale passes on a strong **B2C direct-revenue** signal OR a strong
+     health-tech **institutional** signal; a non-health company with strong direct revenue (Sandbar has it) must pass.
+   - **Every company gets a FULL score even if it fails the two gates** (path/agency) — the floor caps *priority*
+     (→ P3), not scoring. So `background_fit` must NOT be skipped. *(Open Q to resolve when building: does bg score
+     apply to EVERY company incl. B2B/professional, or consumer only? — the read is currently gated on consumer.)*
+   - **The §B2 business-model classifier is the primary error locus** — it failed to read Sandbar as the obvious
+     **B2C**; because it wasn't "consumer", the bg read was skipped and it fell through. **Localize exactly where/why
+     the classifier read went wrong before changing wording.**
+   - **Segment must route non-health → `OTHER_REVIEW` ("Other")** — the taxonomy is built for this; the fit-brief
+     segment classifier isn't reaching it.
+   - **background_fit is NOT a health-thesis fit** (earlier characterization was WRONG). It scores the **user
+     ENGAGEMENT PATTERN and how tied it is to the REVENUE engine**, health-agnostic: **biometric feedback data loop =
+     top tier; daily habitual engagement tied to revenue = medium–strong; less-frequent engagement = weak.**
+   - **Test case: Sandbar** — smart ring (~$200–300 hardware + subscription, B2C, daily habitual use, NO biometric
+     loop). Expected: `business_model=B2C`, `segment=Other`, **background_fit = MEDIUM** (habitual + tied to
+     subscription revenue, but no biometric loop), `final_priority` floored to **P3**.
 2. **Fit-brief JSON truncation (~one company per run)** — `JSONDecodeError: Unterminated string`; see
    `fit-brief-json-truncation-known-bug`. Likely fix: retry the fit brief at a higher token budget on a JSON parse
    failure (mirrors the existing empty-output→bumped-budget retry). Hit Clair Health this run.
