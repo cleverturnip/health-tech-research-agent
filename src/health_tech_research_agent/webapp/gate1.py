@@ -10,11 +10,12 @@ deterministic §B scoring happens downstream (research).
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from typing import Any
 
-from .. import dashboard, ledger
+from .. import dashboard, dashboard_html, ledger
 
 DEFAULT_MODEL = "gpt-5.4-mini"  # matches the research pipeline (research_runner.DEFAULT_MODEL)
 
@@ -131,3 +132,123 @@ def discover(client: Any, system_prompt: str, conversation: list[dict], *, model
     response = client.responses.create(**kwargs)
     reply, candidates = parse_candidates(getattr(response, "output_text", "") or "")
     return {"reply": reply, "candidates": candidates}
+
+
+# ---------------------------------------------------------------------------
+# The /discover UI (Step 3) — thesis editor + grounded chat + candidate tray + approve.
+# The chat is client-managed (the browser keeps the running conversation and posts it back each turn); the
+# server rebuilds the grounded system prompt fresh every turn, so edits to the thesis/ledger take effect live.
+# ---------------------------------------------------------------------------
+
+_DISCOVER_CSS = """
+.dsctop{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.dsccol{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start}
+@media(max-width:900px){.dsccol{grid-template-columns:1fr}}
+.card{background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+.card+.card{margin-top:16px}
+.card .dh{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.card .dsub{font-size:12px;color:var(--text-secondary);margin-bottom:12px}
+.thesisbox{font:inherit;font-size:13px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:9px;width:100%;min-height:120px;resize:vertical;box-sizing:border-box;line-height:1.55}
+.chatlog{border:1px solid var(--border);border-radius:11px;background:var(--surface-1);padding:14px;height:46vh;min-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:82%;font-size:13px;line-height:1.55;padding:9px 13px;border-radius:13px;white-space:normal;word-wrap:break-word}
+.msg.user{align-self:flex-end;background:var(--navy);color:#fff;border-bottom-right-radius:4px}
+.msg.assistant{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);border-bottom-left-radius:4px}
+.msg .err{color:#791F1F;font-weight:600}
+.chatrow{display:flex;gap:8px;margin-top:12px}
+.chatrow textarea{flex:1;font:inherit;font-size:13px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:9px;resize:none;min-height:44px;max-height:140px;box-sizing:border-box;line-height:1.5}
+.tray{display:flex;flex-direction:column;gap:9px;max-height:52vh;overflow-y:auto}
+.traempty{font-size:12px;color:var(--text-secondary);line-height:1.5}
+.cand{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:11px;padding:10px 12px;background:var(--surface-1);cursor:pointer;position:relative}
+.cand input{margin-top:2px}
+.cand .cn{font-size:13px;font-weight:700;color:var(--navy)}
+.cand .cw{font-size:12px;color:var(--text-primary);margin-top:2px;line-height:1.45}
+.cand .cs{font-size:11.5px;color:var(--text-secondary);margin-top:3px}
+.candx{position:absolute;top:6px;right:8px;border:none;background:none;font-size:16px;line-height:1;color:var(--text-muted);cursor:pointer}
+.candx:hover{color:#791F1F}
+#approvemsg{font-size:12.5px;color:#1E7A3E;font-weight:600;margin-top:10px;line-height:1.5}
+.btnp{font:inherit;font-size:13px;font-weight:600;border-radius:9px;padding:9px 15px;cursor:pointer;border:1px solid var(--navy);background:var(--navy);color:#fff}
+.btnp[disabled]{opacity:.45;cursor:not-allowed}
+.btns{font:inherit;font-size:13px;font-weight:600;border-radius:9px;padding:9px 15px;cursor:pointer;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--navy)}
+"""
+
+# Static (NON-f-string) client logic — keeps the running conversation, renders replies, accumulates the proposed
+# candidates into the tray (dedup by name, deselect/remove before approving), and posts the approved set.
+_DISCOVER_JS = r"""
+(function(){
+  var conversation=[], candidates={};
+  var chat=document.getElementById('chat'), input=document.getElementById('msg'), sendBtn=document.getElementById('send');
+  var tray=document.getElementById('tray'), approveBtn=document.getElementById('approve'), approvemsg=document.getElementById('approvemsg');
+  function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':s);return d.innerHTML;}
+  function addMsg(role,text){var el=document.createElement('div');el.className='msg '+role;el.innerHTML=esc(text).replace(/\n/g,'<br>');chat.appendChild(el);chat.scrollTop=chat.scrollHeight;return el;}
+  function renderTray(){
+    var keys=Object.keys(candidates);approveBtn.disabled=keys.length===0;
+    if(!keys.length){tray.innerHTML='<div class="traempty">No candidates yet — describe your target market and the assistant will propose real companies here. You can drop any before approving.</div>';return;}
+    tray.innerHTML='';
+    keys.forEach(function(k){var c=candidates[k];var row=document.createElement('label');row.className='cand';
+      row.innerHTML='<input type="checkbox" checked data-k="'+esc(k)+'"><div><div class="cn">'+esc(c.company)+'</div><div class="cw">'+esc(c.why)+'</div><div class="cs">'+esc(c.signal)+'</div></div><button type="button" class="candx" data-k="'+esc(k)+'" title="Remove">&times;</button>';
+      tray.appendChild(row);});
+    tray.querySelectorAll('.candx').forEach(function(b){b.addEventListener('click',function(ev){ev.preventDefault();delete candidates[b.getAttribute('data-k')];renderTray();});});
+  }
+  function addCandidates(list){(list||[]).forEach(function(c){if(c&&c.company){candidates[c.company.toLowerCase()]=c;}});renderTray();}
+  function send(){
+    var text=input.value.trim();if(!text)return;
+    addMsg('user',text);conversation.push({role:'user',content:text});input.value='';
+    input.disabled=true;sendBtn.disabled=true;var thinking=addMsg('assistant','…');
+    fetch('/discover/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation:conversation})})
+      .then(function(r){if(!r.ok)throw 0;return r.json();})
+      .then(function(d){thinking.innerHTML=esc(d.reply).replace(/\n/g,'<br>');conversation.push({role:'assistant',content:d.reply});addCandidates(d.candidates);})
+      .catch(function(){thinking.innerHTML='<span class="err">Could not reach the assistant. Check the app has an OpenAI key, then try again.</span>';})
+      .then(function(){input.disabled=false;sendBtn.disabled=false;input.focus();});
+  }
+  sendBtn.addEventListener('click',send);
+  input.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  approveBtn.addEventListener('click',function(){
+    var chosen=[];tray.querySelectorAll('input[type=checkbox]').forEach(function(cb){if(cb.checked){chosen.push(candidates[cb.getAttribute('data-k')]);}});
+    if(!chosen.length){alert('Select at least one candidate to approve.');return;}
+    if(!confirm('Approve '+chosen.length+' candidate(s)? This saves the research candidate list to your Drive.'))return;
+    approveBtn.disabled=true;
+    fetch('/discover/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({candidates:chosen})})
+      .then(function(r){if(!r.ok)throw 0;return r.json();})
+      .then(function(d){approvemsg.innerHTML='Saved <b>'+esc(d.count)+'</b> candidate(s) to <b>'+esc(d.filename)+'</b> in your Drive. Research runs on the approved list next.';})
+      .catch(function(){approveBtn.disabled=false;alert('Could not save the candidate list — does the app have edit access to your Drive folder?');});
+  });
+  renderTray();
+})();
+"""
+
+
+def render_page(thesis: str, *, roster_count: int) -> str:
+    """The GATE-1 discovery page: a saveable thesis, the grounded chat, and the candidate tray + approve."""
+    thesis_val = html.escape(thesis or "")
+    grounded = (f'grounded on your saved thesis and all {roster_count} scored companies'
+                if roster_count else 'grounded on your saved thesis')
+    crumb = ('<div class="dsctop"><div class="apptitle" style="color:var(--navy)">GATE-1 Discovery</div>'
+             '<div><a class="btns" style="text-decoration:none" href="/">&larr; Dashboard</a></div></div>')
+    thesis_card = (
+        '<form method="post" action="/discover/thesis" class="card">'
+        '<div class="dh">Your target market (thesis)</div>'
+        '<div class="dsub">The baseline the assistant reads every turn — who you are and what you\'re looking for. '
+        'Refine it any time; saving updates the grounding.</div>'
+        f'<textarea class="thesisbox" name="thesis" placeholder="Describe the kind of company and role you\'re looking for…">{thesis_val}</textarea>'
+        '<div style="margin-top:10px"><button type="submit" class="btns">Save thesis</button></div></form>')
+    chat_card = (
+        '<div class="card"><div class="dh">Discover candidates</div>'
+        f'<div class="dsub">Chat with the assistant ({grounded}). It proposes real, web-verified companies '
+        'you haven\'t researched yet; they collect in the tray to the right. Approving is a separate step.</div>'
+        '<div id="chat" class="chatlog"><div class="msg assistant">Tell me about the kind of health-tech company '
+        'you want to research next — the space, stage, or anything specific. I\'ll suggest real companies that fit '
+        'your thesis and aren\'t already on your list.</div></div>'
+        '<div class="chatrow"><textarea id="msg" rows="1" placeholder="Describe your target market… (Enter to send)"></textarea>'
+        '<button type="button" id="send" class="btnp">Send</button></div></div>')
+    tray_card = (
+        '<div class="card"><div class="dh">Candidate list</div>'
+        '<div class="dsub">Proposed companies collect here. Uncheck or remove any, then approve.</div>'
+        '<div id="tray" class="tray"></div>'
+        '<div style="margin-top:14px"><button type="button" id="approve" class="btnp" disabled>'
+        'Approve candidate list &rarr;</button><div id="approvemsg"></div></div></div>')
+    body = crumb + thesis_card + f'<div class="dsccol">{chat_card}{tray_card}</div>'
+    return (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1"><title>GATE-1 Discovery</title>'
+        f'<style>{dashboard_html._CSS}{_DISCOVER_CSS}</style></head><body><div class="wrap">{body}</div>'
+        f'<script>{_DISCOVER_JS}</script></body></html>')

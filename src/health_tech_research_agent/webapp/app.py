@@ -18,6 +18,9 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 
+from datetime import date
+
+from . import gate1 as gate1_mod
 from . import review as review_mod
 from .config import WebConfig
 from .security import verify_password
@@ -29,6 +32,14 @@ _SESSION_KEY = "authed"
 class PursueIn(BaseModel):
     company: str
     pursue: bool
+
+
+class DiscoverMessageIn(BaseModel):
+    conversation: list[dict]
+
+
+class DiscoverApproveIn(BaseModel):
+    candidates: list[dict]
 
 
 # Enables the (otherwise read-only) pursue checkboxes and wires each to POST /pursue → reload so the Pursuit tab
@@ -60,6 +71,7 @@ _CONTROLS = (
     '<form method="post" action="/refresh" style="margin:0" '
     'onsubmit="document.getElementById(\'htra-ov\').style.display=\'flex\'">'
     f'<button type="submit" style="{_BTN_PRIMARY}">&#8635; Refresh</button></form>'
+    f'<a href="/discover" style="{_BTN};text-decoration:none;display:inline-block">GATE-1 Discovery</a>'
     f'<a href="/review" style="{_BTN};text-decoration:none;display:inline-block">GATE-2 Review</a>'
     f'<form method="post" action="/logout" style="margin:0"><button type="submit" style="{_BTN}">'
     'Log out</button></form></div>'
@@ -209,5 +221,63 @@ def create_app(config: WebConfig, source: DashboardSource) -> FastAPI:
         if not source.write_entries(finalized):
             return HTMLResponse("Save failed read-back validation — finalize NOT saved.", status_code=500)
         return RedirectResponse("/", status_code=HTTP_303_SEE_OTHER)
+
+    # --- GATE-1 discovery (Phase 3) — grounded, conversational candidate discovery; approve writes candidates.csv ---
+    def _discover_ok() -> bool:
+        return all(hasattr(source, m) for m in ("read_entries", "read_thesis", "write_thesis",
+                                                "write_candidates", "openai_client"))
+
+    @app.get("/discover", response_class=HTMLResponse)
+    def discover_page(request: Request):
+        if not _authed(request):
+            return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        if not _discover_ok():
+            return HTMLResponse("Discovery is not available for this data source.", status_code=400)
+        entries = source.read_entries()
+        return HTMLResponse(gate1_mod.render_page(source.read_thesis(), roster_count=len(entries)))
+
+    @app.post("/discover/thesis")
+    def discover_thesis(request: Request, thesis: str = Form(default="")):
+        if not _authed(request):
+            return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        if not _discover_ok() or not source.write_thesis(thesis):
+            return HTMLResponse("Thesis save failed — not saved.", status_code=500)
+        return RedirectResponse("/discover", status_code=HTTP_303_SEE_OTHER)
+
+    @app.post("/discover/message")
+    def discover_message(request: Request, body: DiscoverMessageIn):
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=HTTP_401_UNAUTHORIZED)
+        if not _discover_ok():
+            return JSONResponse({"error": "discovery not available for this source"}, status_code=400)
+        conversation = [{"role": "assistant" if t.get("role") == "assistant" else "user",
+                         "content": str(t.get("content", ""))}
+                        for t in body.conversation if str(t.get("content", "")).strip()][-40:]
+        if not conversation:
+            return JSONResponse({"error": "empty conversation"}, status_code=400)
+        prompt = gate1_mod.build_system_prompt(source.read_entries(), source.read_thesis(),
+                                               taxonomy_dir=getattr(source, "taxonomy_dir", None))
+        try:
+            out = gate1_mod.discover(source.openai_client(), prompt, conversation)
+        except Exception:  # OpenAI/network failure — surface a retryable error, never 500-crash the chat
+            return JSONResponse({"error": "assistant call failed"}, status_code=502)
+        return JSONResponse(out)
+
+    @app.post("/discover/approve")
+    def discover_approve(request: Request, body: DiscoverApproveIn):
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=HTTP_401_UNAUTHORIZED)
+        if not _discover_ok():
+            return JSONResponse({"error": "discovery not available for this source"}, status_code=400)
+        rows = [{"company": str(c.get("company", "")).strip(), "why": str(c.get("why", "")).strip(),
+                 "signal": str(c.get("signal", "")).strip()}
+                for c in body.candidates if str(c.get("company", "")).strip()]
+        if not rows:
+            return JSONResponse({"error": "no candidates"}, status_code=400)
+        try:
+            filename = source.write_candidates(rows, date_str=date.today().isoformat())
+        except Exception:
+            return JSONResponse({"error": "save failed read-back validation"}, status_code=500)
+        return JSONResponse({"ok": True, "filename": filename, "count": len(rows)})
 
     return app
