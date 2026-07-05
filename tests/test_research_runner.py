@@ -480,6 +480,13 @@ def test_run_company_fit_brief_loads_taxonomy_when_block_not_supplied(monkeypatc
     assert "LOADED-TAX-BLOCK" in client.calls[0]["input"]
 
 
+def test_run_company_fit_brief_accepts_custom_token_budget():
+    client = ScriptedClient(['{"ok": 1}'])
+    rr.run_company_fit_brief("Acme", "f", client=client, taxonomy_prompt_block="B",
+                             max_output_tokens=rr.FIT_BRIEF_RETRY_TOKENS)
+    assert client.calls[0]["max_output_tokens"] == rr.FIT_BRIEF_RETRY_TOKENS   # bug-2 retry budget passes through
+
+
 # ---------------------------------------------------------------------------
 # Taxonomy wrapper — real block on success, faithful fallback on failure
 # ---------------------------------------------------------------------------
@@ -577,6 +584,52 @@ def _seed_complete_checkpoint(path, company):
 
 def _noop_sleep(_seconds):
     return None
+
+
+def _fitbrief_budgets(client):
+    """The max_output_tokens of each fit-brief call (excludes web searches + the presence check)."""
+    return [c.get("max_output_tokens") for c in client.calls
+            if "tools" not in c and "PRESENT or ABSENT" not in c["input"]]
+
+
+class _RetryFitBriefClient(BatchClient):
+    """Fit brief truncates (unparseable) at the default budget, then parses at the retry budget (bug-2)."""
+
+    def create(self, **kwargs):
+        prompt = kwargs["input"]
+        is_fitbrief = "tools" not in kwargs and "PRESENT or ABSENT" not in prompt
+        if is_fitbrief:
+            self.calls.append(kwargs)
+            if kwargs.get("max_output_tokens") == rr.DEFAULT_FIT_BRIEF_TOKENS:
+                return FakeResponse('{"company": "x", "note": "unterminated')       # truncated JSON
+            return FakeResponse('{"company": "x", "priority_level": "P2"}')          # retry parses
+        return super().create(**kwargs)
+
+
+class _AlwaysTruncateFitBriefClient(BatchClient):
+    """Fit brief truncates on BOTH the first attempt and the retry → company still fails (never worse)."""
+
+    def create(self, **kwargs):
+        if "tools" not in kwargs and "PRESENT or ABSENT" not in kwargs["input"]:
+            self.calls.append(kwargs)
+            return FakeResponse('{"company": "x", "note": "unterminated')
+        return super().create(**kwargs)
+
+
+def test_fit_brief_retries_at_higher_budget_and_succeeds(tmp_path):
+    ckpt = tmp_path / "c.csv"
+    client = _RetryFitBriefClient(companies=["Acme"])
+    result = run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+    assert result.completed == ["Acme"] and result.failed == {}              # rescued by the retry
+    assert _fitbrief_budgets(client) == [rr.DEFAULT_FIT_BRIEF_TOKENS, rr.FIT_BRIEF_RETRY_TOKENS]
+    assert '"priority_level": "P2"' in pd.read_csv(ckpt).iloc[0]["fit_brief_json"]   # the RETRY brief is stored
+
+
+def test_fit_brief_still_truncated_after_retry_fails_company(tmp_path):
+    client = _AlwaysTruncateFitBriefClient(companies=["Acme"])
+    result = run_research_batch(["Acme"], client=client, checkpoint_path=tmp_path / "c.csv", sleep_fn=_noop_sleep)
+    assert result.completed == [] and "Acme" in result.failed                # never worse than today
+    assert _fitbrief_budgets(client) == [rr.DEFAULT_FIT_BRIEF_TOKENS, rr.FIT_BRIEF_RETRY_TOKENS]  # tried both
 
 
 # --- primary recovery proof: A succeeds, B fails -> loop continues -----------

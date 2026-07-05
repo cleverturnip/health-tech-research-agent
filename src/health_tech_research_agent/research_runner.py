@@ -55,6 +55,11 @@ logger = logging.getLogger(__name__)
 # Faithful defaults copied from notebook STEP 2.
 DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_MAX_RETRIES = 3
+# Fit-brief synthesis (STEP 5) token budgets. First attempt is the faithful notebook 6500; on a JSON parse
+# failure (the model + its reasoning tokens truncated the brief mid-string) the batch retries ONCE at a higher
+# budget before failing the company. Bug-2 fix approved 2026-07-05; raise FIT_BRIEF_RETRY_TOKENS if it recurs.
+DEFAULT_FIT_BRIEF_TOKENS = 6500
+FIT_BRIEF_RETRY_TOKENS = 12000
 DEFAULT_WAIT_BETWEEN_SEARCHES = 120  # seconds
 # Inter-pass wait for search_with_recovery's N passes. NON-ZERO by design: the
 # mechanism exploits web-search execution variance, so rapid-fire identical queries
@@ -1422,13 +1427,15 @@ def run_company_fit_brief(
     model: str = DEFAULT_MODEL,
     taxonomy_dir=None,
     taxonomy_prompt_block: str | None = None,
+    max_output_tokens: int = DEFAULT_FIT_BRIEF_TOKENS,
 ) -> str:
     """Run the company fit-brief synthesis (faithful port of notebook STEP 5).
 
     Loads the taxonomy block (unless one is supplied), builds the prompt via
-    ``build_fit_brief_prompt``, and calls the model with web search OFF and
-    ``max_output_tokens=6500`` — exactly as the notebook did. Returns the raw
-    model text (expected to be JSON); parsing happens downstream, unchanged.
+    ``build_fit_brief_prompt``, and calls the model with web search OFF. The prompt
+    is byte-identical to the notebook; only ``max_output_tokens`` is now a parameter
+    (default 6500 = notebook) so the batch can RETRY at a higher budget when the
+    brief truncates and won't parse. Returns the raw model text (expected JSON).
     """
     if taxonomy_prompt_block is None:
         taxonomy_prompt_block = load_taxonomy_prompt_block_for_fit_brief(taxonomy_dir)
@@ -1442,7 +1449,7 @@ def run_company_fit_brief(
         client=client,
         model=model,
         use_web_search=False,
-        max_output_tokens=6500,
+        max_output_tokens=max_output_tokens,
     )
 
 
@@ -1918,9 +1925,19 @@ def run_research_batch(
             )
 
             if validate_json:
-                # Reuse the package's existing parser; it RAISES on unparseable
-                # output, which the per-company handler records as a failure.
-                parse_first_json_object(fit_brief)
+                # Reuse the package's existing parser; it RAISES on unparseable output. Bug-2: a truncated brief
+                # (unterminated string) gets ONE retry at a higher token budget before the per-company handler
+                # records a failure — same fit-brief prompt, only more room for the model's reasoning + JSON.
+                try:
+                    parse_first_json_object(fit_brief)
+                except ValueError:
+                    logger.warning(
+                        "Fit brief for %s did not parse (likely truncation); retrying at budget %s.",
+                        company, FIT_BRIEF_RETRY_TOKENS)
+                    fit_brief = run_company_fit_brief(
+                        company, latest_status_findings, client=client, model=model,
+                        taxonomy_dir=taxonomy_dir, max_output_tokens=FIT_BRIEF_RETRY_TOKENS)
+                    parse_first_json_object(fit_brief)   # still unparseable → per-company failure (as before)
 
             new_record = {
                 "company": company,
