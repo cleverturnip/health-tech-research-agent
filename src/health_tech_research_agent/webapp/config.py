@@ -22,6 +22,11 @@ class WebConfig:
     # Where research-job state (checkpoint / manifest / status) lives — MUST be on the Render persistent disk in
     # prod (HTRA_JOBS_DIR) so a run survives a restart and auto-resumes. Local default is a working dir.
     jobs_dir: str = "/tmp/htra_jobs"
+    # Email notification on a finished/failed research run (Resend). All optional — if unset, email is skipped.
+    resend_api_key: str = ""     # RESEND_API_KEY (Render secret)
+    notify_email: str = ""       # HTRA_NOTIFY_EMAIL — where run notifications go
+    resend_from: str = "onboarding@resend.dev"   # HTRA_RESEND_FROM — Resend shared sender by default
+    base_url: str = ""           # HTRA_BASE_URL — public URL, for the link in the email
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "WebConfig":
@@ -38,4 +43,8 @@ class WebConfig:
         secure = str(env.get("HTRA_SECURE_COOKIE", "")).strip().lower() in {"1", "true", "yes"}
         return cls(session_secret=secret, password_hash=password_hash, secure_cookie=secure,
                    title=env.get("HTRA_APP_TITLE", DEFAULT_TITLE),
-                   jobs_dir=env.get("HTRA_JOBS_DIR", "/tmp/htra_jobs"))
+                   jobs_dir=env.get("HTRA_JOBS_DIR", "/tmp/htra_jobs"),
+                   resend_api_key=env.get("RESEND_API_KEY", ""),
+                   notify_email=env.get("HTRA_NOTIFY_EMAIL", ""),
+                   resend_from=env.get("HTRA_RESEND_FROM", "onboarding@resend.dev"),
+                   base_url=env.get("HTRA_BASE_URL", ""))

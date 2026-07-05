@@ -38,7 +38,14 @@ app = create_app(_config, _source)
 
 # Startup auto-resume (Rule 4): if a research run was mid-flight when the process died/restarted, relaunch it —
 # it resumes from the checkpoint (completed companies are reused, not re-researched). No-op if nothing was running.
+from . import email as _email  # noqa: E402
 from . import research as _research  # noqa: E402
 
+
+def _resume_notify(status):
+    _email.send_run_notification(status, api_key=_config.resend_api_key, to=_config.notify_email,
+                                 from_addr=_config.resend_from, base_url=_config.base_url)
+
+
 _research.resume_if_running(_source, work_dir=_config.jobs_dir, client_factory=_source.openai_client,
-                            taxonomy_dir=getattr(_source, "taxonomy_dir", None))
+                            taxonomy_dir=getattr(_source, "taxonomy_dir", None), on_finish=_resume_notify)

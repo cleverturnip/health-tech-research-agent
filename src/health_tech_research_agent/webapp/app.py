@@ -21,6 +21,7 @@ from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 from datetime import date
 from typing import Callable
 
+from . import email as email_mod
 from . import gate1 as gate1_mod
 from . import research as research_mod
 from . import review as review_mod
@@ -117,9 +118,14 @@ def create_app(config: WebConfig, source: DashboardSource,
     app = FastAPI(title=config.title)
     jobs_dir = config.jobs_dir
 
+    def _notify(status):
+        email_mod.send_run_notification(
+            status, api_key=config.resend_api_key, to=config.notify_email,
+            from_addr=config.resend_from, base_url=config.base_url)
+
     def _default_start_research():
         return research_mod.start_run(source, work_dir=jobs_dir, client_factory=source.openai_client,
-                                      taxonomy_dir=getattr(source, "taxonomy_dir", None))
+                                      taxonomy_dir=getattr(source, "taxonomy_dir", None), on_finish=_notify)
 
     _start_research = start_research or _default_start_research
     app.add_middleware(
