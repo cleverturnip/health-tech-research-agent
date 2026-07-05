@@ -199,6 +199,20 @@ Discovery / Review Pipeline) across all pages via `webapp/chrome.py`; navy title
 the dashboard; a "Research running…" status strip links to `/research` (which is reached by auto-redirect on approve,
 not a tab). Deploys with the phase.
 
+**⚠️ MUST-FIX BEFORE THE NEXT RESEARCH PASS (2 scoring-pipeline bugs, both highest-stakes → SOT/doc-first + a live
+re-run to verify; agreed 2026-07-05 to deploy first, then fix these before running research again):**
+1. **Non-health company → all-None instead of Tech-Other/B2C + a real background fit.** A non-health-tech company that
+   should route to the `OTHER_REVIEW` ("Other") catch-all returns `segment=None`, `business_model=None`,
+   `background_fit=None` (a health-eligibility gate appears to short-circuit it — the business-model prompt opens "You
+   classify a HEALTH company…"). The taxonomy catch-all IS set up correctly; the classifiers/eligibility logic don't
+   reach it. **Test case: Sandbar** — a smart ring (like Oura: ~$200–300 hardware + subscription, B2C, habitual daily
+   use, but NO biometric feedback loop → should score B2C / Tech-Other with a background fit LOWER than Oura, not None).
+   Expected: `business_model=B2C`, `segment=Other (Tech-Other)`, a real-but-lower bg fit. Fix = eligibility/classifier
+   prompt + mapping so non-health routes to the catch-all WITH a classification.
+2. **Fit-brief JSON truncation (~one company per run)** — `JSONDecodeError: Unterminated string`; see
+   `fit-brief-json-truncation-known-bug`. Likely fix: retry the fit brief at a higher token budget on a JSON parse
+   failure (mirrors the existing empty-output→bumped-budget retry). Hit Clair Health this run.
+
 **NEXT (after the runner): pipeline design items** — batch storage / the paste-one-corrected-fact re-score path
 (Carry-forward notes; doc-first). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
