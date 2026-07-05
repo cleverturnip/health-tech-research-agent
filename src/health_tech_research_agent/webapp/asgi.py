@@ -32,4 +32,13 @@ def build_source(env: dict | None = None) -> DashboardSource:
     return FixtureDashboardSource(_FIXTURE)
 
 
-app = create_app(WebConfig.from_env(), build_source())
+_config = WebConfig.from_env()
+_source = build_source()
+app = create_app(_config, _source)
+
+# Startup auto-resume (Rule 4): if a research run was mid-flight when the process died/restarted, relaunch it —
+# it resumes from the checkpoint (completed companies are reused, not re-researched). No-op if nothing was running.
+from . import research as _research  # noqa: E402
+
+_research.resume_if_running(_source, work_dir=_config.jobs_dir, client_factory=_source.openai_client,
+                            taxonomy_dir=getattr(_source, "taxonomy_dir", None))

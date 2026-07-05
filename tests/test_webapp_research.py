@@ -108,3 +108,46 @@ def test_run_batch_all_failed_roster_is_a_failure(tmp_path):
 
     status = research.run_batch(src, work_dir=tmp_path / "jobs", research_and_score=_empty, clock=CLOCK)
     assert status["state"] == "failed" and "nothing to score" in status["error"]
+
+
+# --- background launch + startup auto-resume ---------------------------------
+
+def test_start_run_completes_in_background(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Brand New A"])
+    jobs, seen = tmp_path / "jobs", []
+    thread = research.start_run(src, work_dir=jobs, client_factory=lambda: None,
+                                research_and_score=_stub_research_and_score(seen))
+    assert thread is not None
+    thread.join(timeout=10)
+    assert research.read_status(jobs)["state"] == "done" and seen == ["Brand New A"]
+
+
+def test_start_run_blocked_when_already_running(tmp_path):
+    jobs = tmp_path / "jobs"
+    research._write_status(jobs, {"state": "running", "batch_id": "x"})   # a run is active
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    thread = research.start_run(src, work_dir=jobs, client_factory=lambda: None,
+                                research_and_score=_stub_research_and_score([]))
+    assert thread is None                                                 # one run at a time
+
+
+def test_resume_if_running_relaunches_interrupted_batch(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Brand New A"])
+    jobs = tmp_path / "jobs"
+    research._write_status(jobs, {"state": "running", "batch_id": "batch_interrupted", "total": 1,
+                                  "completed": 0, "reused": 0, "failed": 0, "added": 0,
+                                  "current_company": "", "error": "", "started_at": "", "finished_at": ""})
+    thread = research.resume_if_running(src, work_dir=jobs, client_factory=lambda: None,
+                                        research_and_score=_stub_research_and_score([]))
+    assert thread is not None
+    thread.join(timeout=10)
+    assert research.read_status(jobs)["state"] == "done"
+
+
+def test_resume_is_noop_when_not_running(tmp_path):
+    jobs = tmp_path / "jobs"
+    research._write_status(jobs, {"state": "done"})
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    assert research.resume_if_running(src, work_dir=jobs, client_factory=lambda: None) is None

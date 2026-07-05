@@ -19,8 +19,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 
 from datetime import date
+from typing import Callable
 
 from . import gate1 as gate1_mod
+from . import research as research_mod
 from . import review as review_mod
 from .config import WebConfig
 from .security import verify_password
@@ -72,6 +74,7 @@ _CONTROLS = (
     'onsubmit="document.getElementById(\'htra-ov\').style.display=\'flex\'">'
     f'<button type="submit" style="{_BTN_PRIMARY}">&#8635; Refresh</button></form>'
     f'<a href="/discover" style="{_BTN};text-decoration:none;display:inline-block">GATE-1 Discovery</a>'
+    f'<a href="/research" style="{_BTN};text-decoration:none;display:inline-block">Research run</a>'
     f'<a href="/review" style="{_BTN};text-decoration:none;display:inline-block">GATE-2 Review</a>'
     f'<form method="post" action="/logout" style="margin:0"><button type="submit" style="{_BTN}">'
     'Log out</button></form></div>'
@@ -109,8 +112,16 @@ def _with_controls(html_doc: str, *, editable: bool = False) -> str:
     return html_doc + bar
 
 
-def create_app(config: WebConfig, source: DashboardSource) -> FastAPI:
+def create_app(config: WebConfig, source: DashboardSource,
+               start_research: Callable[[], object] | None = None) -> FastAPI:
     app = FastAPI(title=config.title)
+    jobs_dir = config.jobs_dir
+
+    def _default_start_research():
+        return research_mod.start_run(source, work_dir=jobs_dir, client_factory=source.openai_client,
+                                      taxonomy_dir=getattr(source, "taxonomy_dir", None))
+
+    _start_research = start_research or _default_start_research
     app.add_middleware(
         SessionMiddleware, secret_key=config.session_secret,
         https_only=config.secure_cookie, same_site="lax",
@@ -284,6 +295,21 @@ def create_app(config: WebConfig, source: DashboardSource) -> FastAPI:
             filename = source.write_candidates(rows, date_str=date.today().isoformat())
         except Exception:
             return JSONResponse({"error": "save failed read-back validation"}, status_code=500)
-        return JSONResponse({"ok": True, "filename": filename, "count": len(rows)})
+        # Auto-start research on approval (locked flow: zero user input between gates) → progress page.
+        _start_research()
+        return JSONResponse({"ok": True, "filename": filename, "count": len(rows), "redirect": "/research"})
+
+    # --- Research runner (Phase 3) — the autonomous segment between the gates; progress polled by /research ---
+    @app.get("/research", response_class=HTMLResponse)
+    def research_page(request: Request):
+        if not _authed(request):
+            return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        return HTMLResponse(research_mod.render_page())
+
+    @app.get("/research/status")
+    def research_status(request: Request):
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=HTTP_401_UNAUTHORIZED)
+        return JSONResponse(research_mod.read_status(jobs_dir) or {})
 
     return app

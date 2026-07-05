@@ -243,7 +243,7 @@ _DISCOVER_JS = r"""
     approveBtn.disabled=true;
     fetch('/discover/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({candidates:chosen})})
       .then(function(r){if(!r.ok)throw 0;return r.json();})
-      .then(function(d){approvemsg.innerHTML='Saved <b>'+esc(d.count)+'</b> candidate(s) to <b>'+esc(d.filename)+'</b> in your Drive. Research runs on the approved list next.';})
+      .then(function(d){approvemsg.innerHTML='Saved <b>'+esc(d.count)+'</b> candidate(s). Starting research…';if(d.redirect){setTimeout(function(){window.location=d.redirect;},700);}})
       .catch(function(){approveBtn.disabled=false;alert('Could not save the candidate list — does the app have edit access to your Drive folder?');});
   });
   renderTray();

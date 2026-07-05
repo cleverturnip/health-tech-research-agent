@@ -19,6 +19,9 @@ class WebConfig:
     password_hash: str           # encoded PBKDF2 hash of the app password (HTRA_PASSWORD_HASH)
     secure_cookie: bool = False  # True in prod (HTTPS on Render); False for local http dev
     title: str = DEFAULT_TITLE
+    # Where research-job state (checkpoint / manifest / status) lives — MUST be on the Render persistent disk in
+    # prod (HTRA_JOBS_DIR) so a run survives a restart and auto-resumes. Local default is a working dir.
+    jobs_dir: str = "/tmp/htra_jobs"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "WebConfig":
@@ -34,4 +37,5 @@ class WebConfig:
             )
         secure = str(env.get("HTRA_SECURE_COOKIE", "")).strip().lower() in {"1", "true", "yes"}
         return cls(session_secret=secret, password_hash=password_hash, secure_cookie=secure,
-                   title=env.get("HTRA_APP_TITLE", DEFAULT_TITLE))
+                   title=env.get("HTRA_APP_TITLE", DEFAULT_TITLE),
+                   jobs_dir=env.get("HTRA_JOBS_DIR", "/tmp/htra_jobs"))
