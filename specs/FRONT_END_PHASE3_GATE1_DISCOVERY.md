@@ -110,8 +110,9 @@ conversation; approval is a separate step. Be honest about assumptions and about
 
 ## 5. Config
 
-- **OpenAI API key** as a Render secret (`OPENAI_API_KEY`) — same key family as the research pipeline. Local dev
-  uses Katelynd's key. The `openai` dep (the `research` extra) is added to the deploy install.
+- **OpenAI API key** as a Render env var (`OPENAI_API_KEY`) — same key family as the research pipeline. Local dev
+  uses Katelynd's key. The `openai` dep is in the **`web` extra** (the deploy runs `pip install -e ".[web]"`), because
+  GATE-1 makes the OpenAI call server-side — it is NOT enough to have it only in the `research` extra.
 - Model: the same `responses` API + web-search tool the research pipeline uses (client-injected, so offline tests
   run with a fake client — no key needed).
 

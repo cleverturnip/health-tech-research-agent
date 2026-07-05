@@ -25,6 +25,7 @@ web = [
     "uvicorn[standard]>=0.29",
     "itsdangerous>=2.1",       # SessionMiddleware cookie signing
     "python-multipart>=0.0.9", # login form parsing
+    "openai>=1.0",             # GATE-1 in-app discovery calls the OpenAI API on the server
 ]
 # The research runner calls the OpenAI API. It is an OPTIONAL extra, not a hard
 # dependency: the package must import and the test suite must run offline with no
