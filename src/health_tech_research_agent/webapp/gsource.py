@@ -251,7 +251,8 @@ class GoogleDashboardSource:
         sheet = self._open_sheet()
         result = dashboard.build_dashboard(
             ledger_path, research=(str(research_path) if research_path else None),
-            out_dir=work / "out", gsheet=sheet, taxonomy_dir=self.taxonomy_dir, title=self.title)
+            out_dir=work / "out", gsheet=sheet, taxonomy_dir=self.taxonomy_dir, title=self.title,
+            skip_unreviewed=True)   # hosted flow: show reviewed companies; pending research batches live in GATE-2
         if not result.readback_ok:
             raise SourceError("Dashboard build failed read-back validation (Rule 5) — not serving a stale render.")
         return Path(result.html_path).read_text(encoding="utf-8")

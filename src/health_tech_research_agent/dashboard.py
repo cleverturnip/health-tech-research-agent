@@ -576,7 +576,8 @@ def seed_workspace_sheet(records: list[dict]) -> pd.DataFrame:
 def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: str | Path,
                     user_store_path: str | Path | None = None, gsheet: Any = None,
                     taxonomy_dir: str | Path | None = None,
-                    title: str = "Katelynd Career Research Dashboard") -> DashboardResult:
+                    title: str = "Katelynd Career Research Dashboard",
+                    skip_unreviewed: bool = False) -> DashboardResult:
     """Build the whole dashboard from a FINALIZED ledger (run `ledger.finalize_gate2_review_dir` first). Reads the
     reviewed ledger (ENFORCES §1a — an un-finalized ledger RAISES), the research CSV/DataFrame, and your editable
     user store; merges your layer; writes the read-only views (4 CSVs) + the self-contained HTML + the durable
@@ -591,6 +592,12 @@ def build_dashboard(ledger_path: str | Path, research: Any = None, *, out_dir: s
     out.mkdir(parents=True, exist_ok=True)
 
     entries = ledger.read_ledger(ledger_path)
+    # `skip_unreviewed` (the HOSTED flow): a research batch merges new companies into the SAME ledger UN-reviewed
+    # (pending in GATE-2). The dashboard shows GATE-2-REVIEWED companies only, so exclude the pending ones here —
+    # a pending entry must neither break the build nor leak onto the dashboard (§1a); it appears once finalized at
+    # GATE-2. Default False keeps the Colab-regen guard: an un-finalized ledger RAISES below (you forgot to finalize).
+    if skip_unreviewed:
+        entries = [e for e in entries if ledger.is_reviewed(e)]
     if isinstance(research, (str, Path)):
         research = storage.load_csv(research).fillna("")
 
