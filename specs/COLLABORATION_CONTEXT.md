@@ -166,8 +166,10 @@ Drive files** (free-Gmail quota) → thesis + candidates are now **pre-created K
 (`thesis.md`; append-only `candidates.csv` with a `date` column — replaces the dated-file plan). See
 `sa-cannot-create-drive-files`. **Final live-verify passed (2026-07-05):** real thesis grounds from Drive, thesis
 update + candidates append round-trip read-back-verified (test row restored clean), dedup correct on real output
-(dropped 0 of 8 legit new). 709 tests. **Remaining:** add `OPENAI_API_KEY` in Render (she does this); merge branch →
-main (Render auto-deploys). Then GATE-1 is live.
+(dropped 0 of 8 legit new). 709 tests. **MERGED to main + DEPLOYED to Render (2026-07-05):** `OPENAI_API_KEY` added as
+a Render env var; `/discover` is live + login-gated (smoke-tested: 303→/login). Final open item: Katelynd's logged-in
+chat confirmation on the live site (thesis pre-fills + a message returns candidates) — proves the key is wired in the
+Render env. After that, GATE-1 is fully confirmed live.
 
 **NEXT: Phase 3 — the long research/score run** (progress + notification; replaces Colab as the engine — the hardest
 part). Plus the open pipeline design items (batch storage / research re-score — Carry-forward notes; doc-first).
