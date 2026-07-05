@@ -119,6 +119,21 @@ def read_text_file(session: Any, folder_id: str, name: str) -> str:
 _CANDIDATE_COLUMNS = ("date", "company", "why", "signal")
 
 
+def parse_candidate_companies(text: str) -> list:
+    """The distinct company names from a candidates.csv (order-preserving, case-insensitive dedup)."""
+    import csv
+    import io
+    if not text.strip():
+        return []
+    out, seen = [], set()
+    for row in csv.DictReader(io.StringIO(text)):
+        name = str(row.get("company", "") or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            out.append(name)
+    return out
+
+
 def append_candidates_csv(existing: str, rows: list, date_str: str) -> bytes:
     """Rebuild `candidates.csv` = the existing rows + the newly-approved `rows` (each stamped `date_str`), as
     bytes. Append-only: prior batches are preserved and distinguished by the `date` column. Tolerant of a
@@ -284,6 +299,10 @@ class GoogleDashboardSource:
     # -- GATE-1 discovery (Phase 3): entries (grounding), the saved thesis, the approved candidate list, OpenAI --
     def read_entries(self) -> list:
         return self.read_review_data()[0]
+
+    def read_candidates(self) -> list:
+        return parse_candidate_companies(
+            read_text_file(self._drive_session(), self.config.drive_folder_id, "candidates.csv"))
 
     def read_thesis(self) -> str:
         return read_text_file(self._drive_session(), self.config.drive_folder_id, "thesis.md")

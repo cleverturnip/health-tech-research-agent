@@ -617,6 +617,22 @@ def test_batch_continues_when_first_company_fails(tmp_path):
     assert pd.read_csv(ckpt)["company"].tolist() == ["Acme"]
 
 
+def test_batch_on_progress_fires_per_company(tmp_path):
+    """The optional on_progress hook fires once per company with completed/failed/reused (drives the web progress
+    page). Additive: default None keeps behavior unchanged (covered by the other batch tests)."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme", "Beta"], fail_on=["Beta"])
+    events = []
+    run_research_batch(["Acme", "Beta"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep,
+                       on_progress=lambda company, kind: events.append((company, kind)))
+    assert ("Acme", "completed") in events and ("Beta", "failed") in events
+
+    resumed = []   # Acme is complete in the checkpoint now -> reused (not re-researched)
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep,
+                       on_progress=lambda company, kind: resumed.append((company, kind)))
+    assert resumed == [("Acme", "reused")]
+
+
 # --- bad JSON is a per-company failure under validate_json (default) ---------
 
 

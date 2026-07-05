@@ -1748,6 +1748,7 @@ def run_research_batch(
     wait_between_passes: float = DEFAULT_WAIT_BETWEEN_PASSES,
     sleep_fn=time.sleep,
     validate_json: bool = True,
+    on_progress=None,
 ) -> ResearchBatchResult:
     """Run research + fit brief for each company, with per-company recovery.
 
@@ -1795,6 +1796,8 @@ def run_research_batch(
         if str(company) in completed_companies:
             logger.info("Skipping %s; already complete in checkpoint.", company)
             result.reused.append(company)
+            if on_progress is not None:
+                on_progress(company, "reused")
             continue
 
         try:
@@ -1946,6 +1949,8 @@ def run_research_batch(
                 copy_with_backup(checkpoint_path, mirror_checkpoint_path)
 
             logger.info("Checkpoint saved after %s.", company)
+            if on_progress is not None:
+                on_progress(company, "completed")   # fired AFTER the durable checkpoint write
             sleep_fn(wait_between_searches)  # trailing wait between companies
 
         except (KeyboardInterrupt, SystemExit):
@@ -1956,6 +1961,8 @@ def run_research_batch(
                 "Research failed for %s: %s: %s", company, type(exc).__name__, exc
             )
             result.failed[company] = f"{type(exc).__name__}: {exc}"
+            if on_progress is not None:
+                on_progress(company, "failed")
             continue
 
     return result

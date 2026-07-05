@@ -1,0 +1,110 @@
+"""Phase-3 research runner (slice 2) — the orchestrator wiring, offline.
+
+Tests the NEW code (job status, dedup, ledger build + merge, read-back, failure) with the client-driven
+research/score step injected as a stub — the engine underneath (run_research_batch / run_r1 / build_gate2_artifacts)
+is already tested elsewhere, so it is not re-driven here.
+"""
+
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pandas as pd
+
+from health_tech_research_agent.webapp import research
+from health_tech_research_agent.webapp.source import FixtureDashboardSource
+
+FIXTURE = Path(__file__).parent / "fixtures" / "sample_ledger.jsonl"
+CLOCK = lambda: datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)   # noqa: E731 — fixed clock for tests
+
+
+def _rec(company, **over):
+    base = dict(company=company, business_model="B2C", funding_stage="series-b",
+                background_fit=8, pmf=10, arr_level=10, growth=9, strain=2, final_score=20,
+                path_passed=True, agency_passed=True, gate_floored=False, floor_ok=True,
+                model_priority="P0", human_override=None, floored_on_bg=False, tier_review=False,
+                floor_reason="", data_feedback_loop="yes", background_fit_basis="loop",
+                growth_note="high(+120%)", growth_evidence="+120%", strain_strength="MODERATE",
+                strain_rationale="scaling", path_detail="alive", agency_detail="in-window",
+                reset_detail="none", revenue_or_arr="$80M ARR")
+    base.update(over)
+    return base
+
+
+def _stub_research_and_score(seen_companies):
+    """A fake research+score: records the companies it was handed (to assert dedup), fires progress, and returns
+    a canned roster + research frame for exactly those companies."""
+    def _run(companies, on_progress):
+        seen_companies.extend(companies)
+        roster, rows = [], []
+        for company in companies:
+            on_progress(company, "completed")
+            roster.append(_rec(company))
+            rows.append({"company": company, "funding_finding": "Seed"})
+        return roster, pd.DataFrame(rows)
+    return _run
+
+
+def _seed(src, names):
+    src.write_candidates([{"company": n, "why": "w", "signal": "s"} for n in names], date_str="2026-07-05")
+
+
+def test_run_batch_researches_new_and_merges_preserving_existing(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    before = {e["company"].lower() for e in src.read_entries()}
+    assert "alpha health" in before                                   # already researched in the fixture
+    _seed(src, ["Brand New A", "alpha health", "Brand New B"])        # one is already in the ledger
+
+    seen = []
+    status = research.run_batch(src, work_dir=tmp_path / "jobs",
+                                research_and_score=_stub_research_and_score(seen), clock=CLOCK)
+
+    assert seen == ["Brand New A", "Brand New B"]                     # already-researched "alpha health" filtered
+    assert status["state"] == "done" and status["total"] == 2 and status["completed"] == 2 and status["added"] == 2
+
+    after = {e["company"].lower() for e in src.read_entries()}
+    assert "brand new a" in after and "brand new b" in after          # new companies merged in
+    assert before <= after                                            # every pre-existing entry preserved (write-once)
+
+
+def test_run_batch_persists_status_readable_after(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Brand New A"])
+    research.run_batch(src, work_dir=tmp_path / "jobs",
+                       research_and_score=_stub_research_and_score([]), clock=CLOCK)
+    persisted = research.read_status(tmp_path / "jobs")
+    assert persisted["state"] == "done" and persisted["finished_at"]
+    assert not research.is_running(tmp_path / "jobs")
+
+
+def test_run_batch_no_new_candidates_is_done_immediately(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["alpha health"])                                      # already in the ledger
+    seen = []
+    status = research.run_batch(src, work_dir=tmp_path / "jobs",
+                                research_and_score=_stub_research_and_score(seen), clock=CLOCK)
+    assert status["state"] == "done" and status["total"] == 0 and seen == []
+
+
+def test_run_batch_records_failure_and_leaves_ledger_untouched(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    before = [e["company"] for e in src.read_entries()]
+    _seed(src, ["Brand New A"])
+
+    def _boom(companies, on_progress):
+        raise RuntimeError("openai exploded")
+
+    status = research.run_batch(src, work_dir=tmp_path / "jobs", research_and_score=_boom, clock=CLOCK)
+    assert status["state"] == "failed" and "openai exploded" in status["error"]
+    assert [e["company"] for e in src.read_entries()] == before       # nothing written on failure
+
+
+def test_run_batch_all_failed_roster_is_a_failure(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Brand New A"])
+
+    def _empty(companies, on_progress):
+        on_progress(companies[0], "failed")
+        return [], pd.DataFrame()
+
+    status = research.run_batch(src, work_dir=tmp_path / "jobs", research_and_score=_empty, clock=CLOCK)
+    assert status["state"] == "failed" and "nothing to score" in status["error"]
