@@ -90,14 +90,11 @@ class FixtureDashboardSource:
         return True
 
     def write_candidates(self, rows: list, *, date_str: str) -> str:
-        import csv
-        name = f"candidates_{date_str}.csv"
-        with self._gate1_path(name).open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=["company", "why", "signal"])
-            writer.writeheader()
-            for row in rows:
-                writer.writerow({k: str(row.get(k, "")) for k in ("company", "why", "signal")})
-        return name
+        from . import gsource
+        path = self._gate1_path("candidates.csv")
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        path.write_bytes(gsource.append_candidates_csv(existing, rows, date_str))
+        return "candidates.csv"
 
     def openai_client(self):
         import openai

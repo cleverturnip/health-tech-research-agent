@@ -14,8 +14,8 @@ import pytest
 from health_tech_research_agent.webapp.gsource import (
     GoogleSourceConfig,
     SourceError,
+    append_candidates_csv,
     download_data,
-    put_file_to_folder,
     read_text_file,
     write_file_to_folder,
 )
@@ -182,28 +182,31 @@ def test_write_file_to_folder_readback_mismatch_returns_false():
     assert write_file_to_folder(session, "FOLDER", "ledger.jsonl", b"new") is False   # write didn't stick
 
 
-# --- GATE-1 create-or-update + read (Phase 3) -------------------------------
-
-def test_put_file_creates_when_missing_and_reads_back():
-    session = _FakeSession(files={}, blobs={})
-    assert put_file_to_folder(session, "FOLDER", "thesis.md", b"my thesis") is True
-    assert read_text_file(session, "FOLDER", "thesis.md") == "my thesis"   # created + retrievable
-
-
-def test_put_file_updates_when_present():
-    session = _FakeSession(files={"thesis.md": "T1"}, blobs={"T1": b"old"})
-    assert put_file_to_folder(session, "FOLDER", "thesis.md", b"revised") is True
-    assert session.blobs["T1"] == b"revised"                               # overwrote in place (same id)
-
-
-def test_put_file_readback_mismatch_returns_false():
-    session = _FakeSession(files={"thesis.md": "T1"}, blobs={"T1": b"old"}, swallow_writes=True)
-    assert put_file_to_folder(session, "FOLDER", "thesis.md", b"new") is False
-
+# --- GATE-1 read + append (Phase 3) — the app only UPDATES Katelynd-owned files, never creates ------------
 
 def test_read_text_file_missing_returns_empty():
     session = _FakeSession(files={}, blobs={})
     assert read_text_file(session, "FOLDER", "thesis.md") == ""
+
+
+def test_thesis_write_requires_existing_file():
+    # A missing thesis.md RAISES (the app can't create it — the file must be pre-created + owned by Katelynd).
+    session = _FakeSession(files={}, blobs={})
+    with pytest.raises(SourceError, match="not in the shared Drive folder"):
+        write_file_to_folder(session, "FOLDER", "thesis.md", b"my thesis")
+
+
+def test_append_candidates_csv_seeds_header_and_dates_rows():
+    out = append_candidates_csv("", [{"company": "Acme", "why": "w", "signal": "s"}], "2026-07-05").decode()
+    assert out.splitlines()[0] == "date,company,why,signal"
+    assert "2026-07-05,Acme,w,s" in out
+
+
+def test_append_candidates_csv_preserves_prior_batches():
+    first = append_candidates_csv("", [{"company": "Acme", "why": "w", "signal": "s"}], "2026-07-01").decode()
+    second = append_candidates_csv(first, [{"company": "Beta", "why": "x", "signal": "y"}], "2026-07-05").decode()
+    assert "2026-07-01,Acme,w,s" in second and "2026-07-05,Beta,x,y" in second   # both batches kept
+    assert second.count("date,company,why,signal") == 1                          # single header
 
 
 # --- fixture review source (writable local copy, for the demo flow) ----------
@@ -227,7 +230,12 @@ def test_fixture_thesis_and_candidates_roundtrip(tmp_path):
     name = src.write_candidates(
         [{"company": "Acme Health", "why": "daily engagement", "signal": "Series A, $14M"}],
         date_str="2026-07-04")
-    assert name == "candidates_2026-07-04.csv"
+    assert name == "candidates.csv"
     saved = (tmp_path / name).read_text(encoding="utf-8")
-    assert "Acme Health" in saved and "company,why,signal" in saved
+    assert "Acme Health" in saved and saved.splitlines()[0] == "date,company,why,signal"
+    assert "2026-07-04" in saved
+    # a second approval appends (append-only history), keeping the first batch
+    src.write_candidates([{"company": "Beta Health", "why": "b", "signal": "Seed"}], date_str="2026-07-05")
+    saved2 = (tmp_path / name).read_text(encoding="utf-8")
+    assert "Acme Health" in saved2 and "Beta Health" in saved2
     assert src.read_entries()[0]["company"]                           # entries available for grounding

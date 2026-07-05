@@ -157,9 +157,14 @@ the LOCKED discovery prompt (spec §2a) filled with: her thesis + the full compa
 priority overrides (with reasons)** + a **do-not-repeat exclude list** of everything researched (raw research write-ups
 deliberately excluded — too large). Rule 7: the LLM only *proposes*; she approves at GATE-1 and the deterministic §B
 scoring happens downstream in research. Web-verified real companies collect in a tray (drop any before approving);
-approve writes the CSV read-back-verified (Rule 4/5). OpenAI failure surfaces a retryable error, never crashes the chat.
-28 tests (suite 707). **Remaining before merge/deploy:** add `OPENAI_API_KEY` secret in Render (render.yaml updated);
-live-verify against her real ledger with her real key (paste the locked thesis once via the editor).
+approve appends to the CSV read-back-verified (Rule 4/5). OpenAI failure surfaces a retryable error, never crashes the
+chat. 28 tests (suite 707). **Live-verify (2026-07-05)** against her real ledger + real OpenAI key confirmed the call,
+web search, grounding (54 companies + 5 overrides), and parsing all work — and surfaced two findings: (a) the model
+re-proposed already-researched companies despite the exclude list → needs a **deterministic dedup filter** (Rule 7;
+pending); (b) the **service account can't CREATE Drive files** (free-Gmail quota) → thesis + candidates are now
+**pre-created Katelynd-owned files the app only UPDATES** (`thesis.md`; append-only `candidates.csv` with a `date`
+column — replaces the dated-file plan). See `sa-cannot-create-drive-files`. **Remaining before merge/deploy:** build the
+dedup filter; add `OPENAI_API_KEY` in Render (render.yaml updated); final live round-trip of the thesis/candidate writes.
 
 **NEXT: Phase 3 — the long research/score run** (progress + notification; replaces Colab as the engine — the hardest
 part). Plus the open pipeline design items (batch storage / research re-score — Carry-forward notes; doc-first).

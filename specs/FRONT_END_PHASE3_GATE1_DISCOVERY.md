@@ -94,10 +94,18 @@ conversation; approval is a separate step. Be honest about assumptions and about
 
 ## 4. Persistence
 
-- **Thesis:** a file in the Drive data folder (e.g. `thesis.md`), read + written by the app (Drive write path from
-  Phase 2, read-back — Rule 4/5).
-- **Approved candidates:** written to Drive as a durable artifact (e.g. `candidates_<date>.csv`: `company` [+ `why`,
-  `source`]) — the GATE-1 output the research run consumes.
+> **Auth constraint (locked 2026-07-05, live-verify):** the Google **service account cannot CREATE files** in the
+> free-Gmail My Drive folder — `files.create` always 403s (`storageQuotaExceeded`; Shared Drives / OAuth delegation
+> need paid Workspace). It can only **UPDATE files Katelynd owns**. So both GATE-1 files are **pre-created by
+> Katelynd** (uploaded once) and the app only updates them. See the `sa-cannot-create-drive-files` note.
+
+- **Thesis:** `thesis.md` in the Drive data folder (Katelynd-owned; uploaded once, pre-filled with her approved
+  thesis). The app **updates** it in place (read-back — Rule 4/5); a missing file RAISES an actionable error rather
+  than attempting a (doomed) create.
+- **Approved candidates:** a single **append-only `candidates.csv`** (Katelynd-owned; uploaded once with just the
+  header). Columns `date,company,why,signal`; each approval **appends** its rows stamped with the date and updates the
+  file in place, so prior batches are preserved and distinguished by `date`. This is the durable GATE-1 artifact the
+  research run consumes (replaces the earlier `candidates_<date>.csv` per-file plan — dated files can't be created).
 - **Conversation:** session-scoped working state (not a durable gate artifact); only the approved list is durable.
 
 ## 5. Config

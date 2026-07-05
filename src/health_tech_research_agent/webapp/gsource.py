@@ -103,33 +103,6 @@ def write_file_to_folder(session: Any, folder_id: str, name: str, content: bytes
     return resp.content == content
 
 
-def _create_file(session: Any, folder_id: str, name: str, content: bytes) -> str:
-    """Create a new file with `content` in the folder (multipart upload). Returns the new file id."""
-    boundary = "htra-boundary-2f8c1"
-    metadata = json.dumps({"name": name, "parents": [folder_id]})
-    body = (
-        f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n"
-        f"--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n"
-    ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("utf-8")
-    resp = session.post(_DRIVE_UPLOAD, params={"uploadType": "multipart", "supportsAllDrives": True},
-                        data=body, headers={"Content-Type": f"multipart/related; boundary={boundary}"})
-    resp.raise_for_status()
-    return resp.json().get("id")
-
-
-def put_file_to_folder(session: Any, folder_id: str, name: str, content: bytes) -> bool:
-    """Create-or-overwrite a file in the folder, then read it back and verify (Rule 4/5). Used for GATE-1 files
-    (thesis / candidate list) that may not exist yet. Returns True iff the read-back matches."""
-    file_id = _find_file_id(session, folder_id, name)
-    if file_id:
-        update_drive_file(session, file_id, content)
-    else:
-        file_id = _create_file(session, folder_id, name, content)
-    resp = session.get(f"{_DRIVE_FILES}/{file_id}", params={"alt": "media", "supportsAllDrives": True})
-    resp.raise_for_status()
-    return resp.content == content
-
-
 def read_text_file(session: Any, folder_id: str, name: str) -> str:
     """Read a text file's content from the folder, or '' if it isn't there yet."""
     file_id = _find_file_id(session, folder_id, name)
@@ -140,16 +113,29 @@ def read_text_file(session: Any, folder_id: str, name: str) -> str:
     return resp.content.decode("utf-8")
 
 
-def _candidates_csv(rows: list) -> bytes:
-    """The approved GATE-1 candidate list as CSV bytes (company · why · signal)."""
+# GATE-1 stores its thesis + candidate list as files Katelynd OWNS (the app only UPDATES them, never creates —
+# a free-Gmail service account has no storage quota, so `files.create` always 403s; see the sa-cannot-create-drive
+# note). The candidate list is a single append-only `candidates.csv`, one row per approved company, dated per batch.
+_CANDIDATE_COLUMNS = ("date", "company", "why", "signal")
+
+
+def append_candidates_csv(existing: str, rows: list, date_str: str) -> bytes:
+    """Rebuild `candidates.csv` = the existing rows + the newly-approved `rows` (each stamped `date_str`), as
+    bytes. Append-only: prior batches are preserved and distinguished by the `date` column. Tolerant of a
+    blank/absent existing file."""
     import csv
     import io
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=["company", "why", "signal"])
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=_CANDIDATE_COLUMNS)
     writer.writeheader()
+    if existing.strip():
+        for prior in csv.DictReader(io.StringIO(existing)):
+            writer.writerow({col: str(prior.get(col, "") or "") for col in _CANDIDATE_COLUMNS})
     for row in rows:
-        writer.writerow({key: str(row.get(key, "")) for key in ("company", "why", "signal")})
-    return buf.getvalue().encode("utf-8")
+        record = {"date": date_str}
+        record.update({col: str(row.get(col, "") or "") for col in ("company", "why", "signal")})
+        writer.writerow(record)
+    return out.getvalue().encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -303,15 +289,18 @@ class GoogleDashboardSource:
         return read_text_file(self._drive_session(), self.config.drive_folder_id, "thesis.md")
 
     def write_thesis(self, text: str) -> bool:
-        return put_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
-                                  "thesis.md", (text or "").encode("utf-8"))
+        # UPDATE-only: `thesis.md` must already exist in the folder (Katelynd-owned); the app cannot create it.
+        return write_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
+                                    "thesis.md", (text or "").encode("utf-8"))
 
     def write_candidates(self, rows: list, *, date_str: str) -> str:
-        name = f"candidates_{date_str}.csv"
-        if not put_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
-                                  name, _candidates_csv(rows)):
+        # Append the approved rows to the existing (Katelynd-owned) `candidates.csv` and UPDATE it in place.
+        existing = read_text_file(self._drive_session(), self.config.drive_folder_id, "candidates.csv")
+        content = append_candidates_csv(existing, rows, date_str)
+        if not write_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
+                                    "candidates.csv", content):
             raise SourceError("Approved candidate-list write failed read-back validation — not saved.")
-        return name
+        return "candidates.csv"
 
     def openai_client(self):
         import openai
