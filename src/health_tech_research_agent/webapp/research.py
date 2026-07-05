@@ -157,8 +157,26 @@ def run_batch(source, *, work_dir, client=None, batch_id: str | None = None, mod
     if missing:
         return _fail(f"Merged ledger missing companies after read-back: {missing}")
 
+    # Persist the newly-added companies' RAW research so the GATE-2 review + dashboard can join it. Best-effort:
+    # the scored ledger entry is the durable gate artifact, so a research.csv write failure degrades card evidence
+    # but must NOT lose the scored work — it's recorded as a warning, not a batch failure.
+    research_note = ""
+    if hasattr(source, "write_research") and research_df is not None and len(research_df):
+        added = {_norm(e.get("company")) for e in to_add}
+        add_rows = research_df[research_df["company"].astype(str).map(_norm).isin(added)]
+        if len(add_rows):
+            try:
+                if not source.write_research(add_rows):
+                    research_note = "raw research write failed read-back — GATE-2 cards will lack research/evidence"
+            except Exception as exc:   # noqa: BLE001
+                research_note = f"raw research write error: {exc}"
+            if research_note:
+                logger.warning("Research persistence issue: %s", research_note)
+
     final = read_status(work_dir) or status
     final.update(state="done", current_company="", added=len(to_add), finished_at=clock().isoformat())
+    if research_note:
+        final["research_write_warning"] = research_note
     _write_status(work_dir, final)
     return final
 

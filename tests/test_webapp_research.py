@@ -82,6 +82,27 @@ def test_started_event_names_current_company_without_counting(tmp_path):
     assert seen_status["current_company"] == "Brand New A" and seen_status["completed"] == 0   # named, not counted
 
 
+def test_run_batch_persists_raw_research_for_new_companies(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Brand New A"])
+    status = research.run_batch(src, work_dir=tmp_path / "jobs",
+                                research_and_score=_stub_research_and_score([]), clock=CLOCK)
+    assert status["state"] == "done" and "research_write_warning" not in status
+    _, research_df = src.read_review_data()                          # the review card joins this
+    assert research_df is not None and "Brand New A" in list(research_df["company"])
+
+
+def test_write_research_is_write_once(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    src.write_research(pd.DataFrame([{"company": "NewCo", "funding_finding": "first"}]))
+    src.write_research(pd.DataFrame([{"company": "NewCo", "funding_finding": "second"},
+                                     {"company": "Other Co", "funding_finding": "c"}]))
+    _, research_df = src.read_review_data()
+    companies = list(research_df["company"])
+    assert companies.count("NewCo") == 1 and "Other Co" in companies   # existing kept, new appended
+    assert research_df[research_df["company"] == "NewCo"].iloc[0]["funding_finding"] == "first"
+
+
 def test_run_batch_persists_status_readable_after(tmp_path):
     src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
     _seed(src, ["Brand New A"])

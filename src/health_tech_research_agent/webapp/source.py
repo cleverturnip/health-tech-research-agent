@@ -64,8 +64,24 @@ class FixtureDashboardSource:
             shutil.copy(self._fixture, path)   # seed from the raw fixture (entries un-finalized -> all pending)
         return path
 
+    def _review_research_path(self) -> Path:
+        return self._review_ledger_path().parent / "research.csv"
+
     def read_review_data(self) -> tuple[list, Any]:
-        return ledger.read_ledger(self._review_ledger_path()), None
+        import pandas as pd
+        path = self._review_research_path()
+        research = pd.read_csv(path).fillna("") if path.exists() else None
+        return ledger.read_ledger(self._review_ledger_path()), research
+
+    def write_research(self, rows) -> bool:
+        import pandas as pd
+        path = self._review_research_path()
+        existing = (pd.read_csv(path).fillna("") if path.exists()
+                    else pd.DataFrame(columns=list(rows.columns)))
+        have = set(existing["company"].astype(str).str.lower()) if "company" in existing.columns else set()
+        add = rows[~rows["company"].astype(str).str.lower().isin(have)]
+        pd.concat([existing, add], ignore_index=True).to_csv(path, index=False)
+        return True
 
     def write_entries(self, entries: list) -> bool:
         ledger.write_ledger(self._review_ledger_path(), entries)

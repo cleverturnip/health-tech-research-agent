@@ -322,6 +322,23 @@ class GoogleDashboardSource:
             raise SourceError("Approved candidate-list write failed read-back validation — not saved.")
         return "candidates.csv"
 
+    def write_research(self, rows) -> bool:
+        """Append the newly-researched companies' RAW research to research.csv on Drive (write-once — existing rows
+        kept), so the GATE-2 review + dashboard can join it. `rows` is a DataFrame in the research checkpoint schema."""
+        import io
+        import pandas as pd
+        name = self.config.research_filename
+        existing_text = read_text_file(self._drive_session(), self.config.drive_folder_id, name)
+        existing = (pd.read_csv(io.StringIO(existing_text)).fillna("") if existing_text.strip()
+                    else pd.DataFrame(columns=list(rows.columns)))
+        have = set(existing["company"].astype(str).str.lower()) if "company" in existing.columns else set()
+        add = rows[~rows["company"].astype(str).str.lower().isin(have)]
+        if add.empty:
+            return True   # every researched company already has a research row — nothing to add
+        merged = pd.concat([existing, add], ignore_index=True)
+        return write_file_to_folder(self._drive_write_session(), self.config.drive_folder_id, name,
+                                    merged.to_csv(index=False).encode("utf-8"))
+
     def openai_client(self):
         import openai
         return openai.OpenAI()  # reads OPENAI_API_KEY from the environment (Render secret / local env)
