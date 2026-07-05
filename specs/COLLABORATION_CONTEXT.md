@@ -88,6 +88,15 @@ history, audits, one-off probes) lives in `archive/` — reference only.
 
 ## Status & roadmap (single source of truth for where we are)
 
+**🎉 FRONT END COMPLETE — validated end-to-end on the live site (2026-07-06).** One uninterrupted pass on the hosted
+app: GATE-1 discovery → approve → **autonomous research on the live server** → GATE-2 review with complete cards
+(research + evidence joined) → finalize → dashboard → pursue. Proved the fixes in flight: Clair Health completed (the
+fit-brief retry beat the JSON truncation bug), Suno completed, both research rows persisted to `research.csv` and
+linked correctly on the cards. Katelynd reviewed/adjusted priorities, companies flowed to the dashboard, Clair moved to
+Pursue. Ledger now 56 companies, all reviewed. Research writes are guarded (append-only, write-once, abort-on-suspect,
+grow-only — completed research can't be clobbered by a new run; proven on the real 54-row file). **Definition of done
+met.** (Minor calibration note below re: non-health segment routing.)
+
 **Done & locked:**
 - **Research-prompt overhaul** — the search layer gathers enough quantity/quality/breadth to score
   off of; wording-locked and tested.
@@ -218,8 +227,19 @@ not a tab). Deploys with the phase.
    appear once finalized at GATE-2); the Colab-regen flow keeps the raise-guard by default. The dashboard now survives
    every research batch.
 
-**NEXT (after the runner): pipeline design items** — batch storage / the paste-one-corrected-fact re-score path
-(Carry-forward notes; doc-first). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
+**NEXT (front end is done — these are the remaining, non-blocking follow-ups; doc-first):**
+- **Batch-storage upgrade** — `research.csv` is a single append-only file (the SA can't create per-batch files —
+  `sa-cannot-create-drive-files`). Current writes are guarded + write-once. To properly support **re-research as a new
+  dated entry** (not just new companies), add a `batch_id`/`date` column, append-only, read = latest-per-company. Do
+  this BEFORE ever re-researching an existing company. Optional extra safety: a pre-created `research_backup.csv`.
+- **Paste-one-corrected-fact re-score path** (Carry-forward notes).
+- **Non-health segment routing (minor calibration, 2026-07-06):** in the live test, **Suno** landed in the generic
+  **`OTHER_REVIEW` ("Other")** catch-all instead of **`ENTERTAINMENT_TECH`** — even though Suno is the taxonomy's own
+  example for Entertainment tech. The non-health classifier reaches the generic catch-all but not the specific
+  non-health categories (Entertainment / Fintech). Low priority (non-health companies floor to P3 regardless, and the
+  segment is human-overridable); revisit if the specific non-health category matters. NOT the earlier false-alarm Bug 1.
+
+Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
