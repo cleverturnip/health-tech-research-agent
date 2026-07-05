@@ -160,11 +160,14 @@ scoring happens downstream in research. Web-verified real companies collect in a
 approve appends to the CSV read-back-verified (Rule 4/5). OpenAI failure surfaces a retryable error, never crashes the
 chat. 28 tests (suite 707). **Live-verify (2026-07-05)** against her real ledger + real OpenAI key confirmed the call,
 web search, grounding (54 companies + 5 overrides), and parsing all work — and surfaced two findings: (a) the model
-re-proposed already-researched companies despite the exclude list → needs a **deterministic dedup filter** (Rule 7;
-pending); (b) the **service account can't CREATE Drive files** (free-Gmail quota) → thesis + candidates are now
-**pre-created Katelynd-owned files the app only UPDATES** (`thesis.md`; append-only `candidates.csv` with a `date`
-column — replaces the dated-file plan). See `sa-cannot-create-drive-files`. **Remaining before merge/deploy:** build the
-dedup filter; add `OPENAI_API_KEY` in Render (render.yaml updated); final live round-trip of the thesis/candidate writes.
+re-proposed already-researched companies despite the exclude list → fixed with a **deterministic dedup filter**
+(`gate1.drop_researched`, Rule 7; name-normalized so "Levels"↔"levels health"); (b) the **service account can't CREATE
+Drive files** (free-Gmail quota) → thesis + candidates are now **pre-created Katelynd-owned files the app only UPDATES**
+(`thesis.md`; append-only `candidates.csv` with a `date` column — replaces the dated-file plan). See
+`sa-cannot-create-drive-files`. **Final live-verify passed (2026-07-05):** real thesis grounds from Drive, thesis
+update + candidates append round-trip read-back-verified (test row restored clean), dedup correct on real output
+(dropped 0 of 8 legit new). 709 tests. **Remaining:** add `OPENAI_API_KEY` in Render (she does this); merge branch →
+main (Render auto-deploys). Then GATE-1 is live.
 
 **NEXT: Phase 3 — the long research/score run** (progress + notification; replaces Colab as the engine — the hardest
 part). Plus the open pipeline design items (batch storage / research re-score — Carry-forward notes; doc-first).
