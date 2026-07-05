@@ -93,6 +93,18 @@ def test_message_returns_reply_and_candidates(tmp_path):
     assert "USE WEB SEARCH" in call["instructions"]
 
 
+def test_message_drops_already_researched_candidates(tmp_path):
+    # The fixture ledger has "alpha health"; the model re-proposes "Alpha" (+ a genuinely-new one).
+    reply = ('Two ideas.\n```candidates\n'
+             '[{"company":"Alpha","why":"w","signal":"s"},{"company":"Brand New Co","why":"w2","signal":"s2"}]\n```')
+    client, _ = _client(tmp_path, reply=reply)
+    r = client.post("/discover/message",
+                    json={"conversation": [{"role": "user", "content": "mental health"}]})
+    data = r.json()
+    assert [c["company"] for c in data["candidates"]] == ["Brand New Co"]   # Alpha filtered out
+    assert "already-researched" in data["reply"] and "Alpha" in data["reply"]
+
+
 def test_message_empty_conversation_rejected(tmp_path):
     client, _ = _client(tmp_path)
     r = client.post("/discover/message", json={"conversation": [{"role": "user", "content": "   "}]})

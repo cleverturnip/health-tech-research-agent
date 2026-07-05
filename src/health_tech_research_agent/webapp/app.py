@@ -255,12 +255,18 @@ def create_app(config: WebConfig, source: DashboardSource) -> FastAPI:
                         for t in body.conversation if str(t.get("content", "")).strip()][-40:]
         if not conversation:
             return JSONResponse({"error": "empty conversation"}, status_code=400)
-        prompt = gate1_mod.build_system_prompt(source.read_entries(), source.read_thesis(),
+        entries = source.read_entries()
+        prompt = gate1_mod.build_system_prompt(entries, source.read_thesis(),
                                                taxonomy_dir=getattr(source, "taxonomy_dir", None))
         try:
             out = gate1_mod.discover(source.openai_client(), prompt, conversation)
         except Exception:  # OpenAI/network failure — surface a retryable error, never 500-crash the chat
             return JSONResponse({"error": "assistant call failed"}, status_code=502)
+        # Rule 7: deterministically drop any already-researched company the model re-proposed anyway.
+        kept, dropped = gate1_mod.drop_researched(out["candidates"], entries)
+        out["candidates"] = kept
+        if dropped:
+            out["reply"] += (f"\n\n(Removed {len(dropped)} already-researched: {', '.join(dropped)}.)")
         return JSONResponse(out)
 
     @app.post("/discover/approve")

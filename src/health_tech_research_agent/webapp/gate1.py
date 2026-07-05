@@ -119,6 +119,38 @@ def parse_candidates(text: str) -> tuple[str, list[dict]]:
     return display, candidates
 
 
+# The prompt ASKS the model not to re-propose researched companies, but it doesn't reliably obey (the live-verify
+# saw it re-propose "Levels"/"Culina Health"). Rule 7: enforce the exclude list DETERMINISTICALLY here, so a dupe
+# can never reach the tray regardless of the model. Matching is name-normalized, tolerant of a trailing generic
+# word ("Levels" ↔ "levels health") — deliberately a touch aggressive: better to drop a name-colliding proposal
+# than to re-surface something already researched.
+_GENERIC_SUFFIX = {"health", "inc", "llc", "co", "corp", "labs", "ai", "app"}
+
+
+def _name_keys(name: Any) -> set[str]:
+    normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", str(name).lower())).strip()
+    keys = {normalized} if normalized else set()
+    tokens = normalized.split()
+    if len(tokens) > 1 and tokens[-1] in _GENERIC_SUFFIX:
+        keys.add(" ".join(tokens[:-1]))
+    return keys
+
+
+def drop_researched(candidates: list[dict], entries: list[dict]) -> tuple[list[dict], list[str]]:
+    """Split proposed candidates into (kept, dropped_names), dropping any whose name matches a company already in
+    the ledger — the deterministic guard behind the prompt's do-not-repeat instruction."""
+    researched: set[str] = set()
+    for entry in entries:
+        researched |= _name_keys(entry.get("company", ""))
+    kept, dropped = [], []
+    for candidate in candidates:
+        if _name_keys(candidate.get("company", "")) & researched:
+            dropped.append(str(candidate.get("company", "")).strip())
+        else:
+            kept.append(candidate)
+    return kept, dropped
+
+
 def discover(client: Any, system_prompt: str, conversation: list[dict], *, model: str = DEFAULT_MODEL,
              max_output_tokens: int = 1500, use_web_search: bool = True) -> dict:
     """One discovery turn. `conversation` is the running list of {"role": "user"|"assistant", "content": str}.

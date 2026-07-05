@@ -77,6 +77,14 @@ def test_parse_candidates_no_block_and_malformed():
     assert cands == []                                               # malformed -> empty, never raises
 
 
+def test_drop_researched_catches_exact_and_suffix_variants():
+    entries = [{"company": "Levels Health"}, {"company": "Culina Health"}]
+    candidates = [{"company": "Levels"}, {"company": "Culina Health"}, {"company": "Bevel"}]
+    kept, dropped = gate1.drop_researched(candidates, entries)
+    assert [c["company"] for c in kept] == ["Bevel"]          # only the genuinely-new one survives
+    assert set(dropped) == {"Levels", "Culina Health"}        # exact + trailing-"Health" variant both caught
+
+
 def test_discover_calls_openai_with_web_search_and_returns_candidates():
     reply = ('Try these.\n```candidates\n[{"company":"Beta Co","why":"w","signal":"s"}]\n```')
     client = _FakeClient(reply)
