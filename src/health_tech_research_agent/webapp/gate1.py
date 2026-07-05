@@ -256,8 +256,6 @@ def render_page(thesis: str, *, roster_count: int) -> str:
     thesis_val = html.escape(thesis or "")
     grounded = (f'grounded on your saved thesis and all {roster_count} scored companies'
                 if roster_count else 'grounded on your saved thesis')
-    crumb = ('<div class="dsctop"><div class="apptitle" style="color:var(--navy)">GATE-1 Discovery</div>'
-             '<div><a class="btns" style="text-decoration:none" href="/">&larr; Dashboard</a></div></div>')
     thesis_card = (
         '<form method="post" action="/discover/thesis" class="card">'
         '<div class="dh">Your target market (thesis)</div>'
@@ -280,7 +278,7 @@ def render_page(thesis: str, *, roster_count: int) -> str:
         '<div id="tray" class="tray"></div>'
         '<div style="margin-top:14px"><button type="button" id="approve" class="btnp" disabled>'
         'Approve candidate list &rarr;</button><div id="approvemsg"></div></div></div>')
-    body = crumb + thesis_card + f'<div class="dsccol">{chat_card}{tray_card}</div>'
+    body = thesis_card + f'<div class="dsccol">{chat_card}{tray_card}</div>'
     return (
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1"><title>GATE-1 Discovery</title>'

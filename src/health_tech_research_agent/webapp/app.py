@@ -21,6 +21,7 @@ from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 from datetime import date
 from typing import Callable
 
+from . import chrome
 from . import email as email_mod
 from . import gate1 as gate1_mod
 from . import research as research_mod
@@ -60,28 +61,6 @@ _PURSUE_JS = (
     "alert('Could not save pursue — does the app have edit access to your Sheet?');});});});})();</script>"
 )
 
-_BTN = ("font:inherit;font-size:12.5px;font-weight:600;background:#fff;border:1px solid rgba(20,60,90,.22);"
-        "border-radius:8px;padding:7px 13px;cursor:pointer;color:#144C6F")
-_BTN_PRIMARY = ("font:inherit;font-size:12.5px;font-weight:600;background:#144C6F;border:1px solid #144C6F;"
-                "border-radius:8px;padding:7px 13px;cursor:pointer;color:#fff")
-_CONTROLS = (
-    '<div id="htra-ov" style="display:none;position:fixed;inset:0;z-index:99998;background:rgba(20,60,90,.42);'
-    'align-items:center;justify-content:center;font-family:system-ui,sans-serif">'
-    '<div style="background:#fff;padding:16px 24px;border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.25);'
-    'font-size:14px;color:#144C6F;font-weight:700">&#8635; Refreshing from Google…</div></div>'
-    '<div style="position:fixed;top:12px;right:16px;z-index:99999;display:flex;gap:8px;'
-    'font-family:system-ui,sans-serif">'
-    '<form method="post" action="/refresh" style="margin:0" '
-    'onsubmit="document.getElementById(\'htra-ov\').style.display=\'flex\'">'
-    f'<button type="submit" style="{_BTN_PRIMARY}">&#8635; Refresh</button></form>'
-    f'<a href="/discover" style="{_BTN};text-decoration:none;display:inline-block">GATE-1 Discovery</a>'
-    f'<a href="/research" style="{_BTN};text-decoration:none;display:inline-block">Research run</a>'
-    f'<a href="/review" style="{_BTN};text-decoration:none;display:inline-block">GATE-2 Review</a>'
-    f'<form method="post" action="/logout" style="margin:0"><button type="submit" style="{_BTN}">'
-    'Log out</button></form></div>'
-)
-
-
 def _login_page(*, error: str = "", title: str = "Health-tech dashboard") -> str:
     err = f'<p class="err">{error}</p>' if error else ""
     return (
@@ -104,13 +83,15 @@ def _login_page(*, error: str = "", title: str = "Health-tech dashboard") -> str
     )
 
 
-def _with_controls(html_doc: str, *, editable: bool = False) -> str:
-    """Inject the fixed Refresh / Log out bar (and, when the source is editable, the pursue-checkbox script) into
-    the engine's HTML. The engine's render stays untouched — the interactivity is added here, at the app layer."""
-    bar = _CONTROLS + (_PURSUE_JS if editable else "")
-    if "</body>" in html_doc:
-        return html_doc.replace("</body>", bar + "</body>", 1)
-    return html_doc + bar
+def _with_controls(html_doc: str, *, editable: bool = False, run_status: dict | None = None) -> str:
+    """Wrap the engine's dashboard HTML in the shared chrome (nav tabs + run strip) and fold the Refresh control
+    into the dashboard section; add the pursue-checkbox script when the source is editable."""
+    doc = chrome.inject(html_doc, active="dashboard", run_status=run_status, after_nav=chrome.REFRESH_BAR)
+    if not editable:
+        return doc
+    if "</body>" in doc:
+        return doc.replace("</body>", _PURSUE_JS + "</body>", 1)
+    return doc + _PURSUE_JS
 
 
 def create_app(config: WebConfig, source: DashboardSource,
@@ -135,6 +116,9 @@ def create_app(config: WebConfig, source: DashboardSource,
 
     def _authed(request: Request) -> bool:
         return bool(request.session.get(_SESSION_KEY))
+
+    def _run_status() -> dict | None:
+        return research_mod.read_status(jobs_dir)
 
     @app.get("/healthz", response_class=PlainTextResponse)
     def healthz() -> str:
@@ -163,7 +147,8 @@ def create_app(config: WebConfig, source: DashboardSource,
     def home(request: Request):
         if not _authed(request):
             return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
-        return HTMLResponse(_with_controls(source.html(), editable=hasattr(source, "set_pursue")))
+        return HTMLResponse(_with_controls(source.html(), editable=hasattr(source, "set_pursue"),
+                                           run_status=_run_status()))
 
     @app.post("/refresh")
     def refresh(request: Request):
@@ -199,7 +184,9 @@ def create_app(config: WebConfig, source: DashboardSource,
         entries, research = source.read_review_data()
         recs = review_mod.review_records(review_mod.pending(entries), research=research,
                                          taxonomy_dir=getattr(source, "taxonomy_dir", None))
-        return HTMLResponse(review_mod.render_index(recs, {_norm(e.get("company")): e for e in entries}))
+        return HTMLResponse(chrome.inject(
+            review_mod.render_index(recs, {_norm(e.get("company")): e for e in entries}),
+            active="review", run_status=_run_status()))
 
     @app.get("/review/{company}", response_class=HTMLResponse)
     def review_card(request: Request, company: str):
@@ -213,7 +200,8 @@ def create_app(config: WebConfig, source: DashboardSource,
             return RedirectResponse("/review", status_code=HTTP_303_SEE_OTHER)
         recs = review_mod.review_records([entry], research=research,
                                          taxonomy_dir=getattr(source, "taxonomy_dir", None))
-        return HTMLResponse(review_mod.render_card(recs[0], entry))
+        return HTMLResponse(chrome.inject(review_mod.render_card(recs[0], entry),
+                                          active="review", run_status=_run_status()))
 
     @app.post("/review/decision")
     def review_decision(request: Request, company: str = Form(default=""), action: str = Form(default=""),
@@ -251,7 +239,9 @@ def create_app(config: WebConfig, source: DashboardSource,
         if not _discover_ok():
             return HTMLResponse("Discovery is not available for this data source.", status_code=400)
         entries = source.read_entries()
-        return HTMLResponse(gate1_mod.render_page(source.read_thesis(), roster_count=len(entries)))
+        return HTMLResponse(chrome.inject(
+            gate1_mod.render_page(source.read_thesis(), roster_count=len(entries)),
+            active="discovery", run_status=_run_status()))
 
     @app.post("/discover/thesis")
     def discover_thesis(request: Request, thesis: str = Form(default="")):
@@ -310,7 +300,7 @@ def create_app(config: WebConfig, source: DashboardSource,
     def research_page(request: Request):
         if not _authed(request):
             return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
-        return HTMLResponse(research_mod.render_page())
+        return HTMLResponse(chrome.inject(research_mod.render_page(), active=None, run_status=_run_status()))
 
     @app.get("/research/status")
     def research_status(request: Request):

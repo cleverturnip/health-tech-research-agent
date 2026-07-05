@@ -148,10 +148,9 @@ def render_index(records: list[dict], entry_by_company: dict) -> str:
                       '<button type="submit" class="dbtn accept">Finalize review &rarr; send to dashboard</button>'
                       '<span class="dsub" style="margin-left:10px">Stamps every company reviewed and moves them into the dashboard.</span></form>')
 
-    header = (f'<div class="rvtop"><div class="apptitle" style="color:var(--navy)">GATE-2 Review</div>'
-              f'<div><a class="dbtn" href="/">&larr; Dashboard</a></div></div>'
+    header = (f'<div class="apptitle" style="color:var(--navy);margin-bottom:2px">Review pipeline</div>'
               f'<div class="dsub">{done} of {total} decided &mdash; click a row to open its card, accept or override the priority, then finalize.</div>')
-    return _page("GATE-2 Review", header + body_inner)
+    return _page("Review pipeline", header + body_inner)
 
 
 def _cell(value: Any) -> str:
@@ -198,8 +197,7 @@ def render_card(record: dict, entry: dict) -> str:
         'el.classList.add("sel");document.getElementById("rv-save").disabled=false;}</script>')
 
     crumb = ('<div class="rvtop"><div class="crumb"><a href="/review">'
-             '<i class="ti ti-arrow-left"></i> GATE-2 Review</a> / '
-             f'<span style="color:var(--text-primary)">{_esc(company)}</span></div>'
-             '<div><a class="dbtn" href="/review">All pending</a></div></div>')
+             '<i class="ti ti-arrow-left"></i> Review pipeline</a> / '
+             f'<span style="color:var(--text-primary)">{_esc(company)}</span></div></div>')
     return _page(f"Review — {company}",
                  crumb + dashboard_html._detail_body(record) + _recommendation_html(entry) + control)

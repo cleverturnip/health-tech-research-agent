@@ -454,7 +454,6 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <title>{_esc(title)}</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.17.0/dist/tabler-icons.min.css">
 <style>{_CSS}</style></head><body><div class="wrap">
-{_app_header(title)}
 {_banners(report)}
 <div class="topnav"><button data-view="grid" class="active" onclick="showGrid()">Grid views</button>
 <button data-view="detail" onclick="showSelectedDetail()">Company detail</button></div>

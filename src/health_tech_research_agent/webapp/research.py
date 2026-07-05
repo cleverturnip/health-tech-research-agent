@@ -249,9 +249,8 @@ _RESEARCH_JS = r"""
 
 def render_page() -> str:
     from .. import dashboard_html
-    body = ('<div class="rwrap"><div class="rtop">'
-            '<div class="apptitle" style="color:var(--navy)">Research run</div>'
-            '<div><a class="rbtns" href="/">&larr; Dashboard</a></div></div>'
+    body = ('<div class="rwrap">'
+            '<div class="apptitle" style="color:var(--navy);margin-bottom:14px">Research run</div>'
             '<div class="rcard"><div id="rstat"><div class="rmuted">Loading…</div></div></div></div>')
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Research run</title>'

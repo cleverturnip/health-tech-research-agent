@@ -49,7 +49,7 @@ def test_render_index_lists_pending_and_finalize():
     recs = review.review_records(review.pending(entries))
     html = review.render_index(recs, {e["company"].lower(): e for e in entries})
     assert html.startswith("<!DOCTYPE")
-    assert "GATE-2 Review" in html
+    assert "Review pipeline" in html
     for company in ["alpha health", "beta health"]:
         assert company in html
     assert "onclick=\"location.href='/review/alpha%20health'\"" in html   # whole row clickable (no Review button)

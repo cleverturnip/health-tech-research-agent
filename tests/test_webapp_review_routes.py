@@ -37,7 +37,7 @@ def test_review_index_lists_pending(tmp_path):
     client, _ = _client(tmp_path)
     r = client.get("/review")
     assert r.status_code == 200
-    assert "GATE-2 Review" in r.text and "alpha health" in r.text
+    assert "Review Pipeline" in r.text and "alpha health" in r.text   # nav tab (chrome) + a pending company
     assert "/review/finalize" in r.text
 
 
