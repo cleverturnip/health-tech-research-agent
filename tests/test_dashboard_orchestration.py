@@ -46,6 +46,25 @@ def test_build_dashboard_refuses_unfinalized_ledger(tmp_path):
     assert "GATE-2 invariant" in str(exc.value)
 
 
+def test_build_dashboard_skip_unreviewed_shows_reviewed_and_excludes_pending(tmp_path):
+    # The hosted flow: a research batch merges a NEW un-reviewed company into the same ledger. The dashboard must
+    # build (not 500) and show the reviewed companies while excluding the pending one (§1a) — it appears at GATE-2.
+    out = _gate2_dir(tmp_path, finalized=True)   # all reviewed
+    entries = ledger.read_ledger(out / "ledger.jsonl")
+    reviewed = {e["company"] for e in entries}
+    pending = dict(entries[0], company="Pending Co", decision={})   # no reviewed_date -> un-reviewed
+    ledger.write_ledger(out / "ledger.jsonl", entries + [pending])
+
+    with pytest.raises(dashboard.DashboardError):   # default still guards the Colab flow
+        dashboard.build_dashboard(out / "ledger.jsonl", research=_research(), out_dir=tmp_path / "d1")
+
+    result = dashboard.build_dashboard(out / "ledger.jsonl", research=_research(),
+                                       out_dir=tmp_path / "d2", skip_unreviewed=True)
+    assert result.entries == len(reviewed)          # pending excluded, reviewed shown
+    shown = {r["company"] for r in storage.load_json(tmp_path / "d2" / "dashboard_records.json")["records"]}
+    assert "Pending Co" not in shown and reviewed <= shown
+
+
 # --- end-to-end -------------------------------------------------------------
 
 def test_build_dashboard_writes_all_artifacts(tmp_path):
