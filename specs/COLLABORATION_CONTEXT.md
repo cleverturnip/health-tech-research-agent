@@ -166,10 +166,13 @@ Drive files** (free-Gmail quota) → thesis + candidates are now **pre-created K
 (`thesis.md`; append-only `candidates.csv` with a `date` column — replaces the dated-file plan). See
 `sa-cannot-create-drive-files`. **Final live-verify passed (2026-07-05):** real thesis grounds from Drive, thesis
 update + candidates append round-trip read-back-verified (test row restored clean), dedup correct on real output
-(dropped 0 of 8 legit new). 709 tests. **MERGED to main + DEPLOYED to Render (2026-07-05):** `OPENAI_API_KEY` added as
-a Render env var; `/discover` is live + login-gated (smoke-tested: 303→/login). Final open item: Katelynd's logged-in
-chat confirmation on the live site (thesis pre-fills + a message returns candidates) — proves the key is wired in the
-Render env. After that, GATE-1 is fully confirmed live.
+(dropped 0 of 8 legit new). 710 tests. **MERGED to main + DEPLOYED + CONFIRMED LIVE on Render (2026-07-05):**
+`/discover` is live + login-gated; the logged-in chat works end-to-end (thesis pre-fills from Drive → live OpenAI +
+web-search call → candidates → dedup). Two deploy-only fixes surfaced AFTER first deploy and were shipped: (a) `openai`
+was only in the `research` extra but Render installs `.[web]` → moved `openai` into the **`web` extra** (server-side
+call was failing with "Could not reach the assistant"); (b) dedup missed a multi-word re-proposal ("Oura Ring" for
+stored "oura") → switched to **core-token subset matching** (drops generic words incl. "ring"), validated on the real
+54-company ledger (drops researched variants, zero over-drops). **GATE-1 is fully live.**
 
 **NEXT: Phase 3 — the long research/score run** (progress + notification; replaces Colab as the engine — the hardest
 part). Plus the open pipeline design items (batch storage / research re-score — Carry-forward notes; doc-first).
