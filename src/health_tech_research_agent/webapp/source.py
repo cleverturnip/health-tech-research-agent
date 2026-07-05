@@ -71,3 +71,34 @@ class FixtureDashboardSource:
         ledger.write_ledger(self._review_ledger_path(), entries)
         self._html = None
         return True
+
+    # -- GATE-1 discovery (Phase 3): local versions for the demo --
+    taxonomy_dir = None
+
+    def read_entries(self) -> list:
+        return self.read_review_data()[0]
+
+    def _gate1_path(self, name: str) -> Path:
+        return self._review_ledger_path().parent / name
+
+    def read_thesis(self) -> str:
+        path = self._gate1_path("thesis.md")
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def write_thesis(self, text: str) -> bool:
+        self._gate1_path("thesis.md").write_text(text or "", encoding="utf-8")
+        return True
+
+    def write_candidates(self, rows: list, *, date_str: str) -> str:
+        import csv
+        name = f"candidates_{date_str}.csv"
+        with self._gate1_path(name).open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=["company", "why", "signal"])
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({k: str(row.get(k, "")) for k in ("company", "why", "signal")})
+        return name
+
+    def openai_client(self):
+        import openai
+        return openai.OpenAI()

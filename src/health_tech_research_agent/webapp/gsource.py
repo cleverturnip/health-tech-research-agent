@@ -103,6 +103,55 @@ def write_file_to_folder(session: Any, folder_id: str, name: str, content: bytes
     return resp.content == content
 
 
+def _create_file(session: Any, folder_id: str, name: str, content: bytes) -> str:
+    """Create a new file with `content` in the folder (multipart upload). Returns the new file id."""
+    boundary = "htra-boundary-2f8c1"
+    metadata = json.dumps({"name": name, "parents": [folder_id]})
+    body = (
+        f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n"
+        f"--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n"
+    ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    resp = session.post(_DRIVE_UPLOAD, params={"uploadType": "multipart", "supportsAllDrives": True},
+                        data=body, headers={"Content-Type": f"multipart/related; boundary={boundary}"})
+    resp.raise_for_status()
+    return resp.json().get("id")
+
+
+def put_file_to_folder(session: Any, folder_id: str, name: str, content: bytes) -> bool:
+    """Create-or-overwrite a file in the folder, then read it back and verify (Rule 4/5). Used for GATE-1 files
+    (thesis / candidate list) that may not exist yet. Returns True iff the read-back matches."""
+    file_id = _find_file_id(session, folder_id, name)
+    if file_id:
+        update_drive_file(session, file_id, content)
+    else:
+        file_id = _create_file(session, folder_id, name, content)
+    resp = session.get(f"{_DRIVE_FILES}/{file_id}", params={"alt": "media", "supportsAllDrives": True})
+    resp.raise_for_status()
+    return resp.content == content
+
+
+def read_text_file(session: Any, folder_id: str, name: str) -> str:
+    """Read a text file's content from the folder, or '' if it isn't there yet."""
+    file_id = _find_file_id(session, folder_id, name)
+    if not file_id:
+        return ""
+    resp = session.get(f"{_DRIVE_FILES}/{file_id}", params={"alt": "media", "supportsAllDrives": True})
+    resp.raise_for_status()
+    return resp.content.decode("utf-8")
+
+
+def _candidates_csv(rows: list) -> bytes:
+    """The approved GATE-1 candidate list as CSV bytes (company · why · signal)."""
+    import csv
+    import io
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=["company", "why", "signal"])
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: str(row.get(key, "")) for key in ("company", "why", "signal")})
+    return buf.getvalue().encode("utf-8")
+
+
 # ---------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------
@@ -245,3 +294,25 @@ class GoogleDashboardSource:
                                   self.config.ledger_filename, content)
         self._html = None
         return ok
+
+    # -- GATE-1 discovery (Phase 3): entries (grounding), the saved thesis, the approved candidate list, OpenAI --
+    def read_entries(self) -> list:
+        return self.read_review_data()[0]
+
+    def read_thesis(self) -> str:
+        return read_text_file(self._drive_session(), self.config.drive_folder_id, "thesis.md")
+
+    def write_thesis(self, text: str) -> bool:
+        return put_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
+                                  "thesis.md", (text or "").encode("utf-8"))
+
+    def write_candidates(self, rows: list, *, date_str: str) -> str:
+        name = f"candidates_{date_str}.csv"
+        if not put_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
+                                  name, _candidates_csv(rows)):
+            raise SourceError("Approved candidate-list write failed read-back validation — not saved.")
+        return name
+
+    def openai_client(self):
+        import openai
+        return openai.OpenAI()  # reads OPENAI_API_KEY from the environment (Render secret / local env)

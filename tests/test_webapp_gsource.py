@@ -15,6 +15,8 @@ from health_tech_research_agent.webapp.gsource import (
     GoogleSourceConfig,
     SourceError,
     download_data,
+    put_file_to_folder,
+    read_text_file,
     write_file_to_folder,
 )
 from health_tech_research_agent.webapp.source import FixtureDashboardSource
@@ -62,6 +64,19 @@ class _FakeSession:
         if not self.swallow_writes:
             self.blobs[file_id] = data if isinstance(data, (bytes, bytearray)) else str(data).encode()
         return _FakeResp(content=b"")
+
+    def post(self, url, params=None, data=None, headers=None, **kwargs):   # files.create (multipart)
+        self.requests.append(url)
+        body = data if isinstance(data, (bytes, bytearray)) else str(data).encode()
+        marker = b"application/octet-stream\r\n\r\n"
+        start = body.find(marker) + len(marker)
+        content = body[start:body.rfind(b"\r\n--")]
+        meta = re.search(rb"\{.*?\}", body[:start])
+        name = json.loads(meta.group(0))["name"] if meta else "unknown"
+        file_id = f"NEW{len(self.files)}"
+        self.files[name] = file_id
+        self.blobs[file_id] = content
+        return _FakeResp(json_data={"id": file_id})
 
 
 def test_download_data_writes_ledger_and_research(tmp_path):
@@ -167,6 +182,30 @@ def test_write_file_to_folder_readback_mismatch_returns_false():
     assert write_file_to_folder(session, "FOLDER", "ledger.jsonl", b"new") is False   # write didn't stick
 
 
+# --- GATE-1 create-or-update + read (Phase 3) -------------------------------
+
+def test_put_file_creates_when_missing_and_reads_back():
+    session = _FakeSession(files={}, blobs={})
+    assert put_file_to_folder(session, "FOLDER", "thesis.md", b"my thesis") is True
+    assert read_text_file(session, "FOLDER", "thesis.md") == "my thesis"   # created + retrievable
+
+
+def test_put_file_updates_when_present():
+    session = _FakeSession(files={"thesis.md": "T1"}, blobs={"T1": b"old"})
+    assert put_file_to_folder(session, "FOLDER", "thesis.md", b"revised") is True
+    assert session.blobs["T1"] == b"revised"                               # overwrote in place (same id)
+
+
+def test_put_file_readback_mismatch_returns_false():
+    session = _FakeSession(files={"thesis.md": "T1"}, blobs={"T1": b"old"}, swallow_writes=True)
+    assert put_file_to_folder(session, "FOLDER", "thesis.md", b"new") is False
+
+
+def test_read_text_file_missing_returns_empty():
+    session = _FakeSession(files={}, blobs={})
+    assert read_text_file(session, "FOLDER", "thesis.md") == ""
+
+
 # --- fixture review source (writable local copy, for the demo flow) ----------
 
 def test_fixture_review_reads_pending_and_persists_writes(tmp_path):
@@ -178,3 +217,17 @@ def test_fixture_review_reads_pending_and_persists_writes(tmp_path):
     assert src.write_entries(entries) is True
     reread, _ = src.read_review_data()
     assert reread[0]["decision"]["human_override"] == "P1"
+
+
+def test_fixture_thesis_and_candidates_roundtrip(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path)
+    assert src.read_thesis() == ""                                    # none saved yet
+    assert src.write_thesis("early-stage metabolic health") is True
+    assert src.read_thesis() == "early-stage metabolic health"        # persisted + read back
+    name = src.write_candidates(
+        [{"company": "Acme Health", "why": "daily engagement", "signal": "Series A, $14M"}],
+        date_str="2026-07-04")
+    assert name == "candidates_2026-07-04.csv"
+    saved = (tmp_path / name).read_text(encoding="utf-8")
+    assert "Acme Health" in saved and "company,why,signal" in saved
+    assert src.read_entries()[0]["company"]                           # entries available for grounding
