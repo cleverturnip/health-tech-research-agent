@@ -149,10 +149,30 @@ Decisions apply priority-only + history (Rule 6/8) and **write the ledger back t
 Reuses `ledger.apply_decisions`/`finalize_gate2_review`. 23 tests (suite 688). Nothing pending on the live ledger yet
 (all finalized) — exercised on the next real batch.
 
-**NEXT: Phase 3 — GATE-1 (conversational, ledger-grounded discovery) + the long research/score run** (progress +
-notification; replaces Colab as the engine — the hardest part). Plus the open pipeline design items (batch storage /
-research re-score — Carry-forward notes; doc-first). Consider upgrading Render to `starter` (always-on) before Phase 3.
-Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
+**Phase 3 — GATE-1 in-app discovery: BUILT on branch `frontend-phase3-gate1`, pending deploy (2026-07-04).**
+`specs/FRONT_END_PHASE3_GATE1_DISCOVERY.md`. A `/discover` page: a saveable **thesis** (her target-market baseline,
+stored `thesis.md` in the Drive folder), a **conversational, ledger-grounded** chat (OpenAI + **web search**), and an
+**approve** step that writes `candidates_<date>.csv` to Drive for the research run. The LLM is grounded every turn on
+the LOCKED discovery prompt (spec §2a) filled with: her thesis + the full compact **scored roster** + her **manual
+priority overrides (with reasons)** + a **do-not-repeat exclude list** of everything researched (raw research write-ups
+deliberately excluded — too large). Rule 7: the LLM only *proposes*; she approves at GATE-1 and the deterministic §B
+scoring happens downstream in research. Web-verified real companies collect in a tray (drop any before approving);
+approve appends to the CSV read-back-verified (Rule 4/5). OpenAI failure surfaces a retryable error, never crashes the
+chat. 28 tests (suite 707). **Live-verify (2026-07-05)** against her real ledger + real OpenAI key confirmed the call,
+web search, grounding (54 companies + 5 overrides), and parsing all work — and surfaced two findings: (a) the model
+re-proposed already-researched companies despite the exclude list → fixed with a **deterministic dedup filter**
+(`gate1.drop_researched`, Rule 7; name-normalized so "Levels"↔"levels health"); (b) the **service account can't CREATE
+Drive files** (free-Gmail quota) → thesis + candidates are now **pre-created Katelynd-owned files the app only UPDATES**
+(`thesis.md`; append-only `candidates.csv` with a `date` column — replaces the dated-file plan). See
+`sa-cannot-create-drive-files`. **Final live-verify passed (2026-07-05):** real thesis grounds from Drive, thesis
+update + candidates append round-trip read-back-verified (test row restored clean), dedup correct on real output
+(dropped 0 of 8 legit new). 709 tests. **Remaining:** add `OPENAI_API_KEY` in Render (she does this); merge branch →
+main (Render auto-deploys). Then GATE-1 is live.
+
+**NEXT: Phase 3 — the long research/score run** (progress + notification; replaces Colab as the engine — the hardest
+part). Plus the open pipeline design items (batch storage / research re-score — Carry-forward notes; doc-first).
+Consider upgrading Render to `starter` (always-on) before the long run. Local run/preview quirks (Python 3.9 box):
+see the `local-dev-env-python39` memory.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).

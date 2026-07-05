@@ -14,7 +14,9 @@ import pytest
 from health_tech_research_agent.webapp.gsource import (
     GoogleSourceConfig,
     SourceError,
+    append_candidates_csv,
     download_data,
+    read_text_file,
     write_file_to_folder,
 )
 from health_tech_research_agent.webapp.source import FixtureDashboardSource
@@ -62,6 +64,19 @@ class _FakeSession:
         if not self.swallow_writes:
             self.blobs[file_id] = data if isinstance(data, (bytes, bytearray)) else str(data).encode()
         return _FakeResp(content=b"")
+
+    def post(self, url, params=None, data=None, headers=None, **kwargs):   # files.create (multipart)
+        self.requests.append(url)
+        body = data if isinstance(data, (bytes, bytearray)) else str(data).encode()
+        marker = b"application/octet-stream\r\n\r\n"
+        start = body.find(marker) + len(marker)
+        content = body[start:body.rfind(b"\r\n--")]
+        meta = re.search(rb"\{.*?\}", body[:start])
+        name = json.loads(meta.group(0))["name"] if meta else "unknown"
+        file_id = f"NEW{len(self.files)}"
+        self.files[name] = file_id
+        self.blobs[file_id] = content
+        return _FakeResp(json_data={"id": file_id})
 
 
 def test_download_data_writes_ledger_and_research(tmp_path):
@@ -167,6 +182,33 @@ def test_write_file_to_folder_readback_mismatch_returns_false():
     assert write_file_to_folder(session, "FOLDER", "ledger.jsonl", b"new") is False   # write didn't stick
 
 
+# --- GATE-1 read + append (Phase 3) — the app only UPDATES Katelynd-owned files, never creates ------------
+
+def test_read_text_file_missing_returns_empty():
+    session = _FakeSession(files={}, blobs={})
+    assert read_text_file(session, "FOLDER", "thesis.md") == ""
+
+
+def test_thesis_write_requires_existing_file():
+    # A missing thesis.md RAISES (the app can't create it — the file must be pre-created + owned by Katelynd).
+    session = _FakeSession(files={}, blobs={})
+    with pytest.raises(SourceError, match="not in the shared Drive folder"):
+        write_file_to_folder(session, "FOLDER", "thesis.md", b"my thesis")
+
+
+def test_append_candidates_csv_seeds_header_and_dates_rows():
+    out = append_candidates_csv("", [{"company": "Acme", "why": "w", "signal": "s"}], "2026-07-05").decode()
+    assert out.splitlines()[0] == "date,company,why,signal"
+    assert "2026-07-05,Acme,w,s" in out
+
+
+def test_append_candidates_csv_preserves_prior_batches():
+    first = append_candidates_csv("", [{"company": "Acme", "why": "w", "signal": "s"}], "2026-07-01").decode()
+    second = append_candidates_csv(first, [{"company": "Beta", "why": "x", "signal": "y"}], "2026-07-05").decode()
+    assert "2026-07-01,Acme,w,s" in second and "2026-07-05,Beta,x,y" in second   # both batches kept
+    assert second.count("date,company,why,signal") == 1                          # single header
+
+
 # --- fixture review source (writable local copy, for the demo flow) ----------
 
 def test_fixture_review_reads_pending_and_persists_writes(tmp_path):
@@ -178,3 +220,22 @@ def test_fixture_review_reads_pending_and_persists_writes(tmp_path):
     assert src.write_entries(entries) is True
     reread, _ = src.read_review_data()
     assert reread[0]["decision"]["human_override"] == "P1"
+
+
+def test_fixture_thesis_and_candidates_roundtrip(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path)
+    assert src.read_thesis() == ""                                    # none saved yet
+    assert src.write_thesis("early-stage metabolic health") is True
+    assert src.read_thesis() == "early-stage metabolic health"        # persisted + read back
+    name = src.write_candidates(
+        [{"company": "Acme Health", "why": "daily engagement", "signal": "Series A, $14M"}],
+        date_str="2026-07-04")
+    assert name == "candidates.csv"
+    saved = (tmp_path / name).read_text(encoding="utf-8")
+    assert "Acme Health" in saved and saved.splitlines()[0] == "date,company,why,signal"
+    assert "2026-07-04" in saved
+    # a second approval appends (append-only history), keeping the first batch
+    src.write_candidates([{"company": "Beta Health", "why": "b", "signal": "Seed"}], date_str="2026-07-05")
+    saved2 = (tmp_path / name).read_text(encoding="utf-8")
+    assert "Acme Health" in saved2 and "Beta Health" in saved2
+    assert src.read_entries()[0]["company"]                           # entries available for grounding

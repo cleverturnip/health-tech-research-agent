@@ -103,6 +103,41 @@ def write_file_to_folder(session: Any, folder_id: str, name: str, content: bytes
     return resp.content == content
 
 
+def read_text_file(session: Any, folder_id: str, name: str) -> str:
+    """Read a text file's content from the folder, or '' if it isn't there yet."""
+    file_id = _find_file_id(session, folder_id, name)
+    if not file_id:
+        return ""
+    resp = session.get(f"{_DRIVE_FILES}/{file_id}", params={"alt": "media", "supportsAllDrives": True})
+    resp.raise_for_status()
+    return resp.content.decode("utf-8")
+
+
+# GATE-1 stores its thesis + candidate list as files Katelynd OWNS (the app only UPDATES them, never creates —
+# a free-Gmail service account has no storage quota, so `files.create` always 403s; see the sa-cannot-create-drive
+# note). The candidate list is a single append-only `candidates.csv`, one row per approved company, dated per batch.
+_CANDIDATE_COLUMNS = ("date", "company", "why", "signal")
+
+
+def append_candidates_csv(existing: str, rows: list, date_str: str) -> bytes:
+    """Rebuild `candidates.csv` = the existing rows + the newly-approved `rows` (each stamped `date_str`), as
+    bytes. Append-only: prior batches are preserved and distinguished by the `date` column. Tolerant of a
+    blank/absent existing file."""
+    import csv
+    import io
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=_CANDIDATE_COLUMNS)
+    writer.writeheader()
+    if existing.strip():
+        for prior in csv.DictReader(io.StringIO(existing)):
+            writer.writerow({col: str(prior.get(col, "") or "") for col in _CANDIDATE_COLUMNS})
+    for row in rows:
+        record = {"date": date_str}
+        record.update({col: str(row.get(col, "") or "") for col in ("company", "why", "signal")})
+        writer.writerow(record)
+    return out.getvalue().encode("utf-8")
+
+
 # ---------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------
@@ -245,3 +280,28 @@ class GoogleDashboardSource:
                                   self.config.ledger_filename, content)
         self._html = None
         return ok
+
+    # -- GATE-1 discovery (Phase 3): entries (grounding), the saved thesis, the approved candidate list, OpenAI --
+    def read_entries(self) -> list:
+        return self.read_review_data()[0]
+
+    def read_thesis(self) -> str:
+        return read_text_file(self._drive_session(), self.config.drive_folder_id, "thesis.md")
+
+    def write_thesis(self, text: str) -> bool:
+        # UPDATE-only: `thesis.md` must already exist in the folder (Katelynd-owned); the app cannot create it.
+        return write_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
+                                    "thesis.md", (text or "").encode("utf-8"))
+
+    def write_candidates(self, rows: list, *, date_str: str) -> str:
+        # Append the approved rows to the existing (Katelynd-owned) `candidates.csv` and UPDATE it in place.
+        existing = read_text_file(self._drive_session(), self.config.drive_folder_id, "candidates.csv")
+        content = append_candidates_csv(existing, rows, date_str)
+        if not write_file_to_folder(self._drive_write_session(), self.config.drive_folder_id,
+                                    "candidates.csv", content):
+            raise SourceError("Approved candidate-list write failed read-back validation — not saved.")
+        return "candidates.csv"
+
+    def openai_client(self):
+        import openai
+        return openai.OpenAI()  # reads OPENAI_API_KEY from the environment (Render secret / local env)
