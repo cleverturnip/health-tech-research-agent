@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 RESEND_URL = "https://api.resend.com/emails"
 DEFAULT_FROM = "onboarding@resend.dev"   # Resend's shared sender — no domain setup needed
+# Cloudflare (in front of the Resend API) blocks the default "Python-urllib" agent with a 403 (error 1010),
+# so a normal User-Agent is REQUIRED — verified 2026-07-05.
+_USER_AGENT = "health-tech-research-agent/1.0"
 
 
 def _http_post(url: str, headers: dict, payload: dict) -> tuple[int, str]:
@@ -34,7 +37,8 @@ def send_email(*, api_key: str, to: str, subject: str, html: str, from_addr: str
         return False
     try:
         status, body = poster(RESEND_URL,
-                              {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                              {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
+                               "User-Agent": _USER_AGENT},
                               {"from": from_addr, "to": [to], "subject": subject, "html": html})
     except Exception:   # noqa: BLE001
         logger.exception("Resend email send failed")

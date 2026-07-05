@@ -22,6 +22,7 @@ def test_send_email_posts_and_returns_true_on_2xx():
     call = poster.calls[0]
     assert call["url"] == email.RESEND_URL
     assert call["headers"]["Authorization"] == "Bearer re_x"
+    assert call["headers"]["User-Agent"] == email._USER_AGENT   # required — default UA is Cloudflare-blocked (403)
     assert call["payload"] == {"from": email.DEFAULT_FROM, "to": ["k@example.com"],
                                "subject": "Hi", "html": "<p>hi</p>"}
 
