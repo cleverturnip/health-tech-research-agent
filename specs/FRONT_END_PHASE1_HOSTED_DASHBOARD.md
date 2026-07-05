@@ -129,14 +129,13 @@ runtime. Start: `uvicorn health_tech_research_agent.webapp.asgi:app`; health che
 4. **Deploy**, then **live-verify (Step 4)** on the Render URL: log in, dashboard renders from live Google data,
    Refresh works, pursue saves (Sheet shared as **Editor**), no secrets/data in the repo.
 
-## 9. Out of scope (later phases)
+## 9. Out of scope (this dashboard shell's design boundary)
 
-- In-app editing of notes / contacts (stays in the Sheet for now; `pursue` is in-app editable per §8a).
-- The GATE-2 review surface (Phase 2) and GATE-1 + the long research run + progress/notification (Phase 3).
+- In-app editing of notes / contacts (stays in the Sheet; `pursue` is in-app editable per §8a).
+- The GATE-2 review surface and GATE-1 + the research run — their own build specs.
 - Notification channel; multi-user sharing; phone-optimized layout (`FRONT_END_DIRECTION.md` §7 / D4).
-- Moving the ledger/research producer off Colab (Phase 3) — Phase 1 reads what Colab writes to Drive.
 
 ---
 
-*BUILD SPEC — decided with Katelynd 2026-07-03. On approval: build in the §6 order, red→green, small commits, then
-the required live verification. This spec is the contract Claude Code builds against.*
+*BUILD SPEC — decided with Katelynd 2026-07-03. This spec is the contract Claude Code builds against. Status/roadmap:
+`COLLABORATION_CONTEXT.md` § Status & roadmap only.*

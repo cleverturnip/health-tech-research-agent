@@ -100,10 +100,10 @@ GATE-1 + the long research run + progress/notification (Phase 3); taxonomy overr
 (priority bump only); moving the research/scoring producer off Colab (Phase 3 — Phase 2 reviews whatever landed
 unfinalized in the Drive ledger).
 
-## 8. Build order
+## 8. Implementation structure
 
 1. **Drive write in `gsource`** — `update_file` (files.update) + a decided-ledger write flow (download → apply →
    upload, read-back). Tests with a fake session.
 2. **Review logic** — pending selection (un-reviewed records), the decision-apply-to-Drive + finalize flows.
 3. **Review UI** — `/review` index + card view (reuse `_detail_html`) + the decision control + `POST` routes.
-4. **Tests** green; then **live-verify** on the next real batch (after Katelynd grants folder Editor).
+4. **Tests** covering the review logic + the decision/finalize Drive writes.

@@ -124,14 +124,13 @@ conversation; approval is a separate step. Be honest about assumptions and about
 - **Rules 4/5** — the thesis + approved-list writes are durable + read-back-verified.
 - **Public repo** — the OpenAI key is a Render secret; no secrets/data committed.
 
-## 7. Out of scope (later)
+## 7. Out of scope (GATE-1's design boundary)
 
-- The **server-side research/scoring runner** (replaces Colab) — the last Phase-3 piece; GATE-1 bridges to Colab.
-- Auto-triggering research from an approved list; progress + notification (built with the runner).
-- `candidate_priority.py` deterministic ranking of the proposals (optional later; discovery is LLM-proposed +
-  human-approved).
+- The **server-side research/scoring runner** — its own spec (`FRONT_END_PHASE3_RESEARCH_RUNNER.md`); GATE-1 only
+  produces the approved candidate list it consumes.
+- `candidate_priority.py` deterministic ranking of the proposals — discovery is LLM-proposed + human-approved.
 
-## 8. Build order
+## 8. Implementation structure
 
 1. **Grounding + prompt builders** from the ledger (`grounding_payload`, the §2a prompt) — offline unit tests.
 2. **OpenAI discovery call** (client-injected, web search, structured candidate output) — offline tests with a

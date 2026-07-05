@@ -1,9 +1,8 @@
 # Search Recovery — Always-Run-N + Union on Web-Search Variance (field-agnostic)
 
-**Status:** APPROVED for build steps 1–2 (Katelynd, 2026-06-25). The **Option-A synthesis
-wording** (multi-figure surface-all) is **pending joint review before step 3** — drafted below for
-sign-off, NOT yet written into the synthesis. Build red→green, small reviewable commits, nothing
-self-merged.
+*Design contract for the search-recovery mechanism (decided with Katelynd 2026-06-25). The LLM-facing synthesis
+wording (Option-A, multi-figure surface-all) is the highest-stakes part — designed with sign-off, nothing
+self-merged. Status/roadmap live only in `COLLABORATION_CONTEXT.md` § Status & roadmap.*
 **Owner of decisions:** Katelynd (cleverturnip) · built by Claude Code.
 
 ## TL;DR (plain language)

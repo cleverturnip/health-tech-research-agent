@@ -1,6 +1,7 @@
 # Run-once V4.2 clean-slate regeneration — Colab execution runsheet
 
-**Status:** ready to execute (gate clear; merge to `main` done). Run-once.
+**Type:** run-once clean-slate regeneration (Colab) — the operational runsheet, not a status doc (status/roadmap
+live only in `COLLABORATION_CONTEXT.md` § Status & roadmap).
 **Created:** 2026-06-22. Keep this file in sync with any change to the regen flow.
 **Companion docs:** `phase2_refresh_runbook.md` (the pre-regen gate + reminders),
 `COLLABORATION_CONTEXT.md` (handoff/state).
@@ -510,6 +511,6 @@ Hardening to retry/repair the fit-brief JSON in-run is a deferred task — see
 ## Dashboard
 
 Stop after the post-write read-back (`✅`) — this regen ends at the verified ledger. The dashboard is a
-**separate, already-built segment** (BUILT + live-verified 2026-07-03, merged to `main`): after the GATE-2
+**separate segment** (`specs/DASHBOARD_DESIGN.md`): after the GATE-2
 review is finalized, run it per **`specs/DASHBOARD_DESIGN.md` §10** (finalize the review with
 `ledger.finalize_gate2_review_dir`, then `dashboard.build_dashboard`). It is not part of this runsheet.

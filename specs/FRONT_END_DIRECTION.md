@@ -95,7 +95,10 @@ runs fine on a small, cheap instance; the hours don't cost much. A modest *paid*
 free/hobby tiers sleep or cap runtime, which fights a multi-hour job. **OpenAI API spend is unchanged** (it
 stays the dominant variable cost and is separate from hosting).
 
-## 7. Open / deferred (decide at Phase-1 planning or later — NOT locked here)
+## 7. Questions left open at direction time
+
+*(These were the undecided items when this direction was set; they were all subsequently decided in the phase build
+specs. For where things stand now, see `COLLABORATION_CONTEXT.md` § Status & roadmap — the single status source.)*
 
 - **Tech stack + hosting platform** — Claude Code recommends at Phase-1 planning (implementation choice).
 - **Where the durable data lives so the hosted app can read it** — the ledger + research files are in Google
@@ -109,5 +112,5 @@ stays the dominant variable cost and is separate from hosting).
 
 ---
 
-*DIRECTION — decided with Katelynd 2026-07-03. Next: the Phase-1 (hosted dashboard) build spec. This doc is the
-picture; the phase specs are the contracts Claude Code builds against.*
+*DIRECTION — decided with Katelynd 2026-07-03. This doc is the picture; the phase specs are the contracts Claude
+Code builds against. Status/roadmap: `COLLABORATION_CONTEXT.md` § Status & roadmap only.*

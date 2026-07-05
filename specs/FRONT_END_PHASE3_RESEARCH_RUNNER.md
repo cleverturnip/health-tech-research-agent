@@ -84,15 +84,15 @@ per run (unchanged from today's Colab runs).
 - **Prompts unchanged** — this is orchestration only; no research/scoring prompt wording changes (highest-stakes;
   would be a separate, signed-off change).
 
-## 7. Out of scope (later)
+## 7. Out of scope (this runner's design boundary)
 
 - Concurrency / multiple simultaneous runs.
-- The one-fact re-research / paste-a-correction path (a separate pipeline item — carry-forward; doc-first).
+- The one-fact re-research / paste-a-correction path (a separate pipeline item).
 - Auto-advancing GATE-2 (the human decision stays; the runner stops at the review gate).
 
-## 8. Build order (each slice tested before the next)
+## 8. Implementation structure (each slice tested before the next)
 
-1. **This spec** (done — for review).
+1. **This spec.**
 2. **Orchestrator + job-status store** (`webapp/research.py`), offline with a fake client + a fixture source:
    candidates → research → score → batch ledger → Drive-merge; unit-tested (resume, dedup, read-back, failure).
 3. **Background execution + startup auto-resume** in the app; `/research` page + polling route; TestClient tests.

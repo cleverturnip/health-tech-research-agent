@@ -5,7 +5,7 @@
 > shelved prompt edit from the gate-B classifier-prompt validation, so nothing critical lives only in chat.
 > The §B2 EVIDENCE-ONLY who_pays rule itself is normative and lives in the SOT (v1.13).
 
-## Status — gate-B prompt validation COMPLETE (2026-06-30)
+## Gate-B prompt validation record (2026-06-30)
 
 The staged who_uses/who_pays classifier prompt was validated against the 7 who_pays-boundary cases
 (`signos`, `function health`, `oura`, `summer health`, `allara health`, `tia`, `outcomes4me`) over the

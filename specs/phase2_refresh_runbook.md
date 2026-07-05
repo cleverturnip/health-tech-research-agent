@@ -94,9 +94,10 @@ lost. **Read this before running any full research refresh.**
      full company set — **NEVER with the verify batch** (ZOE / Function Health). Function's `23` was a
      thin-findings artifact (the good WAIT=120 run scored it 32). Do not flip True→False by reflex
      after a dry run.
-   - **Remaining before the run-once:** (1) ✅ DONE — STEP 12 case-insensitive matching + object-cast
-     ported to the package (`master_update.py` regression tests + `colab_workflow.py` STEP 12);
-     (2) item 8 outcomes/payer empty-output fix; (3) the regeneration itself.
+   - **Prerequisite (operational):** STEP 12 case-insensitive matching + object-cast are ported to the package
+     (`master_update.py` regression tests + `colab_workflow.py` STEP 12), and the outcomes/payer empty-output fix
+     is in place. (Whether the regeneration has run — and any other run-status — lives ONLY in
+     `COLLABORATION_CONTEXT.md` § Status & roadmap.)
 
 6. **Regenerated master is engine-ready — engine-input signals carried to the master.** ✅ CLOSED.
    The candidate engine (`compute_candidate_priority`, held Commit 5) reads its inputs off the row

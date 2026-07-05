@@ -274,12 +274,9 @@ view rendered from the durable artifact.
   `test_dashboard_rebuild`, and `test_calibration_recompute` removed; the three `colab_workflow` old-dashboard
   cells marked RETIRED. Full suite green (639).
 
-## 10. Build status & Colab run steps
+## 10. Modules & Colab run steps
 
-**BUILT + LIVE-VERIFIED (2026-07-03).** Live Colab run on the regen-2 batch (54 companies) confirmed: finalize
-stamped all 54, build produced the artifacts + HTML, segment labels resolved, the Google-Sheet round-trip works,
-edits persist across re-runs (`seeded: False`, input-only), and the orphaned/changed safety signals fire. New
-ledger-based engine, importable package functions (Rule 1), on branch `dashboard-design`:
+The dashboard is a ledger-based engine of importable package functions (Rule 1). Module map:
 
 | Module / function | Role |
 |---|---|
