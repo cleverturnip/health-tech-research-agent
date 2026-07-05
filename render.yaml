@@ -30,3 +30,5 @@ services:
         value: /etc/secrets/service_account.json
       - key: HTRA_DRIVE_FOLDER_ID
         sync: false            # your "HTRA Dashboard Data" Drive folder id
+      - key: OPENAI_API_KEY
+        sync: false            # GATE-1 discovery (OpenAI + web search); same key the research pipeline uses
