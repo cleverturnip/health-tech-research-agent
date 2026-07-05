@@ -625,9 +625,11 @@ def test_batch_on_progress_fires_per_company(tmp_path):
     events = []
     run_research_batch(["Acme", "Beta"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep,
                        on_progress=lambda company, kind: events.append((company, kind)))
-    assert ("Acme", "completed") in events and ("Beta", "failed") in events
+    # "started" fires BEFORE research (names the current company on the progress page), then completed/failed
+    assert events.index(("Acme", "started")) < events.index(("Acme", "completed"))
+    assert ("Beta", "started") in events and ("Beta", "failed") in events
 
-    resumed = []   # Acme is complete in the checkpoint now -> reused (not re-researched)
+    resumed = []   # Acme is complete in the checkpoint now -> reused (skipped before "started", so only reused)
     run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep,
                        on_progress=lambda company, kind: resumed.append((company, kind)))
     assert resumed == [("Acme", "reused")]

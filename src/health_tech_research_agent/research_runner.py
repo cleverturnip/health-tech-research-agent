@@ -1800,6 +1800,8 @@ def run_research_batch(
                 on_progress(company, "reused")
             continue
 
+        if on_progress is not None:
+            on_progress(company, "started")   # BEFORE the minutes-long research, so the progress page names the current company
         try:
             # Funding-ROUNDS recovery (the 4th recovery field): source-directed retries for LATEST-round
             # RECALL (the Sword 2/4 miss) + an observability-only presence check. Built v1.2. The union ->

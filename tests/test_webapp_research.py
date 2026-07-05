@@ -66,6 +66,22 @@ def test_run_batch_researches_new_and_merges_preserving_existing(tmp_path):
     assert before <= after                                            # every pre-existing entry preserved (write-once)
 
 
+def test_started_event_names_current_company_without_counting(tmp_path):
+    src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
+    _seed(src, ["Brand New A"])
+    jobs = tmp_path / "jobs"
+    seen_status = {}
+
+    def _rs(companies, on_progress):
+        on_progress(companies[0], "started")
+        seen_status.update(research.read_status(jobs))        # snapshot mid-run (after "started", before "completed")
+        on_progress(companies[0], "completed")
+        return [_rec(companies[0])], pd.DataFrame([{"company": companies[0], "funding_finding": "Seed"}])
+
+    research.run_batch(src, work_dir=jobs, research_and_score=_rs, clock=CLOCK)
+    assert seen_status["current_company"] == "Brand New A" and seen_status["completed"] == 0   # named, not counted
+
+
 def test_run_batch_persists_status_readable_after(tmp_path):
     src = FixtureDashboardSource(FIXTURE, review_work_dir=tmp_path / "store")
     _seed(src, ["Brand New A"])
