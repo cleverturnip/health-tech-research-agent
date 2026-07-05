@@ -78,6 +78,11 @@ class FixtureDashboardSource:
     def read_entries(self) -> list:
         return self.read_review_data()[0]
 
+    def read_candidates(self) -> list:
+        from . import gsource
+        path = self._gate1_path("candidates.csv")
+        return gsource.parse_candidate_companies(path.read_text(encoding="utf-8") if path.exists() else "")
+
     def _gate1_path(self, name: str) -> Path:
         return self._review_ledger_path().parent / name
 

@@ -63,7 +63,7 @@ def test_discover_page_renders(tmp_path):
     client, _ = _client(tmp_path)
     r = client.get("/discover")
     assert r.status_code == 200
-    assert "GATE-1 Discovery" in r.text
+    assert "Company Discovery" in r.text          # nav tab (chrome injected)
     assert "Your target market (thesis)" in r.text and 'id="chat"' in r.text
 
 

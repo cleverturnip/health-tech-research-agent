@@ -8,10 +8,14 @@ services:
   - type: web
     name: htra-dashboard
     runtime: python
-    plan: free                # free spins down when idle (~1 min cold start); upgrade to "starter" for always-on
+    plan: starter             # always-on: a research run lasts 30min–hours, and a persistent disk needs a paid plan
     buildCommand: pip install -e ".[web]"
     startCommand: uvicorn health_tech_research_agent.webapp.asgi:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /healthz
+    disk:
+      name: htra-jobs
+      mountPath: /var/htra
+      sizeGB: 1               # research checkpoint / manifest / job-status — survives restarts (Rule 4 resume)
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
@@ -31,4 +35,12 @@ services:
       - key: HTRA_DRIVE_FOLDER_ID
         sync: false            # your "HTRA Dashboard Data" Drive folder id
       - key: OPENAI_API_KEY
-        sync: false            # GATE-1 discovery (OpenAI + web search); same key the research pipeline uses
+        sync: false            # GATE-1 discovery + the research runner (OpenAI + web search)
+      - key: HTRA_JOBS_DIR
+        value: /var/htra/jobs  # research-job state on the persistent disk → survives restarts, auto-resumes
+      - key: HTRA_BASE_URL
+        value: https://htra-dashboard.onrender.com   # for the link in the notification email
+      - key: HTRA_NOTIFY_EMAIL
+        value: lavallee.kj@gmail.com                 # where run-complete / run-failed emails go
+      - key: RESEND_API_KEY
+        sync: false            # Resend transactional-email API key (free tier) — for run notifications

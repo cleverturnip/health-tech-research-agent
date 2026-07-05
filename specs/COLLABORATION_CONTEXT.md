@@ -174,10 +174,47 @@ call was failing with "Could not reach the assistant"); (b) dedup missed a multi
 stored "oura") → switched to **core-token subset matching** (drops generic words incl. "ring"), validated on the real
 54-company ledger (drops researched variants, zero over-drops). **GATE-1 is fully live.**
 
-**NEXT: Phase 3 — the long research/score run** (progress + notification; replaces Colab as the engine — the hardest
-part). Plus the open pipeline design items (batch storage / research re-score — Carry-forward notes; doc-first).
-Consider upgrading Render to `starter` (always-on) before the long run. Local run/preview quirks (Python 3.9 box):
-see the `local-dev-env-python39` memory.
+**Phase 3 — hosted research/scoring runner: BUILT on branch `frontend-phase3-research-runner`, pending Render ops +
+live test (2026-07-05).** `specs/FRONT_END_PHASE3_RESEARCH_RUNNER.md`. Replaces the hand-run Colab research: GATE-1
+approve **auto-starts** a background run → `research_runner.run_research_batch` (per-company research + resumable
+checkpoint) → `run_r1` (deterministic §B scoring roster) → `ledger.build_gate2_artifacts` → **merged write-once into
+the Drive `ledger.jsonl`** (existing entries/overrides untouched; read-back before "done") → appears in GATE-2 review +
+dashboard. A durable JSON job-status on a **Render persistent disk** drives the `/research` progress page (polled) and
+lets a restart **auto-resume from the checkpoint** (same batch_id; Rule 4). Email on finish/failure via **Resend**
+(`webapp/email.py`). One run at a time. `webapp/research.py` + `webapp/email.py`; `run_research_batch` gained an
+additive `on_progress` hook. Offline-tested (client-driven step injected). **LIVE-VERIFIED end-to-end 2026-07-05** (real OpenAI key, real Drive
+ledger, 2-company batch Clair Health + Sandbar): Sandbar researched → scored → **merged into the real ledger** (55, the
+54 existing preserved), **email delivered**. Clair Health failed on the KNOWN ~one-per-run fit-brief JSON-truncation
+bug (`fit-brief-json-truncation-known-bug`) — the runner **isolated it** (per-company recovery, not checkpointed →
+auto-retries next run) and now **surfaces the reason** on the `/research` page + email (a gap the live test exposed,
+fixed same session). Out-of-taxonomy Sandbar was NOT force-fit (segment/business_model/bg None) → landed P3 / final 8.0
+/ `low_score_floor` (correct bottom-of-roster). Email path also needed a **User-Agent header** (Cloudflare 403s the
+default python-urllib agent — fixed). Resend live-verified (test + run emails delivered to lavallee.kj@gmail.com).
+Suite **731**. **Remaining (slice 5 ops, to deploy):** upgrade Render to **Starter** + attach the 1 GB disk at
+`/var/htra`; add `RESEND_API_KEY` in Render (render.yaml declares all three). Then merge → deploy (also brings the
+new tabbed header UI live).
+
+**UI cleanup pass (2026-07-05, on the same branch):** unified light-header **tabs** (Career Dashboard / Company
+Discovery / Review Pipeline) across all pages via `webapp/chrome.py`; navy title banner removed; Refresh folded into
+the dashboard; a "Research running…" status strip links to `/research` (which is reached by auto-redirect on approve,
+not a tab). Deploys with the phase.
+
+**⚠️ MUST-FIX BEFORE THE NEXT RESEARCH PASS (2 scoring-pipeline bugs, both highest-stakes → SOT/doc-first + a live
+re-run to verify; agreed 2026-07-05 to deploy first, then fix these before running research again):**
+1. **Non-health company → all-None instead of Tech-Other/B2C + a real background fit.** A non-health-tech company that
+   should route to the `OTHER_REVIEW` ("Other") catch-all returns `segment=None`, `business_model=None`,
+   `background_fit=None` (a health-eligibility gate appears to short-circuit it — the business-model prompt opens "You
+   classify a HEALTH company…"). The taxonomy catch-all IS set up correctly; the classifiers/eligibility logic don't
+   reach it. **Test case: Sandbar** — a smart ring (like Oura: ~$200–300 hardware + subscription, B2C, habitual daily
+   use, but NO biometric feedback loop → should score B2C / Tech-Other with a background fit LOWER than Oura, not None).
+   Expected: `business_model=B2C`, `segment=Other (Tech-Other)`, a real-but-lower bg fit. Fix = eligibility/classifier
+   prompt + mapping so non-health routes to the catch-all WITH a classification.
+2. **Fit-brief JSON truncation (~one company per run)** — `JSONDecodeError: Unterminated string`; see
+   `fit-brief-json-truncation-known-bug`. Likely fix: retry the fit brief at a higher token budget on a JSON parse
+   failure (mirrors the existing empty-output→bumped-budget retry). Hit Clair Health this run.
+
+**NEXT (after the runner): pipeline design items** — batch storage / the paste-one-corrected-fact re-score path
+(Carry-forward notes; doc-first). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
