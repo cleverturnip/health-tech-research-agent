@@ -174,10 +174,21 @@ call was failing with "Could not reach the assistant"); (b) dedup missed a multi
 stored "oura") → switched to **core-token subset matching** (drops generic words incl. "ring"), validated on the real
 54-company ledger (drops researched variants, zero over-drops). **GATE-1 is fully live.**
 
-**NEXT: Phase 3 — the long research/score run** (progress + notification; replaces Colab as the engine — the hardest
-part). Plus the open pipeline design items (batch storage / research re-score — Carry-forward notes; doc-first).
-Consider upgrading Render to `starter` (always-on) before the long run. Local run/preview quirks (Python 3.9 box):
-see the `local-dev-env-python39` memory.
+**Phase 3 — hosted research/scoring runner: BUILT on branch `frontend-phase3-research-runner`, pending Render ops +
+live test (2026-07-05).** `specs/FRONT_END_PHASE3_RESEARCH_RUNNER.md`. Replaces the hand-run Colab research: GATE-1
+approve **auto-starts** a background run → `research_runner.run_research_batch` (per-company research + resumable
+checkpoint) → `run_r1` (deterministic §B scoring roster) → `ledger.build_gate2_artifacts` → **merged write-once into
+the Drive `ledger.jsonl`** (existing entries/overrides untouched; read-back before "done") → appears in GATE-2 review +
+dashboard. A durable JSON job-status on a **Render persistent disk** drives the `/research` progress page (polled) and
+lets a restart **auto-resume from the checkpoint** (same batch_id; Rule 4). Email on finish/failure via **Resend**
+(`webapp/email.py`). One run at a time. `webapp/research.py` + `webapp/email.py`; `run_research_batch` gained an
+additive `on_progress` hook. Offline-tested end-to-end (client-driven step injected): suite **729**. **Remaining
+(slice 5 ops):** Katelynd — create a free Resend account (shared `onboarding@resend.dev` sender) + add `RESEND_API_KEY`
+in Render; upgrade the service to **Starter** + attach the 1 GB disk at `/var/htra` (render.yaml updated); then a live
+1–2 company test batch before a real run. Then merge → deploy.
+
+**NEXT (after the runner): pipeline design items** — batch storage / the paste-one-corrected-fact re-score path
+(Carry-forward notes; doc-first). Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
 > **The human GATE-2 review runs NOW** against the live CSV packet: set priority overrides in `cards.csv`,
 > merged back into the ledger via `ledger.apply_gate2_decisions` (priority-only; scores never hand-edited).
