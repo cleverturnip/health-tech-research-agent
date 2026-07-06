@@ -97,6 +97,19 @@ Pursue. Ledger now 56 companies, all reviewed. Research writes are guarded (appe
 grow-only — completed research can't be clobbered by a new run; proven on the real 54-row file). **Definition of done
 met.** (Minor calibration note below re: non-health segment routing.)
 
+**⚡ RESEARCH ~9× FASTER — parallel per-company searches, shipped + live-verified (2026-07-06).** The per-company
+research step was ~30–40 min, **~70% of it fixed `time.sleep`** (a 120s inter-search wait whose rate-limit premise our
+own diagnostics falsified — see `RESEARCH_STEP_TIMING_AUDIT.md` §2). The 8 per-company searches are independent (they
+only converge at the fit-brief synthesis), so `run_research_batch` now runs them **concurrently** (`search_workers`,
+default parallel; `=1` = exact sequential off-switch) instead of sequentially with 120s pauses. Each recovery union
+STILL paces its own N passes 45s apart (the web-search variance mechanism is untouched); fit-brief retry,
+checkpoint/resume, `on_progress`, and per-company failure isolation are all unchanged. Validated LIVE against the
+deterministic §B scorer — **no quality loss** vs the trusted 120s runs (the lone boundary-company tier wobble is the
+noisy `background_fit` read, reproduced by the sequential path too → NEXT item, not caused by this change).
+**Live-verified on the hosted app: a 2-company batch ran in ~8 min (~4 min/company, ~9× faster), quality comparable.**
+Merged `d274226`; audit + evidence in `specs/RESEARCH_STEP_TIMING_AUDIT.md`. Back-out: revert `d274226`, or the
+lighter `search_workers=1` sequential fallback.
+
 **Done & locked:**
 - **Research-prompt overhaul** — the search layer gathers enough quantity/quality/breadth to score
   off of; wording-locked and tested.
@@ -243,6 +256,12 @@ not a tab). Deploys with the phase.
   example for Entertainment tech. The non-health classifier reaches the generic catch-all but not the specific
   non-health categories (Entertainment / Fintech). Low priority (non-health companies floor to P3 regardless, and the
   segment is human-overridable); revisit if the specific non-health category matters. NOT the earlier false-alarm Bug 1.
+- **`background_fit` read robustness on floor/tier-boundary companies (surfaced by the speed audit, 2026-07-06; SOT/doc-first).**
+  The §B `background_fit` read is the one deliberately-noisy read (taken 4× and averaged); on a company sitting exactly on
+  a floor/tier threshold (e.g. Function Health at bg>4) it can wobble across the boundary and flip the model tier on ANY
+  re-research — sequential or parallel, 120s or 10s (a repeat-variance probe showed the SAME 4↔7 spread on identical
+  research; **NOT caused by the parallel-search change**). Candidates: raise `BG_FIT_N_READS` from 4, or auto-flag
+  floor-boundary companies for review. Scoring-framework change → edit the SOT first. Detail: `RESEARCH_STEP_TIMING_AUDIT.md` §5–6.
 
 Local run/preview quirks (Python 3.9 box): see the `local-dev-env-python39` memory.
 
