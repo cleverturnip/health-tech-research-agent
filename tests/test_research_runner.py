@@ -10,6 +10,8 @@ the module's exception names so they pass whether or not the openai SDK is
 installed (call_openai resolves those names from module globals at runtime).
 """
 
+import threading
+
 import pandas as pd
 import pytest
 
@@ -539,6 +541,7 @@ class BatchClient:
         self.bad_json_for = set(bad_json_for)
         self.fail_exc = fail_exc or RuntimeError("API down")
         self.calls = []
+        self._lock = threading.Lock()   # parallel search default -> concurrent create() calls
 
     @property
     def responses(self):
@@ -551,7 +554,8 @@ class BatchClient:
         return None
 
     def create(self, **kwargs):
-        self.calls.append(kwargs)
+        with self._lock:
+            self.calls.append(kwargs)
         prompt = kwargs["input"]
         company = self._company_in(prompt)
         if "tools" in kwargs:  # any web search (incl. the commercial recovery passes)
@@ -787,6 +791,7 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         wait_between_searches=7,
         wait_between_passes=3,
         sleep_fn=sleeps.append,
+        search_workers=1,   # off-switch: assert the faithful SEQUENTIAL inter-search cadence
     )
 
     # per company: funding is now a recovery too. Each recovery contributes (N-1) inter-pass waits of 3
@@ -804,6 +809,92 @@ def test_batch_preserves_faithful_sleeps(tmp_path):
         + [7, 7]                                       # after-org, trailing
     )
     assert sleeps == per_company * 2
+
+
+# --- parallel search tracks (Lever 2 — the default) --------------------------
+
+
+def _expected_inter_pass_waits():
+    """Total inter-PASS waits per company across the four recovery unions (each fires N-1)."""
+    return sum(n - 1 for n in (rr.FUNDING_RECOVERY_PASSES, rr.REVENUE_RECOVERY_PASSES,
+                               rr.GROWTH_RECOVERY_PASSES, rr.PAYING_RECOVERY_PASSES))
+
+
+def test_batch_parallel_default_researches_and_persists(tmp_path):
+    """Default (parallel) gathers all eight findings and persists a complete checkpoint row."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    result = run_research_batch(["Acme"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+    assert result.completed == ["Acme"] and result.failed == {}
+    df = pd.read_csv(ckpt)
+    assert df["company"].tolist() == ["Acme"]
+    for col in REQUIRED_RESEARCH_COLUMNS:
+        assert col in df.columns and str(df.iloc[0][col]).strip() != ""
+
+
+def test_batch_parallel_has_no_inter_search_waits_but_keeps_inter_pass(tmp_path):
+    """Parallel mode drops the wait_between_searches sleeps entirely; each recovery union STILL
+    paces its own passes (wait_between_passes), so the variance mechanism is untouched."""
+    ckpt = tmp_path / "c.csv"
+    client = BatchClient(companies=["Acme"])
+    sleeps = []
+    run_research_batch(["Acme"], client=client, checkpoint_path=ckpt,
+                       wait_between_searches=999, wait_between_passes=3, sleep_fn=sleeps.append)
+    assert 999 not in sleeps                                   # no inter-search waits, no trailing wait
+    assert sleeps == [3] * _expected_inter_pass_waits()        # only the recovery unions' inter-pass pacing
+
+
+def test_sequential_and_parallel_produce_the_same_findings(tmp_path):
+    """The off-switch and the default agree on the persisted findings (only cadence differs)."""
+    seq = BatchClient(companies=["Acme"])
+    par = BatchClient(companies=["Acme"])
+    run_research_batch(["Acme"], client=seq, checkpoint_path=tmp_path / "s.csv",
+                       sleep_fn=_noop_sleep, search_workers=1)
+    run_research_batch(["Acme"], client=par, checkpoint_path=tmp_path / "p.csv",
+                       sleep_fn=_noop_sleep)
+    s = pd.read_csv(tmp_path / "s.csv").iloc[0]
+    p = pd.read_csv(tmp_path / "p.csv").iloc[0]
+    for col in REQUIRED_RESEARCH_COLUMNS:
+        assert s[col] == p[col]
+
+
+def test_batch_parallel_search_track_failure_is_per_company(tmp_path):
+    """A raise inside a parallel search track fails ONLY that company (per-company recovery holds):
+    the exception propagates out of the thread pool, is caught, recorded, and the loop continues."""
+
+    class SearchBoomClient(BatchClient):
+        def create(self, **kwargs):
+            with self._lock:
+                self.calls.append(kwargs)
+            # raise on any web search for Beta (a search TRACK failure, inside a worker thread)
+            if "tools" in kwargs and "Beta" in kwargs["input"]:
+                raise RuntimeError("search boom")
+            prompt = kwargs["input"]
+            company = self._company_in(prompt)
+            if "tools" in kwargs:
+                return FakeResponse(f"finding for {company}")
+            if "PRESENT or ABSENT" in prompt:
+                return FakeResponse("PRESENT")
+            return FakeResponse('{"company": "%s", "priority_level": "P2"}' % company)
+
+    ckpt = tmp_path / "c.csv"
+    client = SearchBoomClient(companies=["Acme", "Beta"])
+    result = run_research_batch(["Acme", "Beta"], client=client, checkpoint_path=ckpt, sleep_fn=_noop_sleep)
+    assert result.completed == ["Acme"]
+    assert "Beta" in result.failed and "RuntimeError" in result.failed["Beta"]
+    assert pd.read_csv(ckpt)["company"].tolist() == ["Acme"]   # Beta not checkpointed -> retried on resume
+
+
+def test_gather_company_findings_returns_all_eight_columns():
+    """The gather helper returns exactly the eight *_finding columns, in both modes."""
+    client = BatchClient(companies=["Acme"])
+    keys_expected = {c for c in REQUIRED_RESEARCH_COLUMNS if c.endswith("_finding")}
+    for workers in (1, 8):
+        out = rr._gather_company_findings(
+            "Acme", "Acme", client=client, model=rr.DEFAULT_MODEL,
+            wait_between_searches=0, wait_between_passes=0, sleep_fn=_noop_sleep, search_workers=workers)
+        assert set(out) == keys_expected
+        assert all(str(v).strip() for v in out.values())
 
 
 # --- KeyboardInterrupt / SystemExit propagate (not caught as Exception) ------
