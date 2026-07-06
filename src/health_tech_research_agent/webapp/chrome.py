@@ -40,7 +40,25 @@ font-size:12.5px;font-weight:600;text-decoration:none}
 .runstrip.done{background:#DCF3E4;color:#1E7A3E}
 .runstrip.failed{background:#FBEBEB;color:#791F1F}
 .runstrip .arrow{margin-left:auto}
+.navov{display:none;position:fixed;inset:0;z-index:99997;background:rgba(20,60,90,.28);align-items:center;
+justify-content:center;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+.navov .navobox{background:#fff;padding:13px 22px;border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.2);
+font-size:14px;color:#144C6F;font-weight:600;display:flex;align-items:center;gap:10px}
+.navspin{width:16px;height:16px;border:2px solid rgba(20,60,90,.2);border-top-color:#06C4BD;border-radius:50%;
+animation:htra-navspin .7s linear infinite}
+@keyframes htra-navspin{to{transform:rotate(360deg)}}
 """
+
+# Instant loading feedback: clicking a nav tab / run-strip triggers a full server round-trip (Drive reads /
+# dashboard rebuild — a few seconds), so show an overlay the moment the click lands. It sits on the OLD page
+# and is replaced when the new page arrives. Ignores modified clicks (new-tab / cmd-click).
+_NAV_OVERLAY = ('<div class="navov" id="htra-navov"><div class="navobox">'
+                '<span class="navspin"></span> Loading…</div></div>')
+_NAV_JS = ("<script>(function(){var ov=document.getElementById('htra-navov');"
+           "document.querySelectorAll('.navtab,.runstrip').forEach(function(el){"
+           "el.addEventListener('click',function(e){"
+           "if(e.metaKey||e.ctrlKey||e.shiftKey||e.button!==0)return;"
+           "if(ov)ov.style.display='flex';});});})();</script>")
 
 # Overlay + the Refresh form (dashboard only — folded out of the global nav into the dashboard section).
 REFRESH_BAR = (
@@ -82,7 +100,7 @@ def nav_bar(active: str | None, run_status: dict | None = None) -> str:
     header = (f'<header class="navbar"><nav class="navtabs">{tabs}</nav>'
               '<form method="post" action="/logout" style="margin:0">'
               '<button class="navlogout" type="submit">Log out</button></form></header>')
-    return header + _run_strip(run_status)
+    return _NAV_OVERLAY + header + _run_strip(run_status)
 
 
 def inject(doc: str, *, active: str | None, run_status: dict | None = None, after_nav: str = "") -> str:
@@ -92,5 +110,8 @@ def inject(doc: str, *, active: str | None, run_status: dict | None = None, afte
     if "tabler-icons" not in doc:
         head = _TABLER + head
     doc = doc.replace("</head>", head + "</head>", 1)
-    return doc.replace('<div class="wrap">',
-                       '<div class="wrap">' + nav_bar(active, run_status) + after_nav, 1)
+    doc = doc.replace('<div class="wrap">',
+                      '<div class="wrap">' + nav_bar(active, run_status) + after_nav, 1)
+    if "</body>" in doc:
+        doc = doc.replace("</body>", _NAV_JS + "</body>", 1)
+    return doc
