@@ -233,6 +233,11 @@ not a tab). Deploys with the phase.
   dated entry** (not just new companies), add a `batch_id`/`date` column, append-only, read = latest-per-company. Do
   this BEFORE ever re-researching an existing company. Optional extra safety: a pre-created `research_backup.csv`.
 - **Paste-one-corrected-fact re-score path** (Carry-forward notes).
+- **Concurrent-run UX gap** — a run is one-at-a-time (`research.start_run` returns None if `is_running`), but
+  approving during an active run still redirects to `/research` with NO "a run is already active" message, and the
+  newly-approved candidates append to `candidates.csv` but are NOT picked up by the current batch (its company list
+  is fixed at start) — they wait un-researched until the next run. Fix: show an "already running" notice on approve,
+  and/or auto-pick-up queued candidates when the current run ends. (Not a data-loss issue — just confusing.)
 - **Non-health segment routing (minor calibration, 2026-07-06):** in the live test, **Suno** landed in the generic
   **`OTHER_REVIEW` ("Other")** catch-all instead of **`ENTERTAINMENT_TECH`** — even though Suno is the taxonomy's own
   example for Entertainment tech. The non-health classifier reaches the generic catch-all but not the specific
