@@ -460,8 +460,8 @@ def render_dashboard_html(records: list[dict], report: dict | None = None, *, ti
 <button class="tab" data-tab="pursuit" onclick="gtab('pursuit',this)">Pursuit</button>
 <button class="tab" data-tab="contacts" onclick="gtab('contacts',this)">Contacts</button>
 <button class="tab" data-tab="radar" onclick="gtab('radar',this)">Segment Radar</button></div>
-<div id="p-all"><div class="toolbar"><span class="muted" style="font-size:11px">Click a row to select it, then open <b>Company detail</b> &mdash; or use the expand button on a row.</span>
-<span class="topnav" style="margin:0 8px 0 auto"><button data-view="grid" class="active" onclick="showGrid()">Grid views</button><button data-view="detail" onclick="showSelectedDetail()">Company detail</button></span>
+<div id="p-all"><div class="toolbar"><span class="muted" style="font-size:11px">Click a row to select it, then open <b>Company Detail</b> &mdash; or use the expand button on a row.</span>
+<span class="topnav" style="margin:0 8px 0 auto"><button data-view="grid" class="active" onclick="showGrid()">Table View</button><button data-view="detail" onclick="showSelectedDetail()">Company Detail</button></span>
 <span class="chip" onclick="document.getElementById('sheet').classList.toggle('show-detail')"><i class="ti ti-chevron-right"></i> tags &amp; scores</span></div>
 <div class="tablewrap"><table class="gtbl">{all_head}{all_rows}</table></div></div>
 <div id="p-pursuit" style="display:none"><div class="toolbar"><span class="muted" style="font-size:12px">Companies Katelynd is actively pursuing</span></div><div class="tablewrap">{pursuit_tbl}</div></div>

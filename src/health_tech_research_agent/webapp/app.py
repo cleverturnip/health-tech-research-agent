@@ -86,7 +86,7 @@ def _login_page(*, error: str = "", title: str = "Health-tech dashboard") -> str
 def _with_controls(html_doc: str, *, editable: bool = False, run_status: dict | None = None) -> str:
     """Wrap the engine's dashboard HTML in the shared chrome (nav tabs + run strip) and fold the Refresh control
     into the dashboard section; add the pursue-checkbox script when the source is editable."""
-    doc = chrome.inject(html_doc, active="dashboard", run_status=run_status, after_nav=chrome.REFRESH_BAR)
+    doc = chrome.inject(html_doc, active="dashboard", run_status=run_status)
     if not editable:
         return doc
     if "</body>" in doc:

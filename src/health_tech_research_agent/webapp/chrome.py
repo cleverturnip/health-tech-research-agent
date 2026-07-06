@@ -31,9 +31,9 @@ border-radius:3px 3px 0 0;background:#06C4BD}
 .navlogout{font:inherit;font-size:12.5px;font-weight:600;background:#fff;border:1px solid rgba(20,60,90,.20);
 border-radius:8px;padding:7px 13px;color:#54636f;cursor:pointer}
 .navlogout:hover{color:#144C6F;border-color:rgba(20,60,90,.35)}
-.refreshbar{display:flex;justify-content:flex-end;margin:0 0 14px}
+.navright{display:flex;align-items:center;gap:10px}
 .refreshbtn{font:inherit;font-size:12.5px;font-weight:600;background:#144C6F;border:1px solid #144C6F;
-border-radius:8px;padding:8px 14px;color:#fff;cursor:pointer}
+border-radius:8px;padding:7px 13px;color:#fff;cursor:pointer}
 .runstrip{display:flex;align-items:center;gap:8px;border-radius:11px;margin:0 0 14px;padding:10px 14px;
 font-size:12.5px;font-weight:600;text-decoration:none}
 .runstrip.running{background:#D6F4F2;color:#0A8F89}
@@ -60,15 +60,17 @@ _NAV_JS = ("<script>(function(){var ov=document.getElementById('htra-navov');"
            "if(e.metaKey||e.ctrlKey||e.shiftKey||e.button!==0)return;"
            "if(ov)ov.style.display='flex';});});})();</script>")
 
-# Overlay + the Refresh form (dashboard only — folded out of the global nav into the dashboard section).
-REFRESH_BAR = (
+# Refresh (dashboard only — it rebuilds the dashboard from Google): its own "Refreshing…" overlay + the form,
+# placed in the nav header next to Log out.
+_REFRESH_OVERLAY = (
     '<div id="htra-ov" style="display:none;position:fixed;inset:0;z-index:99998;background:rgba(20,60,90,.42);'
     'align-items:center;justify-content:center;font-family:system-ui,sans-serif">'
     '<div style="background:#fff;padding:16px 24px;border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.25);'
-    'font-size:14px;color:#144C6F;font-weight:700">&#8635; Refreshing from Google…</div></div>'
-    '<div class="refreshbar"><form method="post" action="/refresh" style="margin:0" '
+    'font-size:14px;color:#144C6F;font-weight:700">&#8635; Refreshing from Google…</div></div>')
+_REFRESH_FORM = (
+    '<form method="post" action="/refresh" style="margin:0" '
     'onsubmit="document.getElementById(\'htra-ov\').style.display=\'flex\'">'
-    '<button type="submit" class="refreshbtn">&#8635; Refresh</button></form></div>')
+    '<button type="submit" class="refreshbtn">&#8635; Refresh</button></form>')
 
 
 def _esc(value: Any) -> str:
@@ -97,10 +99,14 @@ def nav_bar(active: str | None, run_status: dict | None = None) -> str:
     tabs = "".join(
         f'<a class="navtab{" active" if key == active else ""}" href="{href}">{label}</a>'
         for key, href, label in _TABS)
+    logout = ('<form method="post" action="/logout" style="margin:0">'
+              '<button class="navlogout" type="submit">Log out</button></form>')
+    # Refresh is dashboard-only (it rebuilds the dashboard from Google) — shown in the header next to Log out.
+    refresh = _REFRESH_FORM if active == "dashboard" else ""
+    overlay = _REFRESH_OVERLAY if active == "dashboard" else ""
     header = (f'<header class="navbar"><nav class="navtabs">{tabs}</nav>'
-              '<form method="post" action="/logout" style="margin:0">'
-              '<button class="navlogout" type="submit">Log out</button></form></header>')
-    return _NAV_OVERLAY + header + _run_strip(run_status)
+              f'<div class="navright">{refresh}{logout}</div></header>')
+    return _NAV_OVERLAY + overlay + header + _run_strip(run_status)
 
 
 def inject(doc: str, *, active: str | None, run_status: dict | None = None, after_nav: str = "") -> str:
