@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -68,6 +69,14 @@ DEFAULT_WAIT_BETWEEN_SEARCHES = 120  # seconds
 # is a hypothesis to validate via the live run's pass-level logging — tune up if the
 # passes come back near-identical.
 DEFAULT_WAIT_BETWEEN_PASSES = 45  # seconds
+
+# The 8 per-company searches are independent (they only converge at the fit-brief synthesis), so they can
+# run CONCURRENTLY instead of sequentially with a wait_between_searches sleep between each. Parallel is the
+# default (~9x faster per company; validated 2026-07-05 against the §B scorer — no quality loss vs the 120s
+# sequential runs, see specs/RESEARCH_STEP_TIMING_AUDIT.md). Each recovery union STILL paces its own N passes
+# wait_between_passes apart (the web-search variance mechanism is untouched). search_workers=1 is the
+# off-switch: the exact original sequential cadence (inter-search waits + trailing), kept for fallback/tests.
+DEFAULT_SEARCH_WORKERS = 8  # one worker per search track
 
 
 SEARCH_FAILED_MARKER = (
@@ -1743,6 +1752,102 @@ Operating characteristics (product-engagement + operational strain):
 """
 
 
+def _company_search_tracks(company, research_query, *, client, model, wait_between_passes, sleep_fn):
+    """The 8 per-company research searches as ``(finding_column, thunk)`` pairs, in checkpoint order.
+
+    Each thunk runs ONE search and returns its finding text; the four recovery-union thunks also log
+    their observability provenance (unchanged). A recovery union still paces its own N passes
+    ``wait_between_passes`` apart internally. NO inter-SEARCH wait lives here — the caller decides
+    whether to space the tracks (sequential) or run them concurrently (parallel). Faithful to the
+    original STEP-7 calls: same search functions, retry-prompt builders, presence checks, pass counts."""
+
+    def _funding():
+        text, rec = search_with_recovery(
+            search_funding, research_query, client=client, model=model,
+            retry_prompt_builder=funding_rounds_source_directed_prompt,
+            presence_check=funding_latest_round_presence_check, field_name="funding_stage",
+            n_passes=FUNDING_RECOVERY_PASSES, wait_between_passes=wait_between_passes, sleep_fn=sleep_fn)
+        logger.info("Funding-rounds recovery for %s: %s passes, recent_round_present=%s.",
+                    company, rec.n_passes, rec.figure_present)
+        return text
+
+    def _commercial():
+        text, rec = search_with_recovery(
+            search_commercial_scale, research_query, client=client, model=model,
+            retry_prompt_builder=revenue_source_directed_prompt,
+            presence_check=revenue_presence_check, field_name="revenue",
+            n_passes=REVENUE_RECOVERY_PASSES, wait_between_passes=wait_between_passes, sleep_fn=sleep_fn)
+        logger.info("Revenue recovery for %s: %s passes, figure_present=%s.",
+                    company, rec.n_passes, rec.figure_present)
+        return text
+
+    def _growth():
+        text, rec = search_with_recovery(
+            search_commercial_scale, research_query, client=client, model=model,
+            retry_prompt_builder=growth_rate_source_directed_prompt,
+            presence_check=growth_rate_presence_check, field_name="growth_rate",
+            n_passes=GROWTH_RECOVERY_PASSES, wait_between_passes=wait_between_passes, sleep_fn=sleep_fn)
+        logger.info("Growth-rate recovery for %s: %s passes, figure_present=%s.",
+                    company, rec.n_passes, rec.figure_present)
+        return text
+
+    def _paying():
+        text, rec = search_with_recovery(
+            search_commercial_scale, research_query, client=client, model=model,
+            retry_prompt_builder=paying_count_source_directed_prompt,
+            presence_check=paying_count_presence_check, field_name="paying_customer_count",
+            n_passes=PAYING_RECOVERY_PASSES, wait_between_passes=wait_between_passes, sleep_fn=sleep_fn)
+        logger.info("Paying-count recovery for %s: %s passes, figure_present=%s.",
+                    company, rec.n_passes, rec.figure_present)
+        return text
+
+    return [
+        ("funding_finding", _funding),
+        ("payer_institutional_finding", lambda: search_payer_signal(research_query, client=client, model=model)),
+        ("outcomes_finding", lambda: search_outcomes(research_query, client=client, model=model)),
+        ("commercial_scale_finding", _commercial),
+        ("growth_finding", _growth),
+        ("paying_finding", _paying),
+        ("org_events_finding", lambda: search_org_events(research_query, client=client, model=model)),
+        ("operating_characteristics_finding",
+         lambda: search_operating_characteristics(research_query, client=client, model=model)),
+    ]
+
+
+def _gather_company_findings(company, research_query, *, client, model, wait_between_searches,
+                             wait_between_passes, sleep_fn, search_workers):
+    """Run one company's 8 searches and return ``{finding_column: text}``.
+
+    ``search_workers <= 1`` runs them SEQUENTIALLY with a ``wait_between_searches`` sleep after every
+    track except the last (the faithful original cadence — the off-switch). ``search_workers > 1`` runs
+    them CONCURRENTLY in a thread pool with NO inter-search waits (the ~9x speedup); each recovery union
+    still paces its own passes internally. A track that raises propagates (first error re-raised) so the
+    caller's per-company handler records the company as failed and it is retried on resume — same
+    contract as the sequential path (which short-circuits on the first raise)."""
+    tracks = _company_search_tracks(company, research_query, client=client, model=model,
+                                    wait_between_passes=wait_between_passes, sleep_fn=sleep_fn)
+    if search_workers <= 1:
+        findings = {}
+        last = len(tracks) - 1
+        for i, (name, fn) in enumerate(tracks):
+            findings[name] = fn()
+            if i != last:  # operating_characteristics (last) has no trailing inter-search wait
+                sleep_fn(wait_between_searches)
+        return findings
+
+    with ThreadPoolExecutor(max_workers=search_workers) as executor:
+        futures = {name: executor.submit(fn) for name, fn in tracks}
+    findings, first_error = {}, None
+    for name, fut in futures.items():
+        try:
+            findings[name] = fut.result()
+        except Exception as exc:  # noqa: BLE001 - one track's failure fails the company (per-company recovery)
+            first_error = first_error or exc
+    if first_error is not None:
+        raise first_error
+    return findings
+
+
 def run_research_batch(
     companies,
     *,
@@ -1756,6 +1861,7 @@ def run_research_batch(
     sleep_fn=time.sleep,
     validate_json: bool = True,
     on_progress=None,
+    search_workers: int = DEFAULT_SEARCH_WORKERS,
 ) -> ResearchBatchResult:
     """Run research + fit brief for each company, with per-company recovery.
 
@@ -1810,110 +1916,20 @@ def run_research_batch(
         if on_progress is not None:
             on_progress(company, "started", None)   # BEFORE the minutes-long research, so the progress page names the current company
         try:
-            # Funding-ROUNDS recovery (the 4th recovery field): source-directed retries for LATEST-round
-            # RECALL (the Sword 2/4 miss) + an observability-only presence check. Built v1.2. The union ->
-            # fit-brief synthesis (maturity_evidence.funding_rounds, c3779cc) -> the funding_stage mapper.
-            funding, funding_recovery = search_with_recovery(
-                search_funding,
-                research_query,
-                client=client,
-                model=model,
-                retry_prompt_builder=funding_rounds_source_directed_prompt,
-                presence_check=funding_latest_round_presence_check,
-                field_name="funding_stage",
-                n_passes=FUNDING_RECOVERY_PASSES,
-                wait_between_passes=wait_between_passes,
-                sleep_fn=sleep_fn,
-            )
-            logger.info(
-                "Funding-rounds recovery for %s: %s passes, recent_round_present=%s.",
-                company,
-                funding_recovery.n_passes,
-                funding_recovery.figure_present,
-            )
-            sleep_fn(wait_between_searches)
-
-            payer = search_payer_signal(research_query, client=client, model=model)
-            sleep_fn(wait_between_searches)
-
-            outcomes = search_outcomes(research_query, client=client, model=model)
-            sleep_fn(wait_between_searches)
-
-            commercial, commercial_recovery = search_with_recovery(
-                search_commercial_scale,
-                research_query,
-                client=client,
-                model=model,
-                retry_prompt_builder=revenue_source_directed_prompt,
-                presence_check=revenue_presence_check,
-                field_name="revenue",
-                n_passes=REVENUE_RECOVERY_PASSES,
-                wait_between_passes=wait_between_passes,
-                sleep_fn=sleep_fn,
-            )
-            logger.info(
-                "Revenue recovery for %s: %s passes, figure_present=%s.",
-                company,
-                commercial_recovery.n_passes,
-                commercial_recovery.figure_present,
-            )
-            sleep_fn(wait_between_searches)
-
-            # Growth-rate recovery: its OWN per-field config (growth-directed retries +
-            # presence check) at N=5 -- the synthesis derives growth_signal from this
-            # union's dated endpoints. Built against FRAMEWORK_VERSION v1.1.
-            growth, growth_recovery = search_with_recovery(
-                search_commercial_scale,
-                research_query,
-                client=client,
-                model=model,
-                retry_prompt_builder=growth_rate_source_directed_prompt,
-                presence_check=growth_rate_presence_check,
-                field_name="growth_rate",
-                n_passes=GROWTH_RECOVERY_PASSES,
-                wait_between_passes=wait_between_passes,
-                sleep_fn=sleep_fn,
-            )
-            logger.info(
-                "Growth-rate recovery for %s: %s passes, figure_present=%s.",
-                company,
-                growth_recovery.n_passes,
-                growth_recovery.figure_present,
-            )
-            sleep_fn(wait_between_searches)
-
-            # Paying-customer-count recovery: its OWN per-field config (paying-directed retries +
-            # presence check) at N=5 -- matches the re-measure (paying-directed, not the
-            # revenue-directed commercial union). Built against FRAMEWORK_VERSION v1.2.
-            paying, paying_recovery = search_with_recovery(
-                search_commercial_scale,
-                research_query,
-                client=client,
-                model=model,
-                retry_prompt_builder=paying_count_source_directed_prompt,
-                presence_check=paying_count_presence_check,
-                field_name="paying_customer_count",
-                n_passes=PAYING_RECOVERY_PASSES,
-                wait_between_passes=wait_between_passes,
-                sleep_fn=sleep_fn,
-            )
-            logger.info(
-                "Paying-count recovery for %s: %s passes, figure_present=%s.",
-                company,
-                paying_recovery.n_passes,
-                paying_recovery.figure_present,
-            )
-            sleep_fn(wait_between_searches)
-
-            org_events = search_org_events(research_query, client=client, model=model)
-            sleep_fn(wait_between_searches)
-
-            operating_characteristics = search_operating_characteristics(
-                research_query, client=client, model=model
+            # The 8 independent searches (four recovery unions + four single searches) — run concurrently
+            # by default, or sequentially with the faithful inter-search cadence when search_workers=1.
+            # Recovery-union observability logging + inter-PASS pacing are preserved inside the tracks.
+            findings = _gather_company_findings(
+                company, research_query, client=client, model=model,
+                wait_between_searches=wait_between_searches, wait_between_passes=wait_between_passes,
+                sleep_fn=sleep_fn, search_workers=search_workers,
             )
 
             latest_status_findings = _build_latest_status_findings(
-                funding, payer, outcomes, commercial, growth, paying, org_events, operating_characteristics
+                findings["funding_finding"], findings["payer_institutional_finding"],
+                findings["outcomes_finding"], findings["commercial_scale_finding"],
+                findings["growth_finding"], findings["paying_finding"],
+                findings["org_events_finding"], findings["operating_characteristics_finding"],
             )
 
             fit_brief = run_company_fit_brief(
@@ -1942,14 +1958,7 @@ def run_research_batch(
             new_record = {
                 "company": company,
                 "date_researched": datetime.now().strftime("%Y-%m-%d"),
-                "funding_finding": funding,
-                "payer_institutional_finding": payer,
-                "outcomes_finding": outcomes,
-                "commercial_scale_finding": commercial,
-                "growth_finding": growth,
-                "paying_finding": paying,
-                "org_events_finding": org_events,
-                "operating_characteristics_finding": operating_characteristics,
+                **findings,   # the eight *_finding columns, keyed by REQUIRED_RESEARCH_COLUMNS names
                 "fit_brief_json": fit_brief,
             }
 
@@ -1970,7 +1979,8 @@ def run_research_batch(
             logger.info("Checkpoint saved after %s.", company)
             if on_progress is not None:
                 on_progress(company, "completed", None)   # fired AFTER the durable checkpoint write
-            sleep_fn(wait_between_searches)  # trailing wait between companies
+            if search_workers <= 1:
+                sleep_fn(wait_between_searches)  # trailing wait between companies (sequential cadence only)
 
         except (KeyboardInterrupt, SystemExit):
             # Not Exception subclasses; let an operator interrupt abort cleanly.
